@@ -1,1 +1,623 @@
-<h1>Hello</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0066cc">
+    <title>Stake Task Center</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="data:application/json;base64,ewogICJzaG9ydF9uYW1lIjogIlRhc2sgQ2VudGVyIiwKICAibmFtZSI6ICJTdGFrZSBUYXNrIENlbnRlciIsCiAgImljb25zIjogWwogICAgewogICAgICAic3JjIjogImh0dHBzOi8vd3d3LmNodXJjaG9mamVzdXNjaHJpc3Qub3JnL2Zhdmljb24uaWNvIiwKICAgICAgInR5cGUiOiAiaW1hZ2UveC1pY29uIiwKICAgICAgInNpemVzIjogIjE2eDE2IDMyeDMyIgogICAgfQogIF0sCiAgInN0YXJ0X3VybCI6ICIuIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAidGhlbWVfY29sb3IiOiAiIzAwNjZjYyIsCiAgImJhY2tncm91bmRfY29sb3IiOiAiI2ZmZmZmZiIKfQ==">
+    <link rel="icon" href="https://www.churchofjesuschrist.org/favicon.ico">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background-color: #f5f5f5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .app-header {
+            background-color: #0066cc;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .app-header h1 {
+            font-size: 1.5rem;
+            margin: 0;
+        }
+
+        .user-info {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .role-badge {
+            background-color: rgba(255,255,255,0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .loading-container, .error-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            text-align: center;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0066cc;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-container h1 {
+            color: #d32f2f;
+            margin-bottom: 1rem;
+        }
+
+        .error-container p {
+            color: #666;
+            margin: 0.5rem 0;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .dashboard-card {
+            background: white;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-decoration: none;
+            color: inherit;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .dashboard-card.urgent {
+            border: 2px solid #d32f2f;
+        }
+
+        .card-count {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #0066cc;
+        }
+
+        .dashboard-card.urgent .card-count {
+            color: #d32f2f;
+        }
+
+        .card-label {
+            margin-top: 0.5rem;
+            color: #666;
+            font-size: 1rem;
+        }
+
+        .page-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .back-btn, .refresh-btn {
+            background: #f0f0f0;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .back-btn:hover, .refresh-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .refresh-btn {
+            background-color: #0066cc;
+            color: white;
+        }
+
+        .refresh-btn:hover {
+            background-color: #0052a3;
+        }
+
+        .approve-all-btn {
+            margin-left: auto;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .approve-all-btn:hover {
+            background-color: #45a049;
+        }
+
+        .approval-item, .task-item {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .item-info strong {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+
+        .item-meta {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-approve, .btn-complete {
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn-approve:hover, .btn-complete:hover {
+            background-color: #45a049;
+        }
+
+        .btn-disapprove {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn-disapprove:hover {
+            background-color: #da190b;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .approvals-section {
+            margin-bottom: 2rem;
+        }
+
+        .approvals-section h3 {
+            margin-bottom: 1rem;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Loading State -->
+        <div id="loading" class="loading-container">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="error-container hidden">
+            <h1>Access Denied</h1>
+            <p id="error-message"></p>
+            <p>Please use the link provided in your notification.</p>
+        </div>
+
+        <!-- Main App -->
+        <div id="main-app" class="hidden">
+            <header class="app-header">
+                <h1>Stake Task Center</h1>
+                <div class="user-info">
+                    <span id="user-name">Loading...</span>
+                    <span class="role-badge" id="user-role">Loading...</span>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="container">
+                <h2>Welcome, <span id="welcome-name">User</span></h2>
+                <div class="dashboard-grid" id="dashboard-grid"></div>
+                <button class="refresh-btn" onclick="loadDashboard()">🔄 Refresh</button>
+            </div>
+
+            <!-- Approvals View -->
+            <div id="approvals-view" class="container hidden">
+                <div class="page-header">
+                    <button class="back-btn" onclick="showView('dashboard')">← Back</button>
+                    <h2>Approvals (<span id="approvals-count">0</span>)</h2>
+                    <button class="approve-all-btn" id="approve-all-btn" onclick="approveAll()">✓ Approve All</button>
+                </div>
+                <div id="approvals-content"></div>
+            </div>
+
+            <!-- Tasks View -->
+            <div id="tasks-view" class="container hidden">
+                <div class="page-header">
+                    <button class="back-btn" onclick="showView('dashboard')">← Back</button>
+                    <h2>My Tasks (<span id="tasks-count">0</span>)</h2>
+                </div>
+                <div id="tasks-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let userId = null;
+        let userData = null;
+        let isAppsScript = typeof google !== 'undefined' && google.script && google.script.run;
+
+        // Initialize app
+        window.addEventListener('DOMContentLoaded', function() {
+            initApp();
+        });
+
+        function initApp() {
+            // Get userId from URL parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            userId = urlParams.get('userId');
+
+            if (!userId) {
+                showError('No user ID provided');
+                return;
+            }
+
+            // Authenticate user
+            if (isAppsScript) {
+                google.script.run
+                    .withSuccessHandler(onUserAuthenticated)
+                    .withFailureHandler(onError)
+                    .getCurrentUser(userId);
+            } else {
+                // Mock data for testing
+                onUserAuthenticated({
+                    authenticated: true,
+                    userId: userId,
+                    name: 'Test User',
+                    role: 'Test Role'
+                });
+            }
+        }
+
+        function onUserAuthenticated(user) {
+            if (!user.authenticated) {
+                showError(user.error || 'Authentication failed');
+                return;
+            }
+
+            userData = user;
+            document.getElementById('user-name').textContent = user.name;
+            document.getElementById('user-role').textContent = user.role;
+            document.getElementById('welcome-name').textContent = user.name;
+
+            hideLoading();
+            showMainApp();
+            loadDashboard();
+        }
+
+        function onError(error) {
+            showError('Failed to load: ' + error.message);
+        }
+
+        function showError(message) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').classList.remove('hidden');
+            document.getElementById('error-message').textContent = message;
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function showMainApp() {
+            document.getElementById('main-app').classList.remove('hidden');
+        }
+
+        function showView(viewName) {
+            // Hide all views
+            document.getElementById('dashboard-view').classList.add('hidden');
+            document.getElementById('approvals-view').classList.add('hidden');
+            document.getElementById('tasks-view').classList.add('hidden');
+
+            // Show requested view
+            document.getElementById(viewName + '-view').classList.remove('hidden');
+
+            // Load data for the view
+            if (viewName === 'approvals') {
+                loadApprovals();
+            } else if (viewName === 'tasks') {
+                loadTasks();
+            }
+        }
+
+        function apiRequest(endpoint, params) {
+            params = params || {};
+            params.userId = userId;
+
+            if (isAppsScript) {
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .apiRequest(endpoint, params);
+                });
+            } else {
+                // Mock data for testing
+                return Promise.resolve(getMockData(endpoint));
+            }
+        }
+
+        function loadDashboard() {
+            apiRequest('getDashboard').then(response => {
+                if (!response.success) {
+                    alert('Error: ' + response.error);
+                    return;
+                }
+
+                const counts = response.data.counts;
+                const grid = document.getElementById('dashboard-grid');
+                grid.innerHTML = '';
+
+                if (counts.approvals > 0) {
+                    grid.innerHTML += createCard('approvals', counts.approvals, 'Approvals', true);
+                }
+                if (counts.myTasks > 0) {
+                    grid.innerHTML += createCard('tasks', counts.myTasks, 'My Tasks', false);
+                }
+                if (counts.ccItems > 0) {
+                    grid.innerHTML += createCard('', counts.ccItems, 'CC\'d Items', false);
+                }
+                if (counts.mentions > 0) {
+                    grid.innerHTML += createCard('', counts.mentions, 'Mentions', false);
+                }
+                if (counts.extend > 0) {
+                    grid.innerHTML += createCard('', counts.extend, 'Extend Calling', false);
+                }
+                if (counts.ordinations > 0) {
+                    grid.innerHTML += createCard('', counts.ordinations, 'Ordinations', false);
+                }
+            });
+        }
+
+        function createCard(view, count, label, urgent) {
+            const urgentClass = urgent ? 'urgent' : '';
+            const onclick = view ? `onclick="showView('${view}')"` : '';
+            return `
+                <div class="dashboard-card ${urgentClass}" ${onclick}>
+                    <div class="card-count">${count}</div>
+                    <div class="card-label">${label}</div>
+                </div>
+            `;
+        }
+
+        function loadApprovals() {
+            apiRequest('getApprovals').then(response => {
+                if (!response.success) {
+                    alert('Error: ' + response.error);
+                    return;
+                }
+
+                const callings = response.data.callings || [];
+                const ordinations = response.data.ordinations || [];
+                const total = callings.length + ordinations.length;
+
+                document.getElementById('approvals-count').textContent = total;
+                document.getElementById('approve-all-btn').style.display = total > 0 ? 'block' : 'none';
+
+                let html = '';
+
+                if (total === 0) {
+                    html = '<div class="empty-state"><p>No pending approvals</p></div>';
+                }
+
+                if (callings.length > 0) {
+                    html += '<div class="approvals-section"><h3>Calling Approvals</h3>';
+                    callings.forEach(item => {
+                        html += createApprovalItem(item, 'calling-approval', 'Approve', 'Disapprove');
+                    });
+                    html += '</div>';
+                }
+
+                if (ordinations.length > 0) {
+                    html += '<div class="approvals-section"><h3>Priesthood Sustainings</h3>';
+                    ordinations.forEach(item => {
+                        html += createApprovalItem(item, 'priesthood-sustaining', 'Sustain', 'Oppose');
+                    });
+                    html += '</div>';
+                }
+
+                document.getElementById('approvals-content').innerHTML = html;
+            });
+        }
+
+        function createApprovalItem(item, type, approveText, disapproveText) {
+            return `
+                <div class="approval-item">
+                    <div class="item-info">
+                        <strong>${item.member}</strong>
+                        <div>${item.calling || item.office}</div>
+                        <div class="item-meta">${item.ward}</div>
+                    </div>
+                    <div class="item-actions">
+                        <button class="btn-approve" onclick="handleApprove('${item.timestamp}', '${type}', '${approveText}')">✓ ${approveText}</button>
+                        <button class="btn-disapprove" onclick="handleApprove('${item.timestamp}', '${type}', '${disapproveText}')">✗ ${disapproveText}</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function handleApprove(timestamp, type, response) {
+            apiRequest('approveItem', { timestamp, type, response }).then(result => {
+                if (result.success) {
+                    loadApprovals();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            });
+        }
+
+        function approveAll() {
+            if (!confirm('Approve all pending items?')) return;
+
+            apiRequest('approveAll').then(result => {
+                if (result.success) {
+                    loadApprovals();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            });
+        }
+
+        function loadTasks() {
+            apiRequest('getTasks').then(response => {
+                if (!response.success) {
+                    alert('Error: ' + response.error);
+                    return;
+                }
+
+                const tasks = response.data.tasks || [];
+                document.getElementById('tasks-count').textContent = tasks.length;
+
+                let html = '';
+
+                if (tasks.length === 0) {
+                    html = '<div class="empty-state"><p>No tasks</p></div>';
+                } else {
+                    tasks.forEach(task => {
+                        html += `
+                            <div class="task-item">
+                                <div class="task-info">
+                                    <div style="font-weight: 500; margin-bottom: 0.5rem;">${task.description}</div>
+                                    ${task.dueDate ? '<div class="item-meta">Due: ' + task.dueDate + '</div>' : ''}
+                                </div>
+                                <button class="btn-complete" onclick="completeTask('${task.id}')">✓ Complete</button>
+                            </div>
+                        `;
+                    });
+                }
+
+                document.getElementById('tasks-content').innerHTML = html;
+            });
+        }
+
+        function completeTask(taskId) {
+            apiRequest('completeTask', { taskId }).then(result => {
+                if (result.success) {
+                    loadTasks();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            });
+        }
+
+        function getMockData(endpoint) {
+            const mockData = {
+                getDashboard: {
+                    success: true,
+                    data: {
+                        counts: {
+                            approvals: 3,
+                            extend: 2,
+                            ordinations: 1,
+                            ordinationNotifications: 0,
+                            settingAparts: 0,
+                            clerkReviews: 0,
+                            interviews: 1,
+                            myTasks: 5,
+                            ccItems: 2,
+                            mentions: 1
+                        }
+                    }
+                },
+                getApprovals: {
+                    success: true,
+                    data: {
+                        callings: [
+                            { member: 'John Doe', calling: 'Sunday School Teacher', ward: 'First Ward', timestamp: '123456789' },
+                            { member: 'Jane Smith', calling: 'Primary President', ward: 'Second Ward', timestamp: '123456790' }
+                        ],
+                        ordinations: [
+                            { member: 'Bob Johnson', office: 'Elder', ward: 'Third Ward', timestamp: '123456791' }
+                        ]
+                    }
+                },
+                getTasks: {
+                    success: true,
+                    data: {
+                        tasks: [
+                            { id: 'TASK_123', description: 'Complete new member interview', dueDate: '2026-03-01' },
+                            { id: 'TASK_124', description: 'Review calling recommendations', dueDate: '2026-03-05' }
+                        ]
+                    }
+                }
+            };
+
+            return mockData[endpoint] || { success: false, error: 'Unknown endpoint' };
+        }
+    </script>
+</body>
+</html>
