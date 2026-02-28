@@ -986,13 +986,32 @@
 
     function detectCCGroup(ccIds, primaryIds) {
       if (ccIds.length === 0) return 'none';
+
+      // Filter out primary assignees from CC list
       const ccSet = new Set(ccIds.filter(id => !primaryIds.includes(id)));
+      if (ccSet.size === 0) return 'none';
+
+      // Try exact match first
       for (const [group, members] of Object.entries(ccGroupMembers)) {
         const memberSet = new Set(members);
         if (ccSet.size === memberSet.size && [...ccSet].every(id => memberSet.has(id))) {
           return group;
         }
       }
+
+      // If no exact match, check if all CC members belong to a single group
+      // This handles cases where the group membership changed or someone was removed
+      for (const [group, members] of Object.entries(ccGroupMembers)) {
+        const memberSet = new Set(members);
+        const allInGroup = [...ccSet].every(id => memberSet.has(id));
+
+        // If all current CC members are in this group, and they represent
+        // at least 50% of the group, assume it's this group
+        if (allInGroup && ccSet.size >= memberSet.size * 0.5) {
+          return group;
+        }
+      }
+
       return 'other';
     }
 

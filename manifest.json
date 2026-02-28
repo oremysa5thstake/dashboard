@@ -1,6 +1,6 @@
 {
-  "name": "Stake Task Center",
-  "short_name": "Stake Tasks",
+  "name": "Stake Dashboard",
+  "short_name": "Dashboard",
   "description": "Orem YSA 5th Stake Task Management Dashboard",
   "display": "standalone",
   "background_color": "#5865F2",
