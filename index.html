@@ -361,7 +361,7 @@
 
       // Stake links
       if (data.stakeLinks && data.stakeLinks.length > 0) {
-        const linksExpanded = sectionExpanded['stakeLinks'] !== false;
+        const linksExpanded = sectionExpanded['stakeLinks'] === true;
         html += `<div class="stake-links">
           <div class="stake-links-header" onclick="toggleStakeLinks()">
             <span>🔗 Stake Links</span>
@@ -393,35 +393,35 @@
         html += '<div class="summary-bar">';
 
         if (approvalCount > 0) {
-          html += `<div class="summary-card urgent" onclick="toggleSection('approvals', true)">
+          html += `<div class="summary-card urgent" onclick="scrollToSection('approvals')">
             <div class="number">${approvalCount}</div>
             <div class="label">Approvals</div>
           </div>`;
         }
 
         if (extendCount > 0) {
-          html += `<div class="summary-card" onclick="toggleSection('extend', true)">
+          html += `<div class="summary-card" onclick="scrollToSection('extend')">
             <div class="number">${extendCount}</div>
             <div class="label">Extend</div>
           </div>`;
         }
 
         if (ordinationCount > 0) {
-          html += `<div class="summary-card" onclick="toggleSection('ordinations', true)">
+          html += `<div class="summary-card" onclick="scrollToSection('ordinations')">
             <div class="number">${ordinationCount}</div>
             <div class="label">Ordinations</div>
           </div>`;
         }
 
         if (taskCount > 0) {
-          html += `<div class="summary-card" onclick="toggleSection('mytasks', true)">
+          html += `<div class="summary-card" onclick="scrollToSection('mytasks')">
             <div class="number">${taskCount}</div>
             <div class="label">My Tasks</div>
           </div>`;
         }
 
         if (ccCount > 0) {
-          html += `<div class="summary-card" onclick="toggleSection('ccOpen', true)">
+          html += `<div class="summary-card" onclick="scrollToSection('ccOpen')">
             <div class="number">${ccCount}</div>
             <div class="label">CC Items</div>
           </div>`;
@@ -656,6 +656,22 @@
       } else {
         section.classList.toggle('expanded');
         header.classList.toggle('expanded');
+      }
+    }
+
+    function scrollToSection(id) {
+      // First ensure the section is open
+      toggleSection(id, true);
+
+      // Then scroll to it smoothly
+      const section = document.getElementById('section-' + id);
+      if (section) {
+        const header = section.previousElementSibling;
+        if (header) {
+          setTimeout(() => {
+            header.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 100); // Small delay to let the section expand
+        }
       }
     }
 
