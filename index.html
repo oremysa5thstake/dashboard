@@ -534,12 +534,36 @@
         html += renderApprovalsSection(data.approvals);
       }
 
+      if (data.ordinations && data.ordinations.length > 0) {
+        html += renderOrdinationsSection(data.ordinations);
+      }
+
       if (data.extendItems && data.extendItems.length > 0) {
         html += renderExtendSection(data.extendItems);
       }
 
-      if (data.ordinations && data.ordinations.length > 0) {
-        html += renderOrdinationsSection(data.ordinations);
+      if (data.appointmentItems && data.appointmentItems.length > 0) {
+        html += renderAppointmentsSection(data.appointmentItems);
+      }
+
+      if (data.coordinateItems && data.coordinateItems.length > 0) {
+        html += renderCoordinateOrdinationsSection(data.coordinateItems);
+      }
+
+      if (data.ordinationNotifications && data.ordinationNotifications.length > 0) {
+        html += renderOrdinationNotificationsSection(data.ordinationNotifications);
+      }
+
+      if (data.settingAparts && data.settingAparts.length > 0) {
+        html += renderSettingApartsSection(data.settingAparts);
+      }
+
+      if (data.clerkReviews && data.clerkReviews.length > 0) {
+        html += renderClerkReviewsSection(data.clerkReviews);
+      }
+
+      if (data.interviews && data.interviews.length > 0) {
+        html += renderInterviewsSection(data.interviews);
       }
 
       if (data.myTasks && data.myTasks.length > 0) {
@@ -550,14 +574,27 @@
         html += renderCCSection(data.ccItems);
       }
 
+      if (data.mentions && data.mentions.length > 0) {
+        html += renderMentionsSection(data.mentions);
+      }
+
+      if (data.assignedToOthers && data.assignedToOthers.length > 0) {
+        html += renderAssignedToOthersSection(data.assignedToOthers);
+      }
+
       // Admin Tools section
       if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
         html += renderAdminSection(data.adminUsers);
       }
 
       // Empty state
-      if (!data.approvals?.length && !data.extendItems?.length &&
-          !data.ordinations?.length && !data.myTasks?.length && !data.ccItems?.length) {
+      const hasAnyItems = data.approvals?.length || data.extendItems?.length ||
+          data.ordinations?.length || data.appointmentItems?.length ||
+          data.coordinateItems?.length || data.ordinationNotifications?.length ||
+          data.settingAparts?.length || data.clerkReviews?.length ||
+          data.interviews?.length || data.myTasks?.length || data.ccItems?.length;
+
+      if (!hasAnyItems) {
         html += '<div class="empty-state"><div class="icon">✨</div><p>You\'re all caught up!</p><p style="font-size:12px;color:#999;margin-top:8px">No pending items at this time</p></div>';
       }
 
@@ -589,19 +626,43 @@
     }
 
     function renderExtendSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Extend Calling/Release</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Callings & Releases to Extend</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-extend"><div class="section-inner">';
 
       items.forEach(item => {
         const canReassign = userData.canReassign || false;
+        const isCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+        const appointmentStatusHtml = item.appointmentStatus ?
+          `<div class="item-meta" style="${item.appointmentStatus === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(item.appointmentStatus)}</div>` : '';
+
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
-          ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
+          ${assignedInfo}
+          ${appointmentStatusHtml}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted', this)">✓ Extended</button>
-            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              ${isCalling ?
+                `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted', this)">✓ Accepted</button>
+                 <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Declined</button>` :
+                `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>`
+              }
+              ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+              ${item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
+                `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}')">📅 Reschedule</button>` : ''}
+            </div>
           </div>
         </div>`;
+
+        // Add appointment scheduling controls if status is Pending or not set
+        if (!item.appointmentStatus || item.appointmentStatus === 'Pending') {
+          html = html.slice(0, -6) + // Remove closing </div> tag
+            `<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+              <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+            </div></div></div>`;
+        }
       });
 
       html += '</div></div></div>';
@@ -636,14 +697,191 @@
 
       items.forEach(item => {
         const canReassign = userData.canReassign || false;
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
           ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
           ${item.dueDate ? '<div class="item-meta">Due: ' + item.dueDate + '</div>' : ''}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete', this)">✓ Complete</button>
             ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
           </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderAppointmentsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'appointments\')"><div class="section-title">📅 Appointments to Schedule</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-appointments"><div class="section-inner">';
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+        const notesInfo = item.notes ? `<div class="item-meta" style="font-style:italic;">${escapeHtml(item.notes)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          ${notesInfo}
+          <div class="item-actions">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-success" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+            </div>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderCoordinateOrdinationsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'coordinateOrd\')"><div class="section-title">⛪ Ordinations to Coordinate</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-coordinateOrd"><div class="section-inner">';
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'coordinated', this)">✓ Coordinated</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderOrdinationNotificationsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Notifications</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-ordNotify"><div class="section-inner">';
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          <div class="item-actions">
+            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'ackOrdNotify', this)">✓ Acknowledge</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderSettingApartsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingAparts\')"><div class="section-title">🙏 Setting Aparts</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-settingAparts"><div class="section-inner">';
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+        const actionId = item.actionId + '_SOURCEROW_' + (item.sourceRow || 0);
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderClerkReviewsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'clerkReviews\')"><div class="section-title">📝 Clerk Reviews</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-clerkReviews"><div class="section-inner">';
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+        const commentInfo = item.comment ? `<div class="item-meta">Comment: ${escapeHtml(item.comment)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          ${commentInfo}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">✓ Review Complete</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderInterviewsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'interviews\')"><div class="section-title">📅 Interviews to Schedule</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-interviews"><div class="section-inner">';
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'scheduled', this)">✓ Scheduled</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderMentionsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mentions\')"><div class="section-title">🏷️ Mentions</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-mentions"><div class="section-inner">';
+
+      if (items.length > 1) {
+        html += '<div class="bulk-actions"><button class="btn btn-secondary btn-sm" onclick="dismissAllMentions(this)">Dismiss All</button></div>';
+      }
+
+      items.forEach(item => {
+        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+        const notesInfo = item.notes ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${assignedInfo}
+          ${notesInfo}
+          <div class="item-actions">
+            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'dismissMention', this)">Dismiss</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderAssignedToOthersSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'assigned\')"><div class="section-title">👥 Tasks You\'ve Assigned</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-assigned"><div class="section-inner">';
+
+      items.forEach(item => {
+        const statusBadge = item.status === 'Completed' ?
+          `<span style="color:#28a745;font-weight:600">✓ Completed${item.completedBy ? ' by ' + escapeHtml(item.completedBy) : ''}</span>` :
+          '<span style="color:#666">Open</span>';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          <div class="item-meta">Assigned to: ${escapeHtml(item.assignedToName || 'Unknown')} • ${statusBadge}</div>
+          ${item.dueDate ? '<div class="item-meta">Due: ' + escapeHtml(item.dueDate) + '</div>' : ''}
         </div>`;
       });
 
@@ -861,6 +1099,79 @@
         if (btn) {
           btn.disabled = false;
           btn.textContent = '✓ Acknowledge All';
+        }
+      }
+    }
+
+    async function scheduleAppointment(itemId) {
+      const dateInput = document.getElementById('apptDate_' + itemId);
+      const timeInput = document.getElementById('apptTime_' + itemId);
+
+      if (!dateInput || !timeInput) {
+        showToast('Error: Date/time inputs not found', 'error');
+        return;
+      }
+
+      const dateVal = dateInput.value;
+      const timeVal = timeInput.value;
+
+      if (!dateVal || !timeVal) {
+        showToast('Please select both date and time', 'error');
+        return;
+      }
+
+      try {
+        await performAction('scheduleAppointment', {
+          itemId: itemId,
+          appointmentDate: dateVal,
+          appointmentTime: timeVal
+        });
+        showToast('Appointment scheduled', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error scheduling appointment: ' + error.message, 'error');
+      }
+    }
+
+    async function rescheduleAppointment(itemId, itemTitle) {
+      // TODO: Implement reschedule modal similar to Google dashboard
+      // For now, just show a simple prompt
+      const newDate = prompt('Enter new appointment date (YYYY-MM-DD):');
+      const newTime = prompt('Enter new appointment time (HH:MM):');
+
+      if (!newDate || !newTime) {
+        return;
+      }
+
+      try {
+        await performAction('rescheduleAppointment', {
+          itemId: itemId,
+          appointmentDate: newDate,
+          appointmentTime: newTime
+        });
+        showToast('Appointment rescheduled', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error rescheduling appointment: ' + error.message, 'error');
+      }
+    }
+
+    async function dismissAllMentions(btn) {
+      // Immediate visual feedback
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+      }
+
+      try {
+        await performAction('dismissAllMentions', {});
+        showToast('All mentions dismissed', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Dismiss All';
         }
       }
     }
