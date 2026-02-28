@@ -636,6 +636,17 @@
         const appointmentStatusHtml = item.appointmentStatus ?
           `<div class="item-meta" style="${item.appointmentStatus === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(item.appointmentStatus)}</div>` : '';
 
+        // Build appointment scheduling controls
+        let appointmentControls = '';
+        if (!item.appointmentStatus || item.appointmentStatus === 'Pending') {
+          appointmentControls = `
+            <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+              <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+            </div>`;
+        }
+
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
@@ -651,18 +662,9 @@
               ${item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
                 `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}')">📅 Reschedule</button>` : ''}
             </div>
+            ${appointmentControls}
           </div>
         </div>`;
-
-        // Add appointment scheduling controls if status is Pending or not set
-        if (!item.appointmentStatus || item.appointmentStatus === 'Pending') {
-          html = html.slice(0, -6) + // Remove closing </div> tag
-            `<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
-              <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
-            </div></div></div>`;
-        }
       });
 
       html += '</div></div></div>';
