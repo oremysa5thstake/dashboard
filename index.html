@@ -1115,8 +1115,8 @@
         return;
       }
 
-      // Open in new tab
-      const url = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
+      // Open Google Apps Script dashboard (not GitHub) in new tab
+      const url = API_URL + '?userId=' + encodeURIComponent(selectedUserId);
       window.open(url, '_blank');
     }
 
