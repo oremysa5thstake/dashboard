@@ -85,6 +85,20 @@
     .ack-section .section-header:hover{background:#f5c2d8}
     .ack-section .item{background:#fef6f9;border-color:#ecc5d8}
     .btn-sm{padding:5px 10px;font-size:12px}
+    .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;visibility:hidden;transition:all .3s}
+    .modal-overlay.show{opacity:1;visibility:visible}
+    .modal{background:#fff;border-radius:12px;width:90%;max-width:500px;max-height:90vh;overflow:auto;transform:scale(.9);transition:transform .3s}
+    .modal-overlay.show .modal{transform:scale(1)}
+    .modal-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+    .modal-title{font-size:18px;font-weight:600}
+    .modal-close{background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+    .modal-close:hover{color:#333}
+    .modal-body{padding:20px}
+    .modal-footer{padding:16px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:10px}
+    .form-group{margin-bottom:16px}
+    .form-label{display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:#333}
+    .form-select{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff}
+    .form-select:focus{outline:none;border-color:#5865F2}
     @media(max-width:600px){.container{padding:12px}header{flex-direction:column;text-align:center}.header-right{width:100%;justify-content:center}.summary-bar{flex-direction:column}}
   </style>
 </head>
@@ -108,6 +122,46 @@
 
   <div class="toast" id="toast"></div>
 
+  <!-- Reassign Modal -->
+  <div class="modal-overlay" id="reassignModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Reassign Task</span>
+        <button class="modal-close" onclick="closeReassignModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Task</label>
+          <div id="reassignTaskText" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Primary Assignee(s) *</label>
+          <div id="reassignPrimaryContainer"></div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="addReassignPrimary()" style="margin-top:8px;">+ Add Primary</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">CC Group</label>
+          <select class="form-select" id="reassignCCGroup" onchange="onCCGroupChange()">
+            <option value="none">None</option>
+            <option value="stake-presidency">Stake Presidency</option>
+            <option value="extended-stake-presidency">Extended Stake Presidency</option>
+            <option value="high-council">High Council</option>
+            <option value="other">Other (Select Individuals)</option>
+          </select>
+        </div>
+        <div class="form-group" id="reassignCCIndividualsGroup" style="display:none;">
+          <label class="form-label">CC Individuals</label>
+          <div id="reassignCCContainer"></div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="addReassignCC()" style="margin-top:8px;">+ Add CC</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeReassignModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitReassign()">Reassign</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Configuration
     const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
@@ -116,6 +170,10 @@
     let userId = null;
     let userData = null;
     let currentData = null;
+    let users = [];
+    let currentReassignId = null;
+    let originalPrimaryIds = [];
+    let ccGroupMembers = {};
 
     // Initialize
     window.addEventListener('DOMContentLoaded', initApp);
@@ -136,8 +194,9 @@
         return;
       }
 
-      // Load dashboard
+      // Load dashboard and users
       loadDashboardData();
+      loadUsers();
     }
 
     // API Functions
@@ -172,12 +231,15 @@
         params.userId = userId;
         params.action = action;
 
-        const response = await fetch(API_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(params)
+        // Use GET with URL parameters to avoid CORS preflight issues
+        const urlParams = new URLSearchParams();
+        for (const key in params) {
+          urlParams.append(key, params[key]);
+        }
+        const url = `${API_URL}?${urlParams.toString()}`;
+
+        const response = await fetch(url, {
+          method: 'GET'
         });
 
         if (!response.ok) {
@@ -521,16 +583,198 @@
       }
     }
 
+    async function loadUsers() {
+      try {
+        const url = `${API_URL}?action=getUsers&userId=${encodeURIComponent(userId)}`;
+        const response = await fetch(url, { method: 'GET' });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.success && result.users) {
+          users = result.users;
+        }
+      } catch (error) {
+        console.error('Error loading users:', error);
+      }
+    }
+
     async function reassignTask(itemId, itemTitle) {
-      const newUser = prompt('Enter the Slack User ID to reassign this task to:\n\n' + itemTitle);
-      if (!newUser) return;
+      currentReassignId = itemId;
+      document.getElementById('reassignTaskText').textContent = itemTitle;
+
+      const primaryContainer = document.getElementById('reassignPrimaryContainer');
+      const ccContainer = document.getElementById('reassignCCContainer');
+      const ccGroupSelect = document.getElementById('reassignCCGroup');
+      const ccIndividualsGroup = document.getElementById('reassignCCIndividualsGroup');
+
+      primaryContainer.innerHTML = '<div style="color:#666;font-size:13px;">Loading...</div>';
+      ccContainer.innerHTML = '';
+      ccGroupSelect.value = 'none';
+      ccIndividualsGroup.style.display = 'none';
+
+      document.getElementById('reassignModal').classList.add('show');
 
       try {
-        await performAction('reassign', {
-          itemId: itemId,
-          newUserId: newUser
+        const url = `${API_URL}?action=getTaskAssignments&userId=${encodeURIComponent(userId)}&itemId=${encodeURIComponent(itemId)}`;
+        const response = await fetch(url, { method: 'GET' });
+        if (!response.ok) throw new Error('Failed to load assignments');
+
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || 'Failed to load');
+
+        const primaryIds = result.primaryIds || [];
+        const ccIds = result.ccIds || [];
+        const rawGroups = result.groups || result.ccGroupMembers || {};
+
+        // Map groups
+        ccGroupMembers = {};
+        ['stakePresidency', 'extendedSP', 'highCouncil'].forEach(key => {
+          const mapped = key === 'stakePresidency' ? 'stake-presidency' :
+                        key === 'extendedSP' ? 'extended-stake-presidency' : 'high-council';
+          ccGroupMembers[mapped] = (rawGroups[key] || []).map(m => typeof m === 'string' ? m : m.id);
         });
+
+        originalPrimaryIds = primaryIds.slice();
+
+        // Render primary dropdowns
+        if (primaryIds.length === 0) {
+          primaryContainer.innerHTML = getUserDropdownWithRemove('reassignPrimary_0', 'Select...', '', true);
+        } else {
+          primaryContainer.innerHTML = '';
+          primaryIds.forEach((pid, i) => {
+            primaryContainer.insertAdjacentHTML('beforeend', getUserDropdownWithRemove('reassignPrimary_' + i, 'Select...', pid, true));
+          });
+        }
+
+        // Detect and set CC group
+        const detectedGroup = detectCCGroup(ccIds, primaryIds);
+        ccGroupSelect.value = detectedGroup;
+
+        if (detectedGroup === 'other') {
+          ccIndividualsGroup.style.display = 'block';
+          if (ccIds.length === 0) {
+            ccContainer.innerHTML = getUserDropdownWithRemove('reassignCC_0', 'None', '', false);
+          } else {
+            ccContainer.innerHTML = '';
+            ccIds.forEach((cid, i) => {
+              ccContainer.insertAdjacentHTML('beforeend', getUserDropdownWithRemove('reassignCC_' + i, 'None', cid, false));
+            });
+          }
+        } else {
+          ccIndividualsGroup.style.display = 'none';
+        }
+      } catch (error) {
+        showToast('Error loading task details: ' + error.message, 'error');
+        closeReassignModal();
+      }
+    }
+
+    function getUserDropdownWithRemove(id, placeholder, selectedValue, isPrimary) {
+      let h = '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;"><select class="form-select" id="' + id + '" style="flex:1;"';
+      if (isPrimary) h += ' onchange="onPrimaryChange(this)"';
+      h += '><option value="">' + escapeHtmlDisplay(placeholder) + '</option>';
+      users.forEach(u => {
+        const t = u.name + (u.role ? ' (' + u.role + ')' : '');
+        const sel = (u.id === selectedValue) ? ' selected' : '';
+        h += '<option value="' + u.id + '"' + sel + '>' + escapeHtmlDisplay(t) + '</option>';
+      });
+      h += '</select>';
+      if (id.indexOf('_0') === -1) {
+        h += '<button type="button" class="btn btn-sm btn-secondary" onclick="this.parentElement.remove()">✕</button>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    function escapeHtmlDisplay(text) {
+      if (!text) return '';
+      return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function detectCCGroup(ccIds, primaryIds) {
+      if (ccIds.length === 0) return 'none';
+      const ccSet = new Set(ccIds.filter(id => !primaryIds.includes(id)));
+      for (const [group, members] of Object.entries(ccGroupMembers)) {
+        const memberSet = new Set(members);
+        if (ccSet.size === memberSet.size && [...ccSet].every(id => memberSet.has(id))) {
+          return group;
+        }
+      }
+      return 'other';
+    }
+
+    function addReassignPrimary() {
+      const container = document.getElementById('reassignPrimaryContainer');
+      const count = container.querySelectorAll('select').length;
+      container.insertAdjacentHTML('beforeend', getUserDropdownWithRemove('reassignPrimary_' + count, 'Select...', '', true));
+    }
+
+    function addReassignCC() {
+      const container = document.getElementById('reassignCCContainer');
+      const count = container.querySelectorAll('select').length;
+      container.insertAdjacentHTML('beforeend', getUserDropdownWithRemove('reassignCC_' + count, 'None', '', false));
+    }
+
+    function onPrimaryChange(selectElement) {
+      // Update CC group if needed
+      const ccGroupSelect = document.getElementById('reassignCCGroup');
+      if (ccGroupSelect.value !== 'other') {
+        onCCGroupChange();
+      }
+    }
+
+    function onCCGroupChange() {
+      const ccGroup = document.getElementById('reassignCCGroup').value;
+      const ccIndividualsGroup = document.getElementById('reassignCCIndividualsGroup');
+
+      if (ccGroup === 'other') {
+        ccIndividualsGroup.style.display = 'block';
+      } else {
+        ccIndividualsGroup.style.display = 'none';
+      }
+    }
+
+    function closeReassignModal() {
+      document.getElementById('reassignModal').classList.remove('show');
+      currentReassignId = null;
+    }
+
+    async function submitReassign() {
+      try {
+        // Collect primary assignees
+        const primarySelects = document.querySelectorAll('[id^="reassignPrimary_"]');
+        const primaryIds = Array.from(primarySelects)
+          .map(s => s.value)
+          .filter(v => v);
+
+        if (primaryIds.length === 0) {
+          showToast('Please select at least one primary assignee', 'error');
+          return;
+        }
+
+        // Collect CC assignees
+        let ccIds = [];
+        const ccGroup = document.getElementById('reassignCCGroup').value;
+
+        if (ccGroup === 'other') {
+          const ccSelects = document.querySelectorAll('[id^="reassignCC_"]');
+          ccIds = Array.from(ccSelects)
+            .map(s => s.value)
+            .filter(v => v);
+        } else if (ccGroup !== 'none') {
+          ccIds = ccGroupMembers[ccGroup] || [];
+        }
+
+        // Remove duplicates and primary from CC
+        ccIds = ccIds.filter(id => !primaryIds.includes(id));
+
+        await performAction('reassign', {
+          itemId: currentReassignId,
+          primaryIds: primaryIds.join(','),
+          ccIds: ccIds.join(',')
+        });
+
         showToast('Task reassigned successfully', 'success');
+        closeReassignModal();
         refreshData();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
