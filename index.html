@@ -246,10 +246,8 @@
     // Storage helper functions
     function setCookie(name, value, days) {
       const expires = days ? `; expires=${new Date(Date.now() + days * 864e5).toUTCString()}` : '';
-      // Set cookie with both root and specific path for maximum compatibility
       try {
-        document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/`;
-        document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/dashboard/`;
+        document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/; SameSite=None; Secure`;
       } catch (e) {
         console.error('Cookie set failed:', e);
       }
@@ -320,29 +318,40 @@
       // Check if running as standalone PWA
       const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 
-      // Get userId from URL first
+      // Get userId from URL - check both query params AND hash fragment
       const urlParams = new URLSearchParams(window.location.search);
-      userId = urlParams.get('userId');
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      userId = urlParams.get('userId') || hashParams.get('userId');
 
       // Debug logging
       console.log('PWA Mode:', isStandalone);
       console.log('userId from URL:', userId);
       console.log('Current URL:', window.location.href);
+      console.log('Hash:', window.location.hash);
+      console.log('Search:', window.location.search);
 
       // If userId in URL, save to ALL storage types for maximum PWA compatibility
       if (userId) {
         saveUserId(userId);
+        // Also update URL to include hash for future PWA launches
+        if (!window.location.hash.includes('userId')) {
+          window.history.replaceState(null, '', `#userId=${userId}`);
+        }
       } else {
         // If not in URL, try to get from any storage type (PWA home screen launch)
         userId = loadUserId();
         console.log('Retrieved userId from storage:', userId);
+        // If we got it from storage, add it to the URL hash
+        if (userId && !window.location.hash.includes('userId')) {
+          window.history.replaceState(null, '', `#userId=${userId}`);
+        }
       }
 
       if (!userId) {
         const message = isStandalone
           ? 'To use the home screen app:<br>1. Open your dashboard link in Safari first<br>2. Then add to home screen<br><br>Contact your stake clerk for your link.'
           : 'Please use the link provided in your notification.';
-        showErrorPage('No user ID found', message);
+        showErrorPage('No User ID Found', message);
         return;
       }
 

@@ -1,7 +1,7 @@
 # Exclude all files by default
 *
 
-# Include only GitHub PWA files
-!GitHub PWA - index.html
-!Github Repository - manifest.json
+# Include only GitHub Pages files
+!index.html
+!manifest.json
 !.gitignore
