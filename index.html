@@ -247,12 +247,20 @@
     window.addEventListener('DOMContentLoaded', initApp);
 
     function initApp() {
-      // Get userId from URL
+      // Get userId from URL first
       const urlParams = new URLSearchParams(window.location.search);
       userId = urlParams.get('userId');
 
+      // If userId in URL, save to localStorage for PWA use
+      if (userId) {
+        localStorage.setItem('stakeTasksUserId', userId);
+      } else {
+        // If not in URL, try to get from localStorage (PWA home screen launch)
+        userId = localStorage.getItem('stakeTasksUserId');
+      }
+
       if (!userId) {
-        showErrorPage('No user ID provided', 'Please use the link provided in your notification.');
+        showErrorPage('No user ID provided', 'Please use the link provided in your notification to set up your dashboard.');
         return;
       }
 
