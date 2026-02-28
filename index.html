@@ -617,6 +617,8 @@
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
       html += '<button class="btn btn-primary" onclick="runScript(\'CallingApprovals\')">Process Calling Approvals</button>';
       html += '<button class="btn btn-primary" onclick="runScript(\'PriesthoodOrdinations\')">Process Priesthood Ordinations</button>';
+      html += '<button class="btn btn-primary" onclick="runScript(\'StakeBusinessDoc\')">Generate Stake Business Doc</button>';
+      html += '<button class="btn btn-primary" onclick="runScript(\'NotificationBlast\')">Manual Notification Blast</button>';
       html += '</div></div>';
 
       html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';
@@ -682,8 +684,6 @@
 
     // Action Handlers
     async function approveAll(btn) {
-      if (!confirm('Approve all pending calling approvals?')) return;
-
       // Immediate visual feedback
       if (btn) {
         btn.disabled = true;
@@ -731,8 +731,6 @@
     }
 
     async function acknowledgeAllCC(btn) {
-      if (!confirm('Acknowledge all CC items?')) return;
-
       // Immediate visual feedback
       if (btn) {
         btn.disabled = true;
@@ -1018,7 +1016,7 @@
       html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For tasks assigned to you, callings to extend, clerk reviews, etc.</div>';
       html += '<div class="radio-group">';
       opts.forEach(o => {
-        html += '<div class="radio-option' + (s.primaryNotifications === o ? ' selected' : '') + '" onclick="saveSetting(\'primaryPref\',\'' + o + '\',this)">' + o + '</div>';
+        html += '<div class="radio-option' + (s.primaryPref === o ? ' selected' : '') + '" onclick="saveSetting(\'primaryPref\',\'' + o + '\',this)">' + o + '</div>';
       });
       html += '</div></div>';
 
@@ -1026,15 +1024,7 @@
       html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For items you\'re CC\'d on</div>';
       html += '<div class="radio-group">';
       opts.forEach(o => {
-        html += '<div class="radio-option' + (s.ccNotifications === o ? ' selected' : '') + '" onclick="saveSetting(\'ccPref\',\'' + o + '\',this)">' + o + '</div>';
-      });
-      html += '</div></div>';
-
-      html += '<div class="settings-group"><div class="settings-label">Mention Notifications</div>';
-      html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For mentions in Slack</div>';
-      html += '<div class="radio-group">';
-      opts.forEach(o => {
-        html += '<div class="radio-option' + (s.mentionNotifications === o ? ' selected' : '') + '" onclick="saveSetting(\'mentionPref\',\'' + o + '\',this)">' + o + '</div>';
+        html += '<div class="radio-option' + (s.ccPref === o ? ' selected' : '') + '" onclick="saveSetting(\'ccPref\',\'' + o + '\',this)">' + o + '</div>';
       });
       html += '</div></div>';
 
