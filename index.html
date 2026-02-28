@@ -1025,6 +1025,11 @@
     function renderSettingsSection(settings) {
       const s = settings || {};
       const opts = ['Immediately', 'Hourly', 'Daily', 'None'];
+
+      // Debug logging
+      console.log('Settings received:', settings);
+      console.log('primaryPref:', s.primaryPref, 'ccPref:', s.ccPref);
+
       let html = '<div class="section" id="settingsSection"><div class="section-header expanded"><div class="section-title">⚙️ Notification Settings</div></div>';
       html += '<div class="section-content expanded"><div class="section-inner">';
 
@@ -1032,7 +1037,8 @@
       html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For tasks assigned to you, callings to extend, clerk reviews, etc.</div>';
       html += '<div class="radio-group">';
       opts.forEach(o => {
-        html += '<div class="radio-option' + (s.primaryPref === o ? ' selected' : '') + '" onclick="saveSetting(\'primaryPref\',\'' + o + '\',this)">' + o + '</div>';
+        const isSelected = s.primaryPref === o || (!s.primaryPref && o === 'Immediately');
+        html += '<div class="radio-option' + (isSelected ? ' selected' : '') + '" onclick="saveSetting(\'primaryPref\',\'' + o + '\',this)">' + o + '</div>';
       });
       html += '</div></div>';
 
@@ -1040,7 +1046,8 @@
       html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For items you\'re CC\'d on</div>';
       html += '<div class="radio-group">';
       opts.forEach(o => {
-        html += '<div class="radio-option' + (s.ccPref === o ? ' selected' : '') + '" onclick="saveSetting(\'ccPref\',\'' + o + '\',this)">' + o + '</div>';
+        const isSelected = s.ccPref === o || (!s.ccPref && o === 'Immediately');
+        html += '<div class="radio-option' + (isSelected ? ' selected' : '') + '" onclick="saveSetting(\'ccPref\',\'' + o + '\',this)">' + o + '</div>';
       });
       html += '</div></div>';
 
