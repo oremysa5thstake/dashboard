@@ -102,6 +102,25 @@
     .form-label{display:block;margin-bottom:6px;font-weight:500;font-size:13px;color:#333}
     .form-select{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff}
     .form-select:focus{outline:none;border-color:#5865F2}
+    .form-textarea{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;resize:vertical;min-height:80px}
+    .form-textarea:focus{outline:none;border-color:#5865F2}
+    .form-input{width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff}
+    .form-input:focus{outline:none;border-color:#5865F2}
+    .dashboard-message{background:#e8f4f8;border:1px solid #bee5eb;border-radius:8px;padding:12px 16px;margin-bottom:20px;color:#0c5460;font-size:14px;line-height:1.5}
+    .stake-links{background:#fff;border-radius:12px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.1);overflow:hidden}
+    .stake-links-header{padding:14px 20px;background:#fafafa;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background .2s}
+    .stake-links-header:hover{background:#f0f0f0}
+    .stake-links-content{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}
+    .stake-links-content.expanded{max-height:500px}
+    .stake-links-inner{padding:16px 20px;display:flex;flex-wrap:wrap;gap:10px}
+    .stake-link{background:#5865F2;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;transition:background .2s}
+    .stake-link:hover{background:#4752c4}
+    .settings-group{margin-bottom:20px}
+    .settings-label{font-weight:600;font-size:14px;margin-bottom:8px;color:#333}
+    .radio-group{display:flex;gap:8px;flex-wrap:wrap}
+    .radio-option{padding:8px 14px;border:1px solid #ddd;border-radius:6px;font-size:13px;cursor:pointer;transition:all .2s;background:#fff}
+    .radio-option:hover{background:#f5f5f5;border-color:#5865F2}
+    .radio-option.selected{background:#5865F2;color:#fff;border-color:#5865F2}
     @media(max-width:600px){.container{padding:12px}header{flex-direction:column;text-align:center}.header-right{width:100%;justify-content:center}.summary-bar{flex-direction:column}}
   </style>
 </head>
@@ -111,6 +130,8 @@
       <h1>📋 Dashboard</h1>
       <div class="header-right">
         <span class="user-info" id="userInfo">Loading...</span>
+        <button class="header-btn" onclick="openNewTaskModal()">➕ New Task</button>
+        <button class="header-btn" onclick="toggleSettings()">⚙️</button>
         <button class="header-btn" id="refreshBtn" onclick="refreshData()" title="Refresh data">🔄 Refresh</button>
       </div>
     </header>
@@ -165,6 +186,47 @@
     </div>
   </div>
 
+  <!-- Create Task Modal -->
+  <div class="modal-overlay" id="newTaskModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Create New Task</span>
+        <button class="modal-close" onclick="closeModal('newTaskModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Task Description *</label>
+          <textarea class="form-textarea" id="taskDescription" placeholder="What needs to be done?"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Assign To *</label>
+          <div id="taskAssigneeContainer"></div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="addTaskAssignee()" style="margin-top:8px;">+ Add Assignee</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">CC (Optional)</label>
+          <div id="taskCCContainer"></div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="addTaskCC()" style="margin-top:8px;">+ Add CC</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due Date (Optional)</label>
+          <div style="display:flex;gap:8px;">
+            <input type="date" class="form-input" id="taskDueDate" style="flex:1">
+            <input type="time" class="form-input" id="taskDueTime" style="flex:1">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes (Optional)</label>
+          <textarea class="form-textarea" id="taskNotes" placeholder="Additional notes..." style="min-height:60px"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('newTaskModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="createTask()">Create Task</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Configuration
     const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
@@ -177,6 +239,9 @@
     let currentReassignId = null;
     let originalPrimaryIds = [];
     let ccGroupMembers = {};
+    let showSettings = false;
+    let currentMentionId = null;
+    let sectionExpanded = {};
 
     // Initialize
     window.addEventListener('DOMContentLoaded', initApp);
@@ -289,6 +354,32 @@
     function renderDashboard(data) {
       let html = '';
 
+      // Dashboard message
+      if (data.dashboardMessage) {
+        html += `<div class="dashboard-message">${escapeHtml(data.dashboardMessage)}</div>`;
+      }
+
+      // Stake links
+      if (data.stakeLinks && data.stakeLinks.length > 0) {
+        const linksExpanded = sectionExpanded['stakeLinks'] !== false;
+        html += `<div class="stake-links">
+          <div class="stake-links-header" onclick="toggleStakeLinks()">
+            <span>🔗 Stake Links</span>
+            <span class="chevron" id="stakeLinksChevron">${linksExpanded ? '▲' : '▼'}</span>
+          </div>
+          <div class="stake-links-content${linksExpanded ? ' expanded' : ''}" id="stakeLinksContent">
+            <div class="stake-links-inner">`;
+        data.stakeLinks.forEach(link => {
+          html += `<a href="${escapeHtml(link.url)}" target="_blank" class="stake-link">${escapeHtml(link.label)}</a>`;
+        });
+        html += `</div></div></div>`;
+      }
+
+      // Settings section
+      if (showSettings) {
+        html += renderSettingsSection(data.settings || {});
+      }
+
       // Get counts
       const counts = data.counts || {};
       const approvalCount = counts.pendingCallings || 0;
@@ -377,7 +468,7 @@
     function renderApprovalsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-approvals"><div class="section-inner">';
-      html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll()">✓ Approve All</button></div>';
+      html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll(this)">✓ Approve All</button></div>';
 
       items.forEach(item => {
         // Construct itemId in format: "calling_ROWINDEX" or "ordination_ROWINDEX"
@@ -388,8 +479,8 @@
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           ${item.hpNote ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + item.hpNote + '</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve')">✓ Approve</button>
-            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern')">⚠️ Concerns</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this)">✓ Approve</button>
+            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this)">⚠️ Concerns</button>
           </div>
         </div>`;
       });
@@ -408,7 +499,7 @@
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted')">✓ Extended</button>
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted', this)">✓ Extended</button>
             ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
           </div>
         </div>`;
@@ -430,8 +521,8 @@
           <div class="item-meta">${item.office || 'N/A'} - ${item.ward || 'N/A'}</div>
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve')">✓ Sustain</button>
-            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern')">⚠️ Concerns</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this)">✓ Sustain</button>
+            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this)">⚠️ Concerns</button>
           </div>
         </div>`;
       });
@@ -451,7 +542,7 @@
           ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
           ${item.dueDate ? '<div class="item-meta">Due: ' + item.dueDate + '</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete')">✓ Complete</button>
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete', this)">✓ Complete</button>
             ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
           </div>
         </div>`;
@@ -481,7 +572,7 @@
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
             ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + item.notes + '</div>' : ''}
             <div class="item-actions">
-              <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ccComplete')">✓ Mark Complete</button>
+              <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ccComplete', this)">✓ Mark Complete</button>
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
             </div>
           </div>`;
@@ -495,13 +586,18 @@
         html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✓ Completed CC Items</div><div class="section-meta"><span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
         html += '<div class="section-content expanded" id="section-ccCompleted"><div class="section-inner">';
 
+        // Add "Acknowledge All" button if more than one item
+        if (completedItems.length > 1) {
+          html += '<div class="bulk-actions"><button class="btn btn-secondary btn-sm" onclick="acknowledgeAllCC(this)">✓ Acknowledge All</button></div>';
+        }
+
         completedItems.forEach(item => {
           html += `<div class="item">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
             <div class="item-meta" style="color:#28a745">✓ Completed by ${item.completedBy || 'Unknown'}</div>
             <div class="item-actions">
-              <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'acknowledge')">✓ Acknowledge</button>
+              <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'acknowledge', this)">✓ Acknowledge</button>
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
             </div>
           </div>`;
@@ -585,8 +681,14 @@
     }
 
     // Action Handlers
-    async function approveAll() {
+    async function approveAll(btn) {
       if (!confirm('Approve all pending calling approvals?')) return;
+
+      // Immediate visual feedback
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+      }
 
       try {
         await performAction('approveAll', {});
@@ -594,21 +696,48 @@
         refreshData();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '✓ Approve All';
+        }
       }
     }
 
-    async function handleAction(actionId, action) {
+    async function handleAction(actionId, action, btn) {
+      // Immediate visual feedback
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+      }
+
       try {
         await performAction(action, { itemId: actionId });
         showToast('Action completed', 'success');
         refreshData();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
+        // Restore button state on error
+        if (btn) {
+          btn.disabled = false;
+          // Try to restore original text based on action
+          if (action === 'approve') btn.textContent = '✓ Approve';
+          else if (action === 'concern') btn.textContent = '⚠️ Concerns';
+          else if (action === 'accepted') btn.textContent = '✓ Extended';
+          else if (action === 'ccComplete') btn.textContent = '✓ Mark Complete';
+          else if (action === 'acknowledge') btn.textContent = '✓ Acknowledge';
+          else btn.textContent = 'Action';
+        }
       }
     }
 
-    async function acknowledgeAllCC() {
+    async function acknowledgeAllCC(btn) {
       if (!confirm('Acknowledge all CC items?')) return;
+
+      // Immediate visual feedback
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+      }
 
       try {
         await performAction('ackAllCC', {});
@@ -616,6 +745,10 @@
         refreshData();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '✓ Acknowledge All';
+        }
       }
     }
 
@@ -718,6 +851,18 @@
         h += '<button type="button" class="btn btn-sm btn-secondary" onclick="this.parentElement.remove()">✕</button>';
       }
       h += '</div>';
+      return h;
+    }
+
+    function getUserDropdownWithValue(id, placeholder, selectedValue) {
+      let h = '<div style="margin-bottom:6px;"><select class="form-select" id="' + id + '">';
+      h += '<option value="">' + escapeHtmlDisplay(placeholder) + '</option>';
+      users.forEach(u => {
+        const t = u.name + (u.role ? ' (' + u.role + ')' : '');
+        const sel = (u.id === selectedValue) ? ' selected' : '';
+        h += '<option value="' + u.id + '"' + sel + '>' + escapeHtmlDisplay(t) + '</option>';
+      });
+      h += '</select></div>';
       return h;
     }
 
@@ -841,6 +986,148 @@
       // Open in new tab
       const url = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
       window.open(url, '_blank');
+    }
+
+    // Settings Functions
+    function toggleSettings() {
+      showSettings = !showSettings;
+      renderDashboard(currentData);
+    }
+
+    function toggleStakeLinks() {
+      const content = document.getElementById('stakeLinksContent');
+      const chevron = document.getElementById('stakeLinksChevron');
+      if (content.classList.contains('expanded')) {
+        content.classList.remove('expanded');
+        chevron.textContent = '▼';
+        sectionExpanded['stakeLinks'] = false;
+      } else {
+        content.classList.add('expanded');
+        chevron.textContent = '▲';
+        sectionExpanded['stakeLinks'] = true;
+      }
+    }
+
+    function renderSettingsSection(settings) {
+      const s = settings || {};
+      const opts = ['Immediately', 'Hourly', 'Daily', 'None'];
+      let html = '<div class="section" id="settingsSection"><div class="section-header expanded"><div class="section-title">⚙️ Notification Settings</div></div>';
+      html += '<div class="section-content expanded"><div class="section-inner">';
+
+      html += '<div class="settings-group"><div class="settings-label">Primary Notifications</div>';
+      html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For tasks assigned to you, callings to extend, clerk reviews, etc.</div>';
+      html += '<div class="radio-group">';
+      opts.forEach(o => {
+        html += '<div class="radio-option' + (s.primaryNotifications === o ? ' selected' : '') + '" onclick="saveSetting(\'primaryPref\',\'' + o + '\',this)">' + o + '</div>';
+      });
+      html += '</div></div>';
+
+      html += '<div class="settings-group"><div class="settings-label">CC Notifications</div>';
+      html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For items you\'re CC\'d on</div>';
+      html += '<div class="radio-group">';
+      opts.forEach(o => {
+        html += '<div class="radio-option' + (s.ccNotifications === o ? ' selected' : '') + '" onclick="saveSetting(\'ccPref\',\'' + o + '\',this)">' + o + '</div>';
+      });
+      html += '</div></div>';
+
+      html += '<div class="settings-group"><div class="settings-label">Mention Notifications</div>';
+      html += '<div style="font-size:12px;color:#666;margin-bottom:8px;">For mentions in Slack</div>';
+      html += '<div class="radio-group">';
+      opts.forEach(o => {
+        html += '<div class="radio-option' + (s.mentionNotifications === o ? ' selected' : '') + '" onclick="saveSetting(\'mentionPref\',\'' + o + '\',this)">' + o + '</div>';
+      });
+      html += '</div></div>';
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function saveSetting(key, val, element) {
+      try {
+        // Update UI immediately
+        const parent = element.parentElement;
+        parent.querySelectorAll('.radio-option').forEach(el => el.classList.remove('selected'));
+        element.classList.add('selected');
+
+        await performAction('saveSetting', { key: key, value: val });
+        showToast('Setting saved', 'success');
+      } catch (error) {
+        showToast('Error saving setting: ' + error.message, 'error');
+      }
+    }
+
+    // Create Task Functions
+    function openNewTaskModal() {
+      document.getElementById('newTaskModal').classList.add('show');
+      document.getElementById('taskAssigneeContainer').innerHTML = getUserDropdownWithValue('taskAssignee_0', 'Select...', userId);
+      document.getElementById('taskCCContainer').innerHTML = getUserDropdownWithValue('taskCC_0', 'None', '');
+    }
+
+    function closeModal(modalId) {
+      document.getElementById(modalId).classList.remove('show');
+      if (modalId === 'newTaskModal') {
+        clearTaskForm();
+      }
+    }
+
+    function addTaskAssignee() {
+      const container = document.getElementById('taskAssigneeContainer');
+      const count = container.querySelectorAll('select').length;
+      container.insertAdjacentHTML('beforeend', getUserDropdownWithRemove('taskAssignee_' + count, 'Select...', '', false));
+    }
+
+    function addTaskCC() {
+      const container = document.getElementById('taskCCContainer');
+      const count = container.querySelectorAll('select').length;
+      container.insertAdjacentHTML('beforeend', getUserDropdownWithRemove('taskCC_' + count, 'None', '', false));
+    }
+
+    async function createTask() {
+      const desc = document.getElementById('taskDescription').value.trim();
+      const date = document.getElementById('taskDueDate').value;
+      const time = document.getElementById('taskDueTime').value;
+      const notes = document.getElementById('taskNotes').value.trim();
+
+      const primaryIds = [];
+      const ccIds = [];
+
+      document.getElementById('taskAssigneeContainer').querySelectorAll('select').forEach(sel => {
+        if (sel.value) primaryIds.push(sel.value);
+      });
+
+      document.getElementById('taskCCContainer').querySelectorAll('select').forEach(sel => {
+        if (sel.value) ccIds.push(sel.value);
+      });
+
+      if (!desc || primaryIds.length === 0) {
+        showToast('Please fill required fields', 'error');
+        return;
+      }
+
+      const dueDate = date + (time ? ' ' + time : '');
+
+      try {
+        await performAction('createTask', {
+          description: desc,
+          primaryIds: primaryIds.join(','),
+          ccIds: ccIds.join(','),
+          dueDate: dueDate,
+          notes: notes
+        });
+
+        showToast('Task created', 'success');
+        closeModal('newTaskModal');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    function clearTaskForm() {
+      document.getElementById('taskDescription').value = '';
+      document.getElementById('taskDueDate').value = '';
+      document.getElementById('taskDueTime').value = '';
+      document.getElementById('taskNotes').value = '';
     }
 
     // Service Worker for PWA (optional but makes it a true PWA)
