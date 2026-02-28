@@ -135,10 +135,7 @@
         const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=${forceRefresh}`;
 
         const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          }
+          method: 'GET'
         });
 
         if (!response.ok) {
