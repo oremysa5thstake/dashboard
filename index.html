@@ -84,6 +84,9 @@
     .ack-section .section-header{background:#f9d5e5}
     .ack-section .section-header:hover{background:#f5c2d8}
     .ack-section .item{background:#fef6f9;border-color:#ecc5d8}
+    .admin-section{background:#fff3cd;border:1px solid #ffc107}
+    .admin-section .section-header{background:#fff3cd}
+    .settings-label{font-weight:600;font-size:14px;margin-bottom:8px;color:#333}
     .btn-sm{padding:5px 10px;font-size:12px}
     .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;visibility:hidden;transition:all .3s}
     .modal-overlay.show{opacity:1;visibility:visible}
@@ -357,6 +360,11 @@
         html += renderCCSection(data.ccItems);
       }
 
+      // Admin Tools section
+      if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
+        html += renderAdminSection(data.adminUsers);
+      }
+
       // Empty state
       if (!data.approvals?.length && !data.extendItems?.length &&
           !data.ordinations?.length && !data.myTasks?.length && !data.ccItems?.length) {
@@ -372,7 +380,8 @@
       html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll()">✓ Approve All</button></div>';
 
       items.forEach(item => {
-        const itemId = item.id || item.actionId || '';
+        // Construct itemId in format: "calling_ROWINDEX" or "ordination_ROWINDEX"
+        const itemId = (item.type || 'calling') + '_' + item.rowIndex;
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
           <div class="item-meta">${item.calling || 'N/A'} - ${item.unit || 'N/A'}</div>
@@ -414,7 +423,8 @@
       html += '<div class="section-content expanded" id="section-ordinations"><div class="section-inner">';
 
       items.forEach(item => {
-        const itemId = item.id || item.actionId || '';
+        // Construct itemId in format: "ordination_ROWINDEX"
+        const itemId = (item.type || 'ordination') + '_' + item.rowIndex;
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
           <div class="item-meta">${item.office || 'N/A'} - ${item.ward || 'N/A'}</div>
@@ -499,6 +509,32 @@
 
         html += '</div></div></div>';
       }
+
+      return html;
+    }
+
+    function renderAdminSection(adminUsers) {
+      let html = '<div class="section admin-section"><div class="section-header expanded" onclick="toggleSection(\'admin\')"><div class="section-title">🔧 Admin Tools</div><div class="section-meta"><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-admin"><div class="section-inner">';
+
+      html += '<div style="margin-bottom:20px;"><div class="settings-label">📜 Run Scripts</div>';
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
+      html += '<button class="btn btn-primary" onclick="runScript(\'CallingApprovals\')">Process Calling Approvals</button>';
+      html += '<button class="btn btn-primary" onclick="runScript(\'PriesthoodOrdinations\')">Process Priesthood Ordinations</button>';
+      html += '</div></div>';
+
+      html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';
+      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;">';
+      html += '<select class="form-select" id="adminUserSelect" style="flex:1;max-width:300px;"><option value="">Select a user...</option>';
+
+      adminUsers.forEach(u => {
+        let t = u.name + (u.role ? ' (' + u.role + ')' : '');
+        if (t.length > 50) t = t.substring(0, 47) + '...';
+        html += '<option value="' + u.id + '">' + escapeHtmlDisplay(t) + '</option>';
+      });
+
+      html += '</select><button class="btn btn-primary" onclick="openUserDashboard()">Open</button></div></div>';
+      html += '</div></div></div>';
 
       return html;
     }
@@ -779,6 +815,32 @@
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
       }
+    }
+
+    // Admin Functions
+    async function runScript(scriptName) {
+      if (!confirm('Run ' + scriptName + ' script? This will process all pending items.')) return;
+
+      try {
+        await performAction('runScript', { scriptName: scriptName });
+        showToast('Script started successfully', 'success');
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    function openUserDashboard() {
+      const select = document.getElementById('adminUserSelect');
+      const selectedUserId = select.value;
+
+      if (!selectedUserId) {
+        showToast('Please select a user first', 'error');
+        return;
+      }
+
+      // Open in new tab
+      const url = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
+      window.open(url, '_blank');
     }
 
     // Service Worker for PWA (optional but makes it a true PWA)
