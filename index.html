@@ -59,6 +59,8 @@
     .btn-primary:hover{background:#4752c4}
     .btn-success{background:#28a745;color:#fff}
     .btn-success:hover{background:#218838}
+    .btn-warning{background:#ffc107;color:#333}
+    .btn-warning:hover{background:#e0a800}
     .btn-danger{background:#dc3545;color:#fff}
     .btn-danger:hover{background:#c82333}
     .btn-secondary{background:#e8e8e8;color:#333}
@@ -74,13 +76,22 @@
     .error-page{text-align:center;padding:60px 20px}
     .error-page h2{color:#dc3545;margin-bottom:16px}
     .error-page p{color:#666;line-height:1.6}
+    .cc-section{background:#fefbe8;border:1px solid #d4c060}
+    .cc-section .section-header{background:#f5eeaa}
+    .cc-section .section-header:hover{background:#ede580}
+    .cc-section .item{background:#fffde4;border-color:#e8d87a}
+    .ack-section{background:#fdf0f5;border:1px solid #e0a8c0}
+    .ack-section .section-header{background:#f9d5e5}
+    .ack-section .section-header:hover{background:#f5c2d8}
+    .ack-section .item{background:#fef6f9;border-color:#ecc5d8}
+    .btn-sm{padding:5px 10px;font-size:12px}
     @media(max-width:600px){.container{padding:12px}header{flex-direction:column;text-align:center}.header-right{width:100%;justify-content:center}.summary-bar{flex-direction:column}}
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>📋 Stake Task Center</h1>
+      <h1>📋 Dashboard</h1>
       <div class="header-right">
         <span class="user-info" id="userInfo">Loading...</span>
         <button class="header-btn" id="refreshBtn" onclick="refreshData()" title="Refresh data">🔄 Refresh</button>
@@ -191,7 +202,9 @@
       currentData = data;
       userData = {
         name: data.userName || userId,
-        userId: data.userId || userId
+        userId: data.userId || userId,
+        canReassign: data.canReassign || false,
+        isAdmin: data.isAdmin || false
       };
 
       document.getElementById('userInfo').textContent = userData.name;
@@ -252,7 +265,7 @@
         }
 
         if (ccCount > 0) {
-          html += `<div class="summary-card" onclick="toggleSection('ccitems', true)">
+          html += `<div class="summary-card" onclick="toggleSection('ccOpen', true)">
             <div class="number">${ccCount}</div>
             <div class="label">CC Items</div>
           </div>`;
@@ -292,19 +305,20 @@
     }
 
     function renderApprovalsSection(items) {
-      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content" id="section-approvals"><div class="section-inner">';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-approvals"><div class="section-inner">';
       html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll()">✓ Approve All</button></div>';
 
       items.forEach(item => {
+        const itemId = item.id || item.actionId || '';
         html += `<div class="item">
-          <div class="item-header"><div class="item-title">${item.memberName || 'N/A'}</div></div>
+          <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
           <div class="item-meta">${item.calling || 'N/A'} - ${item.unit || 'N/A'}</div>
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           ${item.hpNote ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + item.hpNote + '</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleApproval(${item.rowIndex}, 'calling', 'Approve')">✓ Approve</button>
-            <button class="btn btn-danger" onclick="handleApproval(${item.rowIndex}, 'calling', 'Concern')">⚠ Concern</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve')">✓ Approve</button>
+            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern')">⚠️ Concerns</button>
           </div>
         </div>`;
       });
@@ -314,15 +328,17 @@
     }
 
     function renderExtendSection(items) {
-      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Extend Calling/Release</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content" id="section-extend"><div class="section-inner">';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Extend Calling/Release</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-extend"><div class="section-inner">';
 
       items.forEach(item => {
+        const canReassign = userData.canReassign || false;
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted')">✓ Extended</button>
+            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
           </div>
         </div>`;
       });
@@ -332,17 +348,18 @@
     }
 
     function renderOrdinationsSection(items) {
-      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content" id="section-ordinations"><div class="section-inner">';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-ordinations"><div class="section-inner">';
 
       items.forEach(item => {
+        const itemId = item.id || item.actionId || '';
         html += `<div class="item">
-          <div class="item-header"><div class="item-title">${item.memberName || 'N/A'}</div></div>
+          <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
           <div class="item-meta">${item.office || 'N/A'} - ${item.ward || 'N/A'}</div>
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleApproval(${item.rowIndex}, 'ordination', 'Sustain')">✓ Sustain</button>
-            <button class="btn btn-danger" onclick="handleApproval(${item.rowIndex}, 'ordination', 'Oppose')">✗ Oppose</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve')">✓ Sustain</button>
+            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern')">⚠️ Concerns</button>
           </div>
         </div>`;
       });
@@ -352,16 +369,18 @@
     }
 
     function renderTasksSection(items) {
-      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'mytasks\')"><div class="section-title">✅ My Tasks</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content" id="section-mytasks"><div class="section-inner">';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mytasks\')"><div class="section-title">✅ My Tasks</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-mytasks"><div class="section-inner">';
 
       items.forEach(item => {
+        const canReassign = userData.canReassign || false;
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
           ${item.dueDate ? '<div class="item-meta">Due: ' + item.dueDate + '</div>' : ''}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete')">✓ Complete</button>
+            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
           </div>
         </div>`;
       });
@@ -371,22 +390,61 @@
     }
 
     function renderCCSection(items) {
-      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'ccitems\')"><div class="section-title">📧 CC\'d Items</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content" id="section-ccitems"><div class="section-inner">';
-      html += '<div class="bulk-actions"><button class="btn btn-primary" onclick="acknowledgeAllCC()">✓ Acknowledge All</button></div>';
+      const canReassign = userData.canReassign || false;
 
-      items.forEach(item => {
-        const bgColor = item.status === 'Completed' ? '#ffe5e5' : '#fafafa';
-        html += `<div class="item" style="background:${bgColor}">
-          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
-          ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
-          ${item.status === 'Completed' ? '<div class="item-meta" style="color:#28a745">✓ Completed by ' + (item.completedBy || 'Unknown') + '</div>' : ''}
-          ${item.status === 'Open' ? '<div class="item-actions"><button class="btn btn-primary" onclick="handleAction(\'' + item.actionId + '\', \'acknowledge\')">✓ Acknowledge</button></div>' : ''}
-        </div>`;
-      });
+      // Split items into open and completed
+      const openItems = items.filter(item => item.status !== 'Completed');
+      const completedItems = items.filter(item => item.status === 'Completed');
 
-      html += '</div></div></div>';
+      let html = '';
+
+      // Open CC items section
+      if (openItems.length > 0) {
+        html += '<div class="section cc-section"><div class="section-header expanded" onclick="toggleSection(\'ccOpen\')"><div class="section-title">📎 CC\'d Items</div><div class="section-meta"><span class="section-count">' + openItems.length + '</span><span class="chevron">▼</span></div></div>';
+        html += '<div class="section-content expanded" id="section-ccOpen"><div class="section-inner">';
+
+        openItems.forEach(item => {
+          html += `<div class="item">
+            <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+            ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
+            ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + item.notes + '</div>' : ''}
+            <div class="item-actions">
+              <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ccComplete')">✓ Mark Complete</button>
+              ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+            </div>
+          </div>`;
+        });
+
+        html += '</div></div></div>';
+      }
+
+      // Completed CC items section (to acknowledge)
+      if (completedItems.length > 0) {
+        html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✓ Completed CC Items</div><div class="section-meta"><span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
+        html += '<div class="section-content expanded" id="section-ccCompleted"><div class="section-inner">';
+
+        completedItems.forEach(item => {
+          html += `<div class="item">
+            <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+            ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
+            <div class="item-meta" style="color:#28a745">✓ Completed by ${item.completedBy || 'Unknown'}</div>
+            <div class="item-actions">
+              <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'acknowledge')">✓ Acknowledge</button>
+              ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+            </div>
+          </div>`;
+        });
+
+        html += '</div></div></div>';
+      }
+
       return html;
+    }
+
+    // Helper Functions
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text).replace(/'/g, '\\\'');
     }
 
     // UI Functions
@@ -429,21 +487,6 @@
     }
 
     // Action Handlers
-    async function handleApproval(rowIndex, type, response) {
-      try {
-        await performAction('approve', {
-          itemId: type + '_' + rowIndex,
-          type: type,
-          response: response
-        });
-
-        showToast('Response recorded', 'success');
-        refreshData();
-      } catch (error) {
-        showToast('Error: ' + error.message, 'error');
-      }
-    }
-
     async function approveAll() {
       if (!confirm('Approve all pending calling approvals?')) return;
 
@@ -472,6 +515,22 @@
       try {
         await performAction('ackAllCC', {});
         showToast('All items acknowledged', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    async function reassignTask(itemId, itemTitle) {
+      const newUser = prompt('Enter the Slack User ID to reassign this task to:\n\n' + itemTitle);
+      if (!newUser) return;
+
+      try {
+        await performAction('reassign', {
+          itemId: itemId,
+          newUserId: newUser
+        });
+        showToast('Task reassigned successfully', 'success');
         refreshData();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
