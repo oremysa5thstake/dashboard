@@ -1,0 +1,32 @@
+{
+  "name": "Stake Task Center",
+  "short_name": "Stake Tasks",
+  "description": "Orem YSA 5th Stake Task Management Dashboard",
+  "start_url": "index.html",
+  "scope": "/dashboard/",
+  "display": "standalone",
+  "background_color": "#5865F2",
+  "theme_color": "#5865F2",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://www.churchofjesuschrist.org/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "https://www.churchofjesuschrist.org/imgs/favicon/apple-touch-icon-180x180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://www.churchofjesuschrist.org/imgs/favicon/apple-touch-icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "en-US",
+  "dir": "ltr"
+}
