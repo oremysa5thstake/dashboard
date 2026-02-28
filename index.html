@@ -1102,7 +1102,29 @@
     }
 
     // Settings Functions
-    function toggleSettings() {
+    async function toggleSettings() {
+      // If closing settings view, force save all pending changes immediately
+      if (showSettings) {
+        // Cancel all pending debounced saves
+        for (let key in settingSaveTimers) {
+          clearTimeout(settingSaveTimers[key]);
+        }
+        settingSaveTimers = {};
+
+        // Force save current settings to backend
+        if (currentData.settings) {
+          try {
+            for (let key in currentData.settings) {
+              await performAction('saveSetting', { key: key, value: currentData.settings[key] });
+            }
+            console.log('Settings force-saved on close');
+          } catch (error) {
+            console.error('Error force-saving settings:', error);
+            showToast('Error saving settings', 'error');
+          }
+        }
+      }
+
       showSettings = !showSettings;
       renderDashboard(currentData);
     }
