@@ -4,167 +4,488 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Orem YSA 5th Stake Task Center">
-  <title>Stake Task Center - Loading...</title>
-
-  <!-- PWA Meta Tags -->
   <meta name="theme-color" content="#5865F2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Stake Tasks">
+  <title>Stake Task Center</title>
 
   <!-- PWA Manifest -->
   <link rel="manifest" href="manifest.json">
-
-  <!-- Favicon -->
   <link rel="icon" href="https://www.churchofjesuschrist.org/favicon.ico">
 
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(135deg, #5865F2, #7289DA);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-    }
-
-    .loader-container {
-      text-align: center;
-      padding: 40px 20px;
-      max-width: 500px;
-    }
-
-    .logo {
-      font-size: 48px;
-      margin-bottom: 20px;
-    }
-
-    h1 {
-      font-size: 28px;
-      font-weight: 600;
-      margin-bottom: 12px;
-    }
-
-    .subtitle {
-      font-size: 16px;
-      opacity: 0.9;
-      margin-bottom: 40px;
-    }
-
-    .spinner {
-      margin: 0 auto 30px;
-      width: 60px;
-      height: 60px;
-      border: 4px solid rgba(255, 255, 255, 0.3);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .status {
-      font-size: 14px;
-      opacity: 0.8;
-      margin-top: 20px;
-    }
-
-    .error {
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 8px;
-      padding: 20px;
-      margin-top: 20px;
-      text-align: left;
-    }
-
-    .error-title {
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #ffcccc;
-    }
-
-    .error-message {
-      font-size: 14px;
-      line-height: 1.5;
-    }
+    /* Exact copy of Dashboard Web styles */
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;color:#1a1a1a;line-height:1.5}
+    .container{max-width:900px;margin:0 auto;padding:16px}
+    header{background:linear-gradient(135deg,#5865F2,#7289DA);color:#fff;padding:20px;margin-bottom:20px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+    header h1{font-size:22px;font-weight:600}
+    .header-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .user-info{font-size:14px;opacity:.9}
+    .header-btn{background:rgba(255,255,255,.2);border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;transition:background .2s}
+    .header-btn:hover{background:rgba(255,255,255,.3)}
+    .header-btn:disabled{opacity:.5;cursor:not-allowed}
+    .loading{text-align:center;padding:60px 20px;color:#666}
+    .spinner{width:40px;height:40px;border:3px solid #e0e0e0;border-top-color:#5865F2;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .summary-bar{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+    .summary-card{background:#fff;padding:16px 20px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.1);flex:1;min-width:100px;text-align:center;cursor:pointer;transition:transform .2s,box-shadow .2s}
+    .summary-card:hover{transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.15)}
+    .summary-card .number{font-size:28px;font-weight:700;color:#5865F2}
+    .summary-card .label{font-size:12px;color:#666;margin-top:2px}
+    .summary-card.urgent .number{color:#dc3545}
+    .section{background:#fff;border-radius:12px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.1);overflow:hidden}
+    .section-header{padding:14px 20px;background:#fafafa;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background .2s}
+    .section-header:hover{background:#f0f0f0}
+    .section-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:10px}
+    .section-meta{display:flex;align-items:center;gap:10px}
+    .section-count{background:#5865F2;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:500}
+    .chevron{transition:transform .3s;color:#999;font-size:12px}
+    .section-header.expanded .chevron{transform:rotate(180deg)}
+    .section-content{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}
+    .section-content.expanded{max-height:5000px}
+    .section-inner{padding:16px 20px}
+    .bulk-actions{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+    .item{padding:14px 16px;border:1px solid #e8e8e8;border-radius:8px;margin-bottom:10px;background:#fafafa;transition:border-color .2s}
+    .item:hover{border-color:#5865F2}
+    .item:last-child{margin-bottom:0}
+    .item-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px}
+    .item-title{font-weight:600;font-size:14px;flex:1}
+    .item-meta{font-size:13px;color:#666;margin-bottom:10px}
+    .item-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{padding:7px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;display:inline-flex;align-items:center;gap:5px;text-decoration:none;transition:all .2s}
+    .btn-primary{background:#5865F2;color:#fff}
+    .btn-primary:hover{background:#4752c4}
+    .btn-success{background:#28a745;color:#fff}
+    .btn-success:hover{background:#218838}
+    .btn-danger{background:#dc3545;color:#fff}
+    .btn-danger:hover{background:#c82333}
+    .btn-secondary{background:#e8e8e8;color:#333}
+    .btn-secondary:hover{background:#d8d8d8}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .empty-state{text-align:center;padding:40px 20px;color:#888}
+    .empty-state .icon{font-size:48px;margin-bottom:12px;opacity:.5}
+    .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(100px);background:#333;color:#fff;padding:12px 24px;border-radius:8px;font-size:14px;opacity:0;transition:all .3s;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+    .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+    .toast.success{background:#28a745}
+    .toast.error{background:#dc3545}
+    .hidden{display:none!important}
+    .error-page{text-align:center;padding:60px 20px}
+    .error-page h2{color:#dc3545;margin-bottom:16px}
+    .error-page p{color:#666;line-height:1.6}
+    @media(max-width:600px){.container{padding:12px}header{flex-direction:column;text-align:center}.header-right{width:100%;justify-content:center}.summary-bar{flex-direction:column}}
   </style>
 </head>
 <body>
-  <div class="loader-container">
-    <div class="logo">📋</div>
-    <h1>Stake Task Center</h1>
-    <p class="subtitle">Orem YSA 5th Stake</p>
+  <div class="container">
+    <header>
+      <h1>📋 Stake Task Center</h1>
+      <div class="header-right">
+        <span class="user-info" id="userInfo">Loading...</span>
+        <button class="header-btn" id="refreshBtn" onclick="refreshData()" title="Refresh data">🔄 Refresh</button>
+      </div>
+    </header>
 
-    <div class="spinner"></div>
-
-    <div class="status" id="status">Loading your dashboard...</div>
-
-    <div class="error" id="error" style="display: none;">
-      <div class="error-title">Unable to Load Dashboard</div>
-      <div class="error-message" id="error-message"></div>
+    <div id="content">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Loading your dashboard...</p>
+      </div>
     </div>
   </div>
 
+  <div class="toast" id="toast"></div>
+
   <script>
     // Configuration
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
 
-    function showError(message) {
-      document.getElementById('status').style.display = 'none';
-      document.querySelector('.spinner').style.display = 'none';
-      document.getElementById('error').style.display = 'block';
-      document.getElementById('error-message').textContent = message;
+    // Global state
+    let userId = null;
+    let userData = null;
+    let currentData = null;
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', initApp);
+
+    function initApp() {
+      // Get userId from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      userId = urlParams.get('userId');
+
+      if (!userId) {
+        showErrorPage('No user ID provided', 'Please use the link provided in your notification.');
+        return;
+      }
+
+      // Validate userId format
+      if (!userId.startsWith('U') || userId.length < 9) {
+        showErrorPage('Invalid user ID', 'Please use the link provided in your notification.');
+        return;
+      }
+
+      // Load dashboard
+      loadDashboardData();
     }
 
-    function redirectToPWA() {
+    // API Functions
+    async function loadDashboardData(forceRefresh = false) {
       try {
-        // Get userId from URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('userId');
+        const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=${forceRefresh}`;
 
-        if (!userId) {
-          showError('No user ID provided. Please use the link sent to you via Slack.');
-          return;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        // Validate userId format (should be a Slack user ID like U01234567)
-        if (!userId.startsWith('U') || userId.length < 9) {
-          showError('Invalid user ID format. Please use the link sent to you via Slack.');
-          return;
+        const data = await response.json();
+
+        if (!data.success && data.error) {
+          throw new Error(data.error);
         }
 
-        // Build the Apps Script PWA URL with userId
-        const pwaUrl = `${APPS_SCRIPT_URL}?userId=${encodeURIComponent(userId)}`;
-
-        // Update status
-        document.getElementById('status').textContent = 'Redirecting to secure dashboard...';
-
-        // Redirect to the Apps Script-served PWA
-        // Using replace() so users can't use back button to return to this loader
-        window.location.replace(pwaUrl);
-
-      } catch (err) {
-        showError('Error loading dashboard: ' + err.message);
-        console.error('Redirect error:', err);
+        onDataLoaded(data);
+      } catch (error) {
+        console.error('Load error:', error);
+        showToast('Failed to load dashboard: ' + error.message, 'error');
+        showErrorPage('Unable to load dashboard', error.message);
       }
     }
 
-    // Check if APPS_SCRIPT_URL is configured
-    if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
-      showError('Dashboard not yet configured. Please contact your stake technology specialist.');
-    } else {
-      // Start redirect immediately
-      redirectToPWA();
+    async function performAction(action, params = {}) {
+      try {
+        params.userId = userId;
+        params.action = action;
+
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(params)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        if (!result.success) {
+          throw new Error(result.error || 'Action failed');
+        }
+
+        return result;
+      } catch (error) {
+        console.error('Action error:', error);
+        throw error;
+      }
+    }
+
+    // Data handling
+    function onDataLoaded(data) {
+      currentData = data;
+      userData = {
+        name: data.userName || userId,
+        userId: data.userId || userId
+      };
+
+      document.getElementById('userInfo').textContent = userData.name;
+      renderDashboard(data);
+    }
+
+    function showErrorPage(title, message) {
+      document.getElementById('content').innerHTML = `
+        <div class="error-page">
+          <h2>${title}</h2>
+          <p>${message}</p>
+        </div>
+      `;
+    }
+
+    // Rendering functions
+    function renderDashboard(data) {
+      let html = '';
+
+      // Get counts
+      const counts = data.counts || {};
+      const approvalCount = counts.pendingCallings || 0;
+      const ordinationCount = counts.pendingOrdinations || 0;
+      const extendCount = (counts.extendCallings || 0) + (counts.extendReleases || 0);
+      const taskCount = counts.myTasks || 0;
+      const ccCount = counts.ccItems || 0;
+
+      // Summary bar
+      if (approvalCount + ordinationCount + extendCount + taskCount + ccCount > 0) {
+        html += '<div class="summary-bar">';
+
+        if (approvalCount > 0) {
+          html += `<div class="summary-card urgent" onclick="toggleSection('approvals', true)">
+            <div class="number">${approvalCount}</div>
+            <div class="label">Approvals</div>
+          </div>`;
+        }
+
+        if (extendCount > 0) {
+          html += `<div class="summary-card" onclick="toggleSection('extend', true)">
+            <div class="number">${extendCount}</div>
+            <div class="label">Extend</div>
+          </div>`;
+        }
+
+        if (ordinationCount > 0) {
+          html += `<div class="summary-card" onclick="toggleSection('ordinations', true)">
+            <div class="number">${ordinationCount}</div>
+            <div class="label">Ordinations</div>
+          </div>`;
+        }
+
+        if (taskCount > 0) {
+          html += `<div class="summary-card" onclick="toggleSection('mytasks', true)">
+            <div class="number">${taskCount}</div>
+            <div class="label">My Tasks</div>
+          </div>`;
+        }
+
+        if (ccCount > 0) {
+          html += `<div class="summary-card" onclick="toggleSection('ccitems', true)">
+            <div class="number">${ccCount}</div>
+            <div class="label">CC Items</div>
+          </div>`;
+        }
+
+        html += '</div>';
+      }
+
+      // Sections
+      if (data.approvals && data.approvals.length > 0) {
+        html += renderApprovalsSection(data.approvals);
+      }
+
+      if (data.extendItems && data.extendItems.length > 0) {
+        html += renderExtendSection(data.extendItems);
+      }
+
+      if (data.ordinations && data.ordinations.length > 0) {
+        html += renderOrdinationsSection(data.ordinations);
+      }
+
+      if (data.myTasks && data.myTasks.length > 0) {
+        html += renderTasksSection(data.myTasks);
+      }
+
+      if (data.ccItems && data.ccItems.length > 0) {
+        html += renderCCSection(data.ccItems);
+      }
+
+      // Empty state
+      if (!data.approvals?.length && !data.extendItems?.length &&
+          !data.ordinations?.length && !data.myTasks?.length && !data.ccItems?.length) {
+        html += '<div class="empty-state"><div class="icon">✨</div><p>You\'re all caught up!</p><p style="font-size:12px;color:#999;margin-top:8px">No pending items at this time</p></div>';
+      }
+
+      document.getElementById('content').innerHTML = html;
+    }
+
+    function renderApprovalsSection(items) {
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-approvals"><div class="section-inner">';
+      html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll()">✓ Approve All</button></div>';
+
+      items.forEach(item => {
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.memberName || 'N/A'}</div></div>
+          <div class="item-meta">${item.calling || 'N/A'} - ${item.unit || 'N/A'}</div>
+          ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
+          ${item.hpNote ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + item.hpNote + '</div>' : ''}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleApproval(${item.rowIndex}, 'calling', 'Approve')">✓ Approve</button>
+            <button class="btn btn-danger" onclick="handleApproval(${item.rowIndex}, 'calling', 'Concern')">⚠ Concern</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderExtendSection(items) {
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Extend Calling/Release</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-extend"><div class="section-inner">';
+
+      items.forEach(item => {
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted')">✓ Extended</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderOrdinationsSection(items) {
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-ordinations"><div class="section-inner">';
+
+      items.forEach(item => {
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.memberName || 'N/A'}</div></div>
+          <div class="item-meta">${item.office || 'N/A'} - ${item.ward || 'N/A'}</div>
+          ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleApproval(${item.rowIndex}, 'ordination', 'Sustain')">✓ Sustain</button>
+            <button class="btn btn-danger" onclick="handleApproval(${item.rowIndex}, 'ordination', 'Oppose')">✗ Oppose</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderTasksSection(items) {
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'mytasks\')"><div class="section-title">✅ My Tasks</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-mytasks"><div class="section-inner">';
+
+      items.forEach(item => {
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
+          ${item.dueDate ? '<div class="item-meta">Due: ' + item.dueDate + '</div>' : ''}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete')">✓ Complete</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderCCSection(items) {
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'ccitems\')"><div class="section-title">📧 CC\'d Items</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-ccitems"><div class="section-inner">';
+      html += '<div class="bulk-actions"><button class="btn btn-primary" onclick="acknowledgeAllCC()">✓ Acknowledge All</button></div>';
+
+      items.forEach(item => {
+        const bgColor = item.status === 'Completed' ? '#ffe5e5' : '#fafafa';
+        html += `<div class="item" style="background:${bgColor}">
+          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
+          ${item.status === 'Completed' ? '<div class="item-meta" style="color:#28a745">✓ Completed by ' + (item.completedBy || 'Unknown') + '</div>' : ''}
+          ${item.status === 'Open' ? '<div class="item-actions"><button class="btn btn-primary" onclick="handleAction(\'' + item.actionId + '\', \'acknowledge\')">✓ Acknowledge</button></div>' : ''}
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    // UI Functions
+    function toggleSection(id, forceOpen) {
+      const section = document.getElementById('section-' + id);
+      if (!section) return;
+
+      const header = section.previousElementSibling;
+
+      if (forceOpen) {
+        section.classList.add('expanded');
+        header.classList.add('expanded');
+      } else {
+        section.classList.toggle('expanded');
+        header.classList.toggle('expanded');
+      }
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast ' + type;
+
+      setTimeout(() => toast.classList.add('show'), 10);
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    function refreshData() {
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳';
+
+      loadDashboardData(true).finally(() => {
+        btn.disabled = false;
+        btn.textContent = '🔄 Refresh';
+      });
+    }
+
+    // Action Handlers
+    async function handleApproval(rowIndex, type, response) {
+      try {
+        await performAction('approve', {
+          itemId: type + '_' + rowIndex,
+          type: type,
+          response: response
+        });
+
+        showToast('Response recorded', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    async function approveAll() {
+      if (!confirm('Approve all pending calling approvals?')) return;
+
+      try {
+        await performAction('approveAll', {});
+        showToast('All items approved', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    async function handleAction(actionId, action) {
+      try {
+        await performAction(action, { itemId: actionId });
+        showToast('Action completed', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    async function acknowledgeAllCC() {
+      if (!confirm('Acknowledge all CC items?')) return;
+
+      try {
+        await performAction('ackAllCC', {});
+        showToast('All items acknowledged', 'success');
+        refreshData();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    // Service Worker for PWA (optional but makes it a true PWA)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        // We'll add this later if needed
+      });
     }
   </script>
 </body>
