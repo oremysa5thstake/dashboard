@@ -243,24 +243,59 @@
     let currentMentionId = null;
     let sectionExpanded = {};
 
+    // Cookie helper functions
+    function setCookie(name, value, days) {
+      const expires = days ? `; expires=${new Date(Date.now() + days * 864e5).toUTCString()}` : '';
+      document.cookie = `${name}=${encodeURIComponent(value)}${expires}; path=/; SameSite=Lax`;
+    }
+
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+      return null;
+    }
+
     // Initialize
     window.addEventListener('DOMContentLoaded', initApp);
 
     function initApp() {
+      // Check if running as standalone PWA
+      const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+
       // Get userId from URL first
       const urlParams = new URLSearchParams(window.location.search);
       userId = urlParams.get('userId');
 
-      // If userId in URL, save to localStorage for PWA use
+      // Debug logging
+      console.log('PWA Mode:', isStandalone);
+      console.log('userId from URL:', userId);
+      console.log('Current URL:', window.location.href);
+
+      // If userId in URL, save to both localStorage and cookie for PWA use
       if (userId) {
-        localStorage.setItem('stakeTasksUserId', userId);
+        try {
+          localStorage.setItem('stakeTasksUserId', userId);
+          setCookie('stakeTasksUserId', userId, 365);
+          console.log('Saved userId to localStorage and cookie:', userId);
+        } catch (e) {
+          console.error('Failed to save userId:', e);
+        }
       } else {
-        // If not in URL, try to get from localStorage (PWA home screen launch)
-        userId = localStorage.getItem('stakeTasksUserId');
+        // If not in URL, try to get from localStorage or cookie (PWA home screen launch)
+        try {
+          userId = localStorage.getItem('stakeTasksUserId') || getCookie('stakeTasksUserId');
+          console.log('Retrieved userId from storage:', userId);
+        } catch (e) {
+          console.error('Failed to read userId:', e);
+        }
       }
 
       if (!userId) {
-        showErrorPage('No user ID provided', 'Please use the link provided in your notification to set up your dashboard.');
+        const message = isStandalone
+          ? 'To use the home screen app:<br>1. Open your dashboard link in Safari first<br>2. Then add to home screen<br><br>Contact your stake clerk for your link.'
+          : 'Please use the link provided in your notification.';
+        showErrorPage('No user ID found', message);
         return;
       }
 
