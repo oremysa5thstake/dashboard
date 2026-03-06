@@ -906,13 +906,39 @@
         html += '<div class="section-content expanded" id="section-ccOpen"><div class="section-inner">';
 
         openItems.forEach(item => {
+          const isExtendCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
+          const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
+          const isExtend = isExtendCalling || isExtendRelease;
+          const appointmentStatusHtml = item.appointmentStatus ?
+            `<div class="item-meta" style="${item.appointmentStatus === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(item.appointmentStatus)}</div>` : '';
+          let appointmentControls = '';
+          if (isExtend && (!item.appointmentStatus || item.appointmentStatus === 'Pending')) {
+            appointmentControls = `<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+              <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+            </div>`;
+          }
+
           html += `<div class="item">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
-            ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
-            ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + item.notes + '</div>' : ''}
+            ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
+            ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + escapeHtmlDisplay(item.notes) + '</div>' : ''}
+            ${appointmentStatusHtml}
             <div class="item-actions">
-              <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ccComplete', this)">✓ Mark Complete</button>
-              ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                ${isExtendCalling ?
+                  `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted', this)">✓ Accepted</button>
+                   <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Declined</button>` :
+                  isExtendRelease ?
+                  `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>` :
+                  `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ccComplete', this)">✓ Mark Complete</button>`
+                }
+                ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+                ${isExtend && item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
+                  `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}')">📅 Reschedule</button>` : ''}
+              </div>
+              ${appointmentControls}
             </div>
           </div>`;
         });
@@ -922,7 +948,7 @@
 
       // Completed CC items section (to acknowledge)
       if (completedItems.length > 0) {
-        html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✓ Completed CC Items</div><div class="section-meta"><span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
+        html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✅ Awaiting Acknowledgement</div><div class="section-meta"><span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
         html += '<div class="section-content expanded" id="section-ccCompleted"><div class="section-inner">';
 
         // Add "Acknowledge All" button if more than one item
@@ -956,8 +982,8 @@
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
       html += '<button class="btn btn-primary" onclick="runScript(\'CallingApprovals\')">Process Calling Approvals</button>';
       html += '<button class="btn btn-primary" onclick="runScript(\'PriesthoodOrdinations\')">Process Priesthood Ordinations</button>';
-      html += '<button class="btn btn-primary" onclick="runScript(\'StakeBusinessDoc\')">Generate Stake Business Doc</button>';
-      html += '<button class="btn btn-primary" onclick="runScript(\'NotificationBlast\')">Manual Notification Blast</button>';
+      html += '<button class="btn btn-secondary" onclick="runScript(\'StakeBusinessDoc\')">Generate Stake Business Doc</button>';
+      html += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       html += '</div></div>';
 
       html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';
@@ -1428,8 +1454,8 @@
         return;
       }
 
-      // Open Google Apps Script dashboard (not GitHub) in new tab
-      const url = API_URL + '?userId=' + encodeURIComponent(selectedUserId);
+      // Open GitHub dashboard in new tab
+      const url = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
       window.open(url, '_blank');
     }
 
