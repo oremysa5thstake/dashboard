@@ -178,10 +178,44 @@
           <div id="reassignCCContainer"></div>
           <button type="button" class="btn btn-sm btn-secondary" onclick="addReassignCC()" style="margin-top:8px;">+ Add CC</button>
         </div>
+        <div class="form-group" id="reassignAppointmentWarning" style="display:none;">
+          <div style="padding:10px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;font-size:13px;" id="reassignAppointmentWarningText"></div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:14px;">
+            <input type="checkbox" id="keepAppointmentCheckbox" checked>
+            Keep this appointment date for the reassigned task
+          </label>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeReassignModal()">Cancel</button>
         <button class="btn btn-primary" onclick="submitReassign()">Reassign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reschedule Appointment Modal -->
+  <div class="modal-overlay" id="rescheduleModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">📅 Reschedule Appointment</span>
+        <button class="modal-close" onclick="closeRescheduleModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <div id="rescheduleTaskText" style="padding:10px;background:#f5f5f5;border-radius:6px;font-size:13px;margin-bottom:4px;"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">New Date *</label>
+          <input type="date" class="form-input" id="rescheduleDate">
+        </div>
+        <div class="form-group">
+          <label class="form-label">New Time *</label>
+          <input type="time" class="form-input" id="rescheduleTime">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeRescheduleModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitReschedule()">Update</button>
       </div>
     </div>
   </div>
@@ -237,6 +271,8 @@
     let currentData = null;
     let users = [];
     let currentReassignId = null;
+    let currentReassignAppointmentStatus = null;
+    let currentRescheduleId = null;
     let originalPrimaryIds = [];
     let ccGroupMembers = {};
     let showSettings = false;
@@ -633,8 +669,8 @@
         const canReassign = userData.canReassign || false;
         const isCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
-        const appointmentStatusHtml = item.appointmentStatus ?
-          `<div class="item-meta" style="${item.appointmentStatus === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(item.appointmentStatus)}</div>` : '';
+        const apptText = item.appointmentStatus || 'Pending';
+        const appointmentStatusHtml = `<div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}</div>`;
 
         // Build appointment scheduling controls
         let appointmentControls = '';
@@ -909,8 +945,9 @@
           const isExtendCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
           const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
           const isExtend = isExtendCalling || isExtendRelease;
-          const appointmentStatusHtml = item.appointmentStatus ?
-            `<div class="item-meta" style="${item.appointmentStatus === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(item.appointmentStatus)}</div>` : '';
+          const ccApptText = item.appointmentStatus || (isExtend ? 'Pending' : '');
+          const appointmentStatusHtml = ccApptText ?
+            `<div class="item-meta" style="${ccApptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(ccApptText)}</div>` : '';
           let appointmentControls = '';
           if (isExtend && (!item.appointmentStatus || item.appointmentStatus === 'Pending')) {
             appointmentControls = `<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
@@ -1161,23 +1198,36 @@
       }
     }
 
-    async function rescheduleAppointment(itemId, itemTitle) {
-      // TODO: Implement reschedule modal similar to Google dashboard
-      // For now, just show a simple prompt
-      const newDate = prompt('Enter new appointment date (YYYY-MM-DD):');
-      const newTime = prompt('Enter new appointment time (HH:MM):');
+    function rescheduleAppointment(itemId, itemTitle) {
+      currentRescheduleId = itemId;
+      document.getElementById('rescheduleTaskText').textContent = itemTitle;
+      document.getElementById('rescheduleDate').value = '';
+      document.getElementById('rescheduleTime').value = '';
+      document.getElementById('rescheduleModal').classList.add('show');
+    }
 
-      if (!newDate || !newTime) {
+    function closeRescheduleModal() {
+      document.getElementById('rescheduleModal').classList.remove('show');
+      currentRescheduleId = null;
+    }
+
+    async function submitReschedule() {
+      const dateVal = document.getElementById('rescheduleDate').value;
+      const timeVal = document.getElementById('rescheduleTime').value;
+
+      if (!dateVal || !timeVal) {
+        showToast('Please select both date and time', 'error');
         return;
       }
 
       try {
         await performAction('rescheduleAppointment', {
-          itemId: itemId,
-          appointmentDate: newDate,
-          appointmentTime: newTime
+          itemId: currentRescheduleId,
+          appointmentDate: dateVal,
+          appointmentTime: timeVal
         });
         showToast('Appointment rescheduled', 'success');
+        closeRescheduleModal();
         refreshData();
       } catch (error) {
         showToast('Error rescheduling appointment: ' + error.message, 'error');
@@ -1220,17 +1270,20 @@
 
     async function reassignTask(itemId, itemTitle) {
       currentReassignId = itemId;
+      currentReassignAppointmentStatus = null;
       document.getElementById('reassignTaskText').textContent = itemTitle;
 
       const primaryContainer = document.getElementById('reassignPrimaryContainer');
       const ccContainer = document.getElementById('reassignCCContainer');
       const ccGroupSelect = document.getElementById('reassignCCGroup');
       const ccIndividualsGroup = document.getElementById('reassignCCIndividualsGroup');
+      const apptWarning = document.getElementById('reassignAppointmentWarning');
 
       primaryContainer.innerHTML = '<div style="color:#666;font-size:13px;">Loading...</div>';
       ccContainer.innerHTML = '';
       ccGroupSelect.value = 'none';
       ccIndividualsGroup.style.display = 'none';
+      apptWarning.style.display = 'none';
 
       document.getElementById('reassignModal').classList.add('show');
 
@@ -1245,6 +1298,20 @@
         const primaryIds = result.primaryIds || [];
         const ccIds = result.ccIds || [];
         const rawGroups = result.groups || result.ccGroupMembers || {};
+
+        // Show appointment warning if there's an existing appointment
+        currentReassignAppointmentStatus = result.appointmentStatus || null;
+        const apptWarning = document.getElementById('reassignAppointmentWarning');
+        if (currentReassignAppointmentStatus && currentReassignAppointmentStatus !== 'Pending') {
+          const assigneeName = primaryIds.length > 0 ?
+            (users.find(u => u.id === primaryIds[0]) || {}).name || 'the current assignee' : 'the current assignee';
+          document.getElementById('reassignAppointmentWarningText').textContent =
+            assigneeName + ' already has an appointment scheduled on ' + currentReassignAppointmentStatus + '. Do you want to keep this date for the reassigned task?';
+          document.getElementById('keepAppointmentCheckbox').checked = true;
+          apptWarning.style.display = 'block';
+        } else {
+          apptWarning.style.display = 'none';
+        }
 
         // Map groups
         ccGroupMembers = {};
@@ -1388,6 +1455,7 @@
     function closeReassignModal() {
       document.getElementById('reassignModal').classList.remove('show');
       currentReassignId = null;
+      currentReassignAppointmentStatus = null;
     }
 
     async function submitReassign() {
@@ -1419,10 +1487,15 @@
         // Remove duplicates and primary from CC
         ccIds = ccIds.filter(id => !primaryIds.includes(id));
 
+        const keepAppt = !currentReassignAppointmentStatus ||
+          currentReassignAppointmentStatus === 'Pending' ||
+          document.getElementById('keepAppointmentCheckbox').checked;
+
         await performAction('reassign', {
           itemId: currentReassignId,
           primaryIds: primaryIds.join(','),
-          ccIds: ccIds.join(',')
+          ccIds: ccIds.join(','),
+          keepAppointment: keepAppt ? 'true' : 'false'
         });
 
         showToast('Task reassigned successfully', 'success');
