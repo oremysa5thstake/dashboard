@@ -696,7 +696,7 @@
               }
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
               ${item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
-                `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}')">📅 Reschedule</button>` : ''}
+                `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}', '${escapeHtml(item.appointmentStatus || '')}')">📅 Reschedule</button>` : ''}
             </div>
             ${appointmentControls}
           </div>
@@ -973,7 +973,7 @@
                 }
                 ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
                 ${isExtend && item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
-                  `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}')">📅 Reschedule</button>` : ''}
+                  `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}', '${escapeHtml(item.appointmentStatus || '')}')">📅 Reschedule</button>` : ''}
               </div>
               ${appointmentControls}
             </div>
@@ -1198,11 +1198,35 @@
       }
     }
 
-    function rescheduleAppointment(itemId, itemTitle) {
+    function parseApptStatusToInputs(apptStatus) {
+      if (!apptStatus || apptStatus === 'Pending') return { date: '', time: '' };
+      const atIdx = apptStatus.indexOf(' at ');
+      const datePart = atIdx !== -1 ? apptStatus.substring(0, atIdx) : apptStatus;
+      const timePart = atIdx !== -1 ? apptStatus.substring(atIdx + 4) : '';
+      const d = new Date(datePart);
+      if (isNaN(d.getTime())) return { date: '', time: '' };
+      const dateInput = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+      let timeInput = '';
+      if (timePart) {
+        const m = timePart.match(/^(\d+):(\d+)(am|pm)$/i);
+        if (m) {
+          let h = parseInt(m[1]);
+          if (m[3].toLowerCase() === 'pm' && h !== 12) h += 12;
+          if (m[3].toLowerCase() === 'am' && h === 12) h = 0;
+          timeInput = String(h).padStart(2, '0') + ':' + m[2];
+        }
+      }
+      return { date: dateInput, time: timeInput };
+    }
+
+    function rescheduleAppointment(itemId, itemTitle, currentApptStatus) {
       currentRescheduleId = itemId;
       document.getElementById('rescheduleTaskText').textContent = itemTitle;
-      document.getElementById('rescheduleDate').value = '';
-      document.getElementById('rescheduleTime').value = '';
+      const parsed = parseApptStatusToInputs(currentApptStatus || '');
+      document.getElementById('rescheduleDate').value = parsed.date;
+      document.getElementById('rescheduleTime').value = parsed.time;
       document.getElementById('rescheduleModal').classList.add('show');
     }
 
