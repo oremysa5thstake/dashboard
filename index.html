@@ -777,7 +777,7 @@
             </div>`;
         }
 
-        html += `<div class="item">
+        html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
           ${appointmentStatusHtml}
@@ -830,7 +830,7 @@
       items.forEach(item => {
         const canReassign = userData.canReassign || false;
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
-        html += `<div class="item">
+        html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
           ${item.notes ? '<div class="item-meta">' + item.notes + '</div>' : ''}
@@ -1051,7 +1051,7 @@
             </div>`;
           }
 
-          html += `<div class="item">
+          html += `<div class="item" id="item-${item.actionId}">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
             ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + escapeHtmlDisplay(item.notes) + '</div>' : ''}
@@ -1088,7 +1088,7 @@
         }
 
         completedItems.forEach(item => {
-          html += `<div class="item">
+          html += `<div class="item" id="item-${item.actionId}">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
             <div class="item-meta" style="color:#28a745">✓ Completed by ${item.completedBy || 'Unknown'}</div>
@@ -1585,51 +1585,65 @@
     }
 
     async function submitReassign() {
+      // Collect primary assignees
+      const primarySelects = document.querySelectorAll('[id^="reassignPrimary_"]');
+      const primaryIds = Array.from(primarySelects).map(s => s.value).filter(v => v);
+
+      if (primaryIds.length === 0) {
+        showToast('Please select at least one primary assignee', 'error');
+        return;
+      }
+
+      // Collect CC assignees
+      let ccIds = [];
+      const ccGroup = document.getElementById('reassignCCGroup').value;
+      if (ccGroup === 'other') {
+        const ccSelects = document.querySelectorAll('[id^="reassignCC_"]');
+        ccIds = Array.from(ccSelects).map(s => s.value).filter(v => v);
+      } else if (ccGroup !== 'none') {
+        ccIds = ccGroupMembers[ccGroup] || [];
+      }
+      ccIds = ccIds.filter(id => !primaryIds.includes(id));
+
+      const keepAppt = !currentReassignAppointmentStatus ||
+        currentReassignAppointmentStatus === 'Pending' ||
+        document.getElementById('keepAppointmentCheckbox').checked;
+
+      // Capture these before closing the modal
+      const reassignedId = currentReassignId;
+      const newPrimaryNames = primaryIds.map(id => {
+        const u = users.find(u => u.id === id);
+        return u ? u.name : id;
+      });
+
+      // Close modal and update UI immediately — don't wait for the API
+      closeReassignModal();
+
+      // Optimistically update the "Assigned:" line in all matching item elements
+      const baseId = reassignedId.replace(/_[PC]\d*$/, '');
+      document.querySelectorAll('[id^="item-' + baseId + '"]').forEach(itemEl => {
+        itemEl.querySelectorAll('.item-meta').forEach(div => {
+          const t = div.textContent;
+          if (t.startsWith('Assigned:') || t.startsWith('Assigned to:')) {
+            const prefix = t.startsWith('Assigned to:') ? 'Assigned to: ' : 'Assigned: ';
+            div.textContent = prefix + newPrimaryNames.join(', ');
+          }
+        });
+      });
+
+      setSyncing(true);
       try {
-        // Collect primary assignees
-        const primarySelects = document.querySelectorAll('[id^="reassignPrimary_"]');
-        const primaryIds = Array.from(primarySelects)
-          .map(s => s.value)
-          .filter(v => v);
-
-        if (primaryIds.length === 0) {
-          showToast('Please select at least one primary assignee', 'error');
-          return;
-        }
-
-        // Collect CC assignees
-        let ccIds = [];
-        const ccGroup = document.getElementById('reassignCCGroup').value;
-
-        if (ccGroup === 'other') {
-          const ccSelects = document.querySelectorAll('[id^="reassignCC_"]');
-          ccIds = Array.from(ccSelects)
-            .map(s => s.value)
-            .filter(v => v);
-        } else if (ccGroup !== 'none') {
-          ccIds = ccGroupMembers[ccGroup] || [];
-        }
-
-        // Remove duplicates and primary from CC
-        ccIds = ccIds.filter(id => !primaryIds.includes(id));
-
-        const keepAppt = !currentReassignAppointmentStatus ||
-          currentReassignAppointmentStatus === 'Pending' ||
-          document.getElementById('keepAppointmentCheckbox').checked;
-
-        setSyncing(true);
         await performAction('reassign', {
-          itemId: currentReassignId,
+          itemId: reassignedId,
           primaryIds: primaryIds.join(','),
           ccIds: ccIds.join(','),
           keepAppointment: keepAppt ? 'true' : 'false'
         });
-
         showToast('Task reassigned', 'success');
-        closeReassignModal();
         scheduleSilentRefresh(1000);
       } catch (error) {
-        showToast('Error: ' + error.message, 'error');
+        showToast('Error reassigning: ' + error.message, 'error');
+        scheduleSilentRefresh(0); // Immediate refresh to restore correct state
       } finally {
         setSyncing(false);
       }
