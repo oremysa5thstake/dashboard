@@ -133,6 +133,7 @@
         <button class="header-btn" onclick="openNewTaskModal()">➕ New Task</button>
         <button class="header-btn" onclick="toggleSettings()">⚙️</button>
         <button class="header-btn" id="refreshBtn" onclick="refreshData()" title="Refresh data">🔄 Refresh</button>
+        <span id="syncIndicator" style="font-size:11px;opacity:0.65;visibility:hidden;padding:3px 8px;background:rgba(255,255,255,.15);border-radius:4px;">⏳ Syncing</span>
       </div>
     </header>
 
@@ -279,6 +280,75 @@
     let currentMentionId = null;
     let sectionExpanded = {};
 
+    // ============================================================
+    // CLIENT-SIDE CACHE (instant load + background refresh)
+    // ============================================================
+    const CACHE_VERSION = 1;
+    const DASHBOARD_CACHE_TTL = 5 * 60 * 1000; // 5 min
+    const USERS_CACHE_TTL = 30 * 60 * 1000;    // 30 min
+
+    function saveDashboardCache(data) {
+      try { localStorage.setItem('dashCache_' + userId, JSON.stringify({ v: CACHE_VERSION, data, ts: Date.now() })); } catch (e) {}
+    }
+    function loadDashboardCache() {
+      try {
+        const raw = localStorage.getItem('dashCache_' + userId);
+        if (!raw) return null;
+        const { v, data, ts } = JSON.parse(raw);
+        return (v === CACHE_VERSION && Date.now() - ts < DASHBOARD_CACHE_TTL) ? data : null;
+      } catch (e) { return null; }
+    }
+    function saveUsersCache(data) {
+      try { localStorage.setItem('usersCache_' + userId, JSON.stringify({ v: CACHE_VERSION, data, ts: Date.now() })); } catch (e) {}
+    }
+    function loadUsersCache() {
+      try {
+        const raw = localStorage.getItem('usersCache_' + userId);
+        if (!raw) return null;
+        const { v, data, ts } = JSON.parse(raw);
+        return (v === CACHE_VERSION && Date.now() - ts < USERS_CACHE_TTL) ? data : null;
+      } catch (e) { return null; }
+    }
+
+    // Sync indicator (small, non-blocking)
+    function setSyncing(on) {
+      const el = document.getElementById('syncIndicator');
+      if (el) el.style.visibility = on ? 'visible' : 'hidden';
+    }
+
+    // Silent background refresh — no spinner, preserves scroll position
+    // Only re-renders if counts actually changed
+    let silentRefreshTimer = null;
+    function scheduleSilentRefresh(delay = 6000) {
+      if (silentRefreshTimer) clearTimeout(silentRefreshTimer);
+      silentRefreshTimer = setTimeout(async () => {
+        silentRefreshTimer = null;
+        await silentRefresh();
+      }, delay);
+    }
+    async function silentRefresh() {
+      setSyncing(true);
+      try {
+        const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=true`;
+        const response = await fetch(url, { method: 'GET' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!data || data.success === false) return;
+        saveDashboardCache(data);
+        // Only re-render if counts changed (avoids jarring re-render while user is reading)
+        const changed = !currentData || JSON.stringify(currentData.counts) !== JSON.stringify(data.counts);
+        if (changed && !document.querySelector('.modal-overlay.show')) {
+          const scrollY = window.scrollY;
+          onDataLoaded(data);
+          requestAnimationFrame(() => window.scrollTo(0, scrollY));
+        } else {
+          // Update internal data without re-rendering
+          currentData = data;
+        }
+      } catch (e) { /* silent */ }
+      finally { setSyncing(false); }
+    }
+
     // Storage helper functions
     function setCookie(name, value, days) {
       const expires = days ? `; expires=${new Date(Date.now() + days * 864e5).toUTCString()}` : '';
@@ -404,28 +474,52 @@
 
     // API Functions
     async function loadDashboardData(forceRefresh = false) {
+      // Show cached data immediately — eliminates blank spinner for returning users
+      if (!forceRefresh) {
+        const cached = loadDashboardCache();
+        if (cached) {
+          onDataLoaded(cached);
+          // Fetch fresh data in background; show syncing indicator
+          setSyncing(true);
+          try {
+            const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=false`;
+            const response = await fetch(url, { method: 'GET' });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (!data || data.success === false) return;
+            saveDashboardCache(data);
+            const changed = JSON.stringify(currentData.counts) !== JSON.stringify(data.counts);
+            if (changed) onDataLoaded(data);
+            else currentData = data;
+          } catch (e) { console.error('Background load error:', e); }
+          finally { setSyncing(false); }
+          return;
+        }
+      }
+
+      // No cache: show spinner and wait (first load or manual refresh)
+      if (!currentData) {
+        document.getElementById('content').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading your dashboard...</p></div>';
+      }
+      setSyncing(true);
       try {
         const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=${forceRefresh}`;
-
-        const response = await fetch(url, {
-          method: 'GET'
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
+        const response = await fetch(url, { method: 'GET' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         const data = await response.json();
-
-        if (!data.success && data.error) {
-          throw new Error(data.error);
-        }
-
+        if (!data.success && data.error) throw new Error(data.error);
+        saveDashboardCache(data);
         onDataLoaded(data);
       } catch (error) {
         console.error('Load error:', error);
-        showToast('Failed to load dashboard: ' + error.message, 'error');
-        showErrorPage('Unable to load dashboard', error.message);
+        if (!currentData) {
+          showToast('Failed to load dashboard: ' + error.message, 'error');
+          showErrorPage('Unable to load dashboard', error.message);
+        } else {
+          showToast('Refresh failed — showing previous data', 'error');
+        }
+      } finally {
+        setSyncing(false);
       }
     }
 
@@ -1094,6 +1188,7 @@
       btn.disabled = true;
       btn.textContent = '⏳';
 
+      // Force-refresh: always shows the full reload (explicit user action)
       loadDashboardData(true).finally(() => {
         btn.disabled = false;
         btn.textContent = '🔄 Refresh';
@@ -1102,42 +1197,46 @@
 
     // Action Handlers
     async function approveAll(btn) {
-      // Immediate visual feedback
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = '...';
-      }
-
+      if (btn) { btn.disabled = true; btn.textContent = '...'; }
+      setSyncing(true);
       try {
         await performAction('approveAll', {});
         showToast('All items approved', 'success');
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = '✓ Approve All';
-        }
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Approve All'; }
+      } finally {
+        setSyncing(false);
       }
     }
 
     async function handleAction(actionId, action, btn) {
-      // Immediate visual feedback
-      if (btn) {
+      // Optimistically remove the item from view immediately — user sees instant response
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) {
+        itemEl.style.transition = 'opacity 0.2s';
+        itemEl.style.opacity = '0.25';
+        itemEl.style.pointerEvents = 'none';
+      } else if (btn) {
         btn.disabled = true;
         btn.textContent = '...';
       }
+      setSyncing(true);
 
       try {
         await performAction(action, { itemId: actionId });
-        showToast('Action completed', 'success');
-        refreshData();
+        if (itemEl) itemEl.remove();
+        showToast('Done', 'success');
+        scheduleSilentRefresh(); // Sync sheet changes to UI in background
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-        // Restore button state on error
-        if (btn) {
+        // Restore the item if the API call failed
+        if (itemEl) {
+          itemEl.style.opacity = '1';
+          itemEl.style.pointerEvents = '';
+        } else if (btn) {
           btn.disabled = false;
-          // Try to restore original text based on action
           if (action === 'approve') btn.textContent = '✓ Approve';
           else if (action === 'concern') btn.textContent = '⚠️ Concerns';
           else if (action === 'accepted') btn.textContent = '✓ Extended';
@@ -1145,26 +1244,23 @@
           else if (action === 'acknowledge') btn.textContent = '✓ Acknowledge';
           else btn.textContent = 'Action';
         }
+      } finally {
+        setSyncing(false);
       }
     }
 
     async function acknowledgeAllCC(btn) {
-      // Immediate visual feedback
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = '...';
-      }
-
+      if (btn) { btn.disabled = true; btn.textContent = '...'; }
+      setSyncing(true);
       try {
         await performAction('ackAllCC', {});
         showToast('All items acknowledged', 'success');
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = '✓ Acknowledge All';
-        }
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Acknowledge All'; }
+      } finally {
+        setSyncing(false);
       }
     }
 
@@ -1185,6 +1281,7 @@
         return;
       }
 
+      setSyncing(true);
       try {
         await performAction('scheduleAppointment', {
           itemId: itemId,
@@ -1192,9 +1289,11 @@
           appointmentTime: timeVal
         });
         showToast('Appointment scheduled', 'success');
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error scheduling appointment: ' + error.message, 'error');
+      } finally {
+        setSyncing(false);
       }
     }
 
@@ -1244,6 +1343,7 @@
         return;
       }
 
+      setSyncing(true);
       try {
         await performAction('rescheduleAppointment', {
           itemId: currentRescheduleId,
@@ -1252,33 +1352,34 @@
         });
         showToast('Appointment rescheduled', 'success');
         closeRescheduleModal();
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error rescheduling appointment: ' + error.message, 'error');
+      } finally {
+        setSyncing(false);
       }
     }
 
     async function dismissAllMentions(btn) {
-      // Immediate visual feedback
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = '...';
-      }
-
+      if (btn) { btn.disabled = true; btn.textContent = '...'; }
+      setSyncing(true);
       try {
         await performAction('dismissAllMentions', {});
         showToast('All mentions dismissed', 'success');
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = 'Dismiss All';
-        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Dismiss All'; }
+      } finally {
+        setSyncing(false);
       }
     }
 
     async function loadUsers() {
+      // Use cached user list immediately (users rarely change)
+      const cachedUsers = loadUsersCache();
+      if (cachedUsers) users = cachedUsers;
+
       try {
         const url = `${API_URL}?action=getUsers&userId=${encodeURIComponent(userId)}`;
         const response = await fetch(url, { method: 'GET' });
@@ -1286,6 +1387,7 @@
         const result = await response.json();
         if (result.success && result.users) {
           users = result.users;
+          saveUsersCache(users);
         }
       } catch (error) {
         console.error('Error loading users:', error);
@@ -1515,6 +1617,7 @@
           currentReassignAppointmentStatus === 'Pending' ||
           document.getElementById('keepAppointmentCheckbox').checked;
 
+        setSyncing(true);
         await performAction('reassign', {
           itemId: currentReassignId,
           primaryIds: primaryIds.join(','),
@@ -1522,11 +1625,13 @@
           keepAppointment: keepAppt ? 'true' : 'false'
         });
 
-        showToast('Task reassigned successfully', 'success');
+        showToast('Task reassigned', 'success');
         closeReassignModal();
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
+      } finally {
+        setSyncing(false);
       }
     }
 
@@ -1690,6 +1795,7 @@
 
       const dueDate = date + (time ? ' ' + time : '');
 
+      setSyncing(true);
       try {
         await performAction('createTask', {
           description: desc,
@@ -1701,9 +1807,11 @@
 
         showToast('Task created', 'success');
         closeModal('newTaskModal');
-        refreshData();
+        scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
+      } finally {
+        setSyncing(false);
       }
     }
 
