@@ -712,6 +712,10 @@
         html += renderAssignedToOthersSection(data.assignedToOthers);
       }
 
+      if (data.stakeBusinessItems && data.stakeBusinessItems.length > 0) {
+        html += renderStakeBusinessSection(data.stakeBusinessItems, data.highCouncilors || []);
+      }
+
       // Admin Tools section
       if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
         html += renderAdminSection(data.adminUsers);
@@ -722,7 +726,8 @@
           data.ordinations?.length || data.appointmentItems?.length ||
           data.coordinateItems?.length || data.ordinationNotifications?.length ||
           data.settingAparts?.length || data.clerkReviews?.length ||
-          data.interviews?.length || data.myTasks?.length || data.ccItems?.length;
+          data.interviews?.length || data.myTasks?.length || data.ccItems?.length ||
+          data.stakeBusinessItems?.length;
 
       if (!hasAnyItems) {
         html += '<div class="empty-state"><div class="icon">✨</div><p>You\'re all caught up!</p><p style="font-size:12px;color:#999;margin-top:8px">No pending items at this time</p></div>';
@@ -804,6 +809,10 @@
     function renderOrdinationsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordinations"><div class="section-inner">';
+
+      if (items.length > 1) {
+        html += '<div class="bulk-actions"><button class="btn btn-success" onclick="sustainAllOrdinations(this)">✓ Sustain All</button></div>';
+      }
 
       items.forEach(item => {
         // Construct itemId in format: "ordination_ROWINDEX"
@@ -1834,6 +1843,118 @@
       document.getElementById('taskDueDate').value = '';
       document.getElementById('taskDueTime').value = '';
       document.getElementById('taskNotes').value = '';
+    }
+
+    // ============================================================
+    // PRIESTHOOD ORDINATIONS — Sustain All
+    // ============================================================
+
+    async function sustainAllOrdinations(btn) {
+      if (btn) { btn.disabled = true; btn.textContent = '...'; }
+      setSyncing(true);
+      try {
+        await performAction('sustainAll', {});
+        showToast('All ordinations sustained', 'success');
+        scheduleSilentRefresh(1000);
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Sustain All'; }
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    // ============================================================
+    // STAKE BUSINESS CONFIRMATIONS
+    // ============================================================
+
+    function renderStakeBusinessSection(items, highCouncilors) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'stakeBusiness\')"><div class="section-title">⛪ Stake Business Confirmations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-stakeBusiness"><div class="section-inner">';
+
+      items.forEach(item => {
+        // HC dropdown excludes the logged-in user (current assignee)
+        const hcOptions = highCouncilors
+          .filter(u => u.id !== userId)
+          .map(u => `<option value="${u.id}">${escapeHtmlDisplay(u.name)}</option>`)
+          .join('');
+
+        const notesDisplay = (item.notes || '').replace(/\n/g, ' · ');
+
+        html += `<div class="item" id="item-${item.actionId}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
+          ${notesDisplay ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(notesDisplay)}</div>` : ''}
+          <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-success" onclick="handleSBConfirm('${item.actionId}', this)">✓ Yes, I'll Be There</button>
+              <button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Need Replacement</button>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <span style="font-size:13px;color:#555;">Already found a replacement:</span>
+              <select class="form-select" id="sbReplacement_${item.actionId}" style="width:auto;max-width:240px;font-size:13px;">
+                <option value="">Select HC...</option>
+                ${hcOptions}
+              </select>
+              <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSBHaveReplacement('${item.actionId}', this)">↻ Assign Replacement</button>
+            </div>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function handleSBConfirm(actionId, btn) {
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('sbConfirm', { itemId: actionId });
+        if (itemEl) itemEl.remove();
+        showToast('Confirmed — thank you!', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
+    }
+
+    async function handleSBNeedReplacement(actionId, btn) {
+      if (!confirm('This will mark you as unavailable and notify the stake clerks to find a replacement. Continue?')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('sbNeedReplacement', { itemId: actionId });
+        if (itemEl) itemEl.remove();
+        showToast('Clerks have been notified', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
+    }
+
+    async function handleSBHaveReplacement(actionId, btn) {
+      const sel = document.getElementById('sbReplacement_' + actionId);
+      const replacementId = sel ? sel.value : '';
+      if (!replacementId) {
+        showToast('Please select a replacement HC first', 'error');
+        return;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('sbHaveReplacement', { itemId: actionId, replacementId: replacementId });
+        if (itemEl) itemEl.remove();
+        showToast('Replacement assigned and notified', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
     }
 
     // Service Worker for PWA (optional but makes it a true PWA)
