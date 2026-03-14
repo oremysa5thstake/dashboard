@@ -660,6 +660,10 @@
       }
 
       // Sections
+      if (data.stakeBusinessItems && data.stakeBusinessItems.length > 0) {
+        html += renderStakeBusinessSection(data.stakeBusinessItems, data.highCouncilors || []);
+      }
+
       if (data.approvals && data.approvals.length > 0) {
         html += renderApprovalsSection(data.approvals);
       }
@@ -710,10 +714,6 @@
 
       if (data.assignedToOthers && data.assignedToOthers.length > 0) {
         html += renderAssignedToOthersSection(data.assignedToOthers);
-      }
-
-      if (data.stakeBusinessItems && data.stakeBusinessItems.length > 0) {
-        html += renderStakeBusinessSection(data.stakeBusinessItems, data.highCouncilors || []);
       }
 
       // Admin Tools section
