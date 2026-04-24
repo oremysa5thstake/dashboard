@@ -948,20 +948,61 @@
 
       items.forEach(item => {
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
-        const commentInfo = item.comment ? `<div class="item-meta">Comment: ${escapeHtml(item.comment)}</div>` : '';
+        // Comment reviews: show the actual comment text; others: show the context note (calling/submitter info)
+        const notesInfo = (item.actionType !== 'clerk-review-comment' && item.notes) ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
+        const commentInfo = (item.actionType === 'clerk-review-comment' && item.comment) ? `<div class="item-meta">Comment: "${escapeHtml(item.comment)}"</div>` : '';
+
+        let actionButtons = '';
+        if (item.actionType === 'clerk-review-ctr') {
+          actionButtons = `
+            <button class="btn btn-success" onclick="handleClerkReview('${item.actionId}', 'ctrReview', 'yes', this)">✓ Yes — Has CTR</button>
+            <button class="btn btn-danger" onclick="handleClerkReview('${item.actionId}', 'ctrReview', 'no', this)">✗ No — No CTR</button>`;
+        } else if (item.actionType === 'clerk-review-priesthood') {
+          actionButtons = `
+            <button class="btn btn-secondary" onclick="handleClerkReview('${item.actionId}', 'priesthoodReview', 'aaronic', this)">Aaronic Priesthood</button>
+            <button class="btn btn-primary" onclick="handleClerkReview('${item.actionId}', 'priesthoodReview', 'elder', this)">Office of Elder</button>
+            <button class="btn btn-primary" onclick="handleClerkReview('${item.actionId}', 'priesthoodReview', 'highpriest', this)">Office of High Priest</button>`;
+        } else {
+          // clerk-review-comment
+          actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">✓ Proceed with Polling</button>`;
+        }
 
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
+          ${notesInfo}
           ${commentInfo}
-          <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">✓ Review Complete</button>
+          <div class="item-actions">${actionButtons}
           </div>
         </div>`;
       });
 
       html += '</div></div></div>';
       return html;
+    }
+
+    async function handleClerkReview(actionId, action, response, btn) {
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) {
+        itemEl.style.transition = 'opacity 0.2s';
+        itemEl.style.opacity = '0.25';
+        itemEl.style.pointerEvents = 'none';
+      }
+      setSyncing(true);
+      try {
+        await performAction(action, { itemId: actionId, response: response });
+        if (itemEl) itemEl.remove();
+        showToast('Done', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) {
+          itemEl.style.opacity = '1';
+          itemEl.style.pointerEvents = '';
+        }
+      } finally {
+        setSyncing(false);
+      }
     }
 
     function renderInterviewsSection(items) {
