@@ -700,6 +700,14 @@
         html += renderInterviewsSection(data.interviews);
       }
 
+      if (data.ordinationInterviewSchedules && data.ordinationInterviewSchedules.length > 0) {
+        html += renderOrdinationInterviewSchedulesSection(data.ordinationInterviewSchedules, data.stakePresidency || []);
+      }
+
+      if (data.ordinationInterviews && data.ordinationInterviews.length > 0) {
+        html += renderOrdinationInterviewsSection(data.ordinationInterviews);
+      }
+
       if (data.myTasks && data.myTasks.length > 0) {
         html += renderTasksSection(data.myTasks);
       }
@@ -726,7 +734,8 @@
           data.ordinations?.length || data.appointmentItems?.length ||
           data.coordinateItems?.length || data.ordinationNotifications?.length ||
           data.settingAparts?.length || data.clerkReviews?.length ||
-          data.interviews?.length || data.myTasks?.length || data.ccItems?.length ||
+          data.interviews?.length || data.ordinationInterviewSchedules?.length ||
+          data.ordinationInterviews?.length || data.myTasks?.length || data.ccItems?.length ||
           data.stakeBusinessItems?.length;
 
       if (!hasAnyItems) {
@@ -1017,6 +1026,87 @@
           ${assignedInfo}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'scheduled', this)">✓ Scheduled</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderOrdinationInterviewSchedulesSection(items, stakePresidency) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordInterviewSched\')"><div class="section-title">📋 Ordination Interviews to Schedule</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-ordInterviewSched"><div class="section-inner">';
+
+      const spOptions = stakePresidency.map(sp =>
+        `<option value="${escapeHtml(sp.id)}">${escapeHtml(sp.name)}</option>`
+      ).join('');
+
+      items.forEach(item => {
+        const notesInfo = item.notes ? `<div class="item-meta" style="font-style:italic;">${escapeHtml(item.notes)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${escapeHtml(item.displayText) || 'N/A'}</div></div>
+          ${notesInfo}
+          <div class="item-actions">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <select id="spSelect_${item.actionId}" class="form-input" style="font-size:13px;padding:6px;">
+                <option value="">Select SP member...</option>
+                ${spOptions}
+              </select>
+              <button class="btn btn-success" onclick="handleAssignOrdinationInterview('${item.actionId}', this)">Assign Interview</button>
+            </div>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function handleAssignOrdinationInterview(actionId, btn) {
+      const select = document.getElementById('spSelect_' + actionId);
+      const spMemberId = select ? select.value : '';
+      if (!spMemberId) {
+        showToast('Please select a stake presidency member', 'error');
+        return;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) {
+        itemEl.style.transition = 'opacity 0.2s';
+        itemEl.style.opacity = '0.25';
+        itemEl.style.pointerEvents = 'none';
+      }
+      setSyncing(true);
+      try {
+        await performAction('assignOrdinationInterview', { itemId: actionId, spMemberId: spMemberId });
+        if (itemEl) itemEl.remove();
+        showToast('Interview assigned', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) {
+          itemEl.style.opacity = '1';
+          itemEl.style.pointerEvents = '';
+        }
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    function renderOrdinationInterviewsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordInterviews\')"><div class="section-title">🤝 Ordination Interviews</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-ordInterviews"><div class="section-inner">';
+
+      items.forEach(item => {
+        const notesInfo = item.notes ? `<div class="item-meta" style="font-style:italic;">${escapeHtml(item.notes)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${escapeHtml(item.displayText) || 'N/A'}</div></div>
+          ${notesInfo}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ordinationInterviewPassed', this)">Interview Passed</button>
+            <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewReturnToBishop', this)">Return to Bishop</button>
           </div>
         </div>`;
       });
