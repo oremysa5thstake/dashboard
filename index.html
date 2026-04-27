@@ -221,6 +221,52 @@
     </div>
   </div>
 
+  <!-- Ordination Report Modal -->
+  <div class="modal-overlay" id="ordinationReportModal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <span class="modal-title">📝 Report Ordination</span>
+        <button class="modal-close" onclick="closeOrdinationReportModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Date of Ordination *</label>
+          <input type="date" class="form-input" id="ordRepDateOrdained">
+        </div>
+        <div style="font-weight:600;font-size:14px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #eee;">Person Who Performed the Ordination</div>
+        <div class="form-group">
+          <label class="form-label">Full Name *</label>
+          <input type="text" class="form-input" id="ordRepOrdainerName" placeholder="Full name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Birth Date *</label>
+          <input type="date" class="form-input" id="ordRepOrdainerBirthDate">
+        </div>
+        <div class="form-group">
+          <label class="form-label">MRN (Member Record Number)</label>
+          <input type="text" class="form-input" id="ordRepOrdainerMRN" placeholder="e.g. 123456789">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Office / Priesthood</label>
+          <input type="text" class="form-input" id="ordRepOrdainerOffice" placeholder="e.g. High Priest">
+        </div>
+        <div style="font-weight:600;font-size:14px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #eee;">Stake Representative</div>
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-input" id="ordRepStakeRepName" placeholder="Name of stake representative present">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Calling</label>
+          <input type="text" class="form-input" id="ordRepStakeRepCalling" placeholder="e.g. High Councilor">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeOrdinationReportModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitOrdinationReport()">Submit Report</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Create Task Modal -->
   <div class="modal-overlay" id="newTaskModal">
     <div class="modal">
@@ -685,7 +731,7 @@
       }
 
       if (data.ordinationNotifications && data.ordinationNotifications.length > 0) {
-        html += renderOrdinationNotificationsSection(data.ordinationNotifications);
+        html += renderOrdinationNotificationsSection(data.ordinationNotifications, data.highCouncilors || []);
       }
 
       if (data.settingAparts && data.settingAparts.length > 0) {
@@ -706,6 +752,10 @@
 
       if (data.ordinationInterviews && data.ordinationInterviews.length > 0) {
         html += renderOrdinationInterviewsSection(data.ordinationInterviews);
+      }
+
+      if (data.ordinationReports && data.ordinationReports.length > 0) {
+        html += renderOrdinationReportsSection(data.ordinationReports);
       }
 
       if (data.myTasks && data.myTasks.length > 0) {
@@ -735,7 +785,8 @@
           data.coordinateItems?.length || data.ordinationNotifications?.length ||
           data.settingAparts?.length || data.clerkReviews?.length ||
           data.interviews?.length || data.ordinationInterviewSchedules?.length ||
-          data.ordinationInterviews?.length || data.myTasks?.length || data.ccItems?.length ||
+          data.ordinationInterviews?.length || data.ordinationReports?.length ||
+          data.myTasks?.length || data.ccItems?.length ||
           data.stakeBusinessItems?.length;
 
       if (!hasAnyItems) {
@@ -910,18 +961,32 @@
       return html;
     }
 
-    function renderOrdinationNotificationsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Notifications</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+    function renderOrdinationNotificationsSection(items, highCouncilors) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Sustaining</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordNotify"><div class="section-inner">';
 
-      items.forEach(item => {
-        const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
+      const hcOptions = (highCouncilors || [])
+        .filter(u => u.id !== userId)
+        .map(u => `<option value="${u.id}">${escapeHtmlDisplay(u.name)}</option>`)
+        .join('');
 
-        html += `<div class="item">
-          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
-          ${assignedInfo}
-          <div class="item-actions">
-            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'ackOrdNotify', this)">✓ Acknowledge</button>
+      items.forEach(item => {
+        const prefDateInfo = item.preferredOrdinationDate
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
+
+        html += `<div class="item" id="item-${item.actionId}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${prefDateInfo}
+          <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:8px;">
+            <button class="btn btn-success" onclick="handleReportSustaining('${item.actionId}', this)">✓ Report Sustained</button>
+            ${hcOptions ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <span style="font-size:13px;color:#555;">Transfer to another HC:</span>
+              <select class="form-select" id="hcTransfer_${item.actionId}" style="width:auto;max-width:240px;font-size:13px;">
+                <option value="">Select HC...</option>
+                ${hcOptions}
+              </select>
+              <button class="btn btn-secondary btn-sm" onclick="handleTransferOrdinationNotification('${item.actionId}', this)">↻ Transfer</button>
+            </div>` : ''}
           </div>
         </div>`;
       });
@@ -1043,17 +1108,24 @@
       ).join('');
 
       items.forEach(item => {
-        const notesInfo = item.notes ? `<div class="item-meta" style="font-style:italic;">${escapeHtml(item.notes)}</div>` : '';
+        const prefDateInfo = item.preferredOrdinationDate
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
+        const assignedInfo = item.isCC
+          ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd — you may also schedule this interview</div>`
+          : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
 
         html += `<div class="item">
-          <div class="item-header"><div class="item-title">${escapeHtml(item.displayText) || 'N/A'}</div></div>
-          ${notesInfo}
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${assignedInfo}
+          ${prefDateInfo}
           <div class="item-actions">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <select id="spSelect_${item.actionId}" class="form-input" style="font-size:13px;padding:6px;">
                 <option value="">Select SP member...</option>
                 ${spOptions}
               </select>
+              <input type="date" id="ordIntApptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="ordIntApptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <button class="btn btn-success" onclick="handleAssignOrdinationInterview('${item.actionId}', this)">Assign Interview</button>
             </div>
           </div>
@@ -1071,6 +1143,11 @@
         showToast('Please select a stake presidency member', 'error');
         return;
       }
+      const dateInput = document.getElementById('ordIntApptDate_' + actionId);
+      const timeInput = document.getElementById('ordIntApptTime_' + actionId);
+      const dateVal = dateInput ? dateInput.value : '';
+      const timeVal = timeInput ? timeInput.value : '';
+      const appointmentDateTime = (dateVal && timeVal) ? dateVal + 'T' + timeVal : '';
       const itemEl = btn ? btn.closest('.item') : null;
       if (itemEl) {
         itemEl.style.transition = 'opacity 0.2s';
@@ -1079,7 +1156,7 @@
       }
       setSyncing(true);
       try {
-        await performAction('assignOrdinationInterview', { itemId: actionId, spMemberId: spMemberId });
+        await performAction('assignOrdinationInterview', { itemId: actionId, spMemberId: spMemberId, appointmentDateTime: appointmentDateTime });
         if (itemEl) itemEl.remove();
         showToast('Interview assigned', 'success');
         scheduleSilentRefresh();
@@ -1099,14 +1176,43 @@
       html += '<div class="section-content expanded" id="section-ordInterviews"><div class="section-inner">';
 
       items.forEach(item => {
-        const notesInfo = item.notes ? `<div class="item-meta" style="font-style:italic;">${escapeHtml(item.notes)}</div>` : '';
+        const apptMatch = (item.notes || '').match(/Appointment:\s*(.+)/);
+        const apptText = apptMatch ? apptMatch[1].trim() : '';
+        const apptInfo = apptText ? `<div class="item-meta" style="color:#28a745;font-style:italic;">Appointment: ${escapeHtmlDisplay(apptText)}</div>` : '';
+        const prefDateInfo = item.preferredOrdinationDate
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
 
         html += `<div class="item">
-          <div class="item-header"><div class="item-title">${escapeHtml(item.displayText) || 'N/A'}</div></div>
-          ${notesInfo}
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${apptInfo}
+          ${prefDateInfo}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ordinationInterviewPassed', this)">Interview Passed</button>
             <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewReturnToBishop', this)">Return to Bishop</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderOrdinationReportsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordReports\')"><div class="section-title">📜 Ordinations to Report</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-ordReports"><div class="section-inner">';
+
+      items.forEach(item => {
+        const prefDateInfo = item.preferredOrdinationDate
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
+        const instructionText = item.notes
+          ? `<div class="item-meta" style="font-size:13px;color:#555;line-height:1.5;margin-bottom:4px;">${escapeHtmlDisplay(item.notes)}</div>` : '';
+
+        html += `<div class="item" id="item-${item.actionId}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${prefDateInfo}
+          ${instructionText}
+          <div class="item-actions">
+            <button class="btn btn-primary" onclick="openOrdinationReportModal('${item.actionId}')">📝 Report Ordination</button>
           </div>
         </div>`;
       });
@@ -2086,6 +2192,108 @@
         showToast('Error: ' + error.message, 'error');
         if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
       } finally { setSyncing(false); }
+    }
+
+    // ============================================================
+    // ORDINATION REPORT
+    // ============================================================
+
+    let currentOrdinationReportItemId = null;
+
+    function openOrdinationReportModal(itemId) {
+      currentOrdinationReportItemId = itemId;
+      document.getElementById('ordRepDateOrdained').value = '';
+      document.getElementById('ordRepOrdainerName').value = '';
+      document.getElementById('ordRepOrdainerBirthDate').value = '';
+      document.getElementById('ordRepOrdainerMRN').value = '';
+      document.getElementById('ordRepOrdainerOffice').value = '';
+      document.getElementById('ordRepStakeRepName').value = '';
+      document.getElementById('ordRepStakeRepCalling').value = '';
+      document.getElementById('ordinationReportModal').classList.add('show');
+    }
+
+    function closeOrdinationReportModal() {
+      document.getElementById('ordinationReportModal').classList.remove('show');
+      currentOrdinationReportItemId = null;
+    }
+
+    async function submitOrdinationReport() {
+      const dateOrdained = document.getElementById('ordRepDateOrdained').value;
+      const ordainerName = document.getElementById('ordRepOrdainerName').value.trim();
+      const ordainerBirthDate = document.getElementById('ordRepOrdainerBirthDate').value;
+      if (!dateOrdained || !ordainerName || !ordainerBirthDate) {
+        showToast('Please fill in required fields (date, ordainer name, birth date)', 'error');
+        return;
+      }
+      setSyncing(true);
+      try {
+        await performAction('submitOrdinationReport', {
+          itemId: currentOrdinationReportItemId,
+          dateOrdained: dateOrdained,
+          ordainerName: ordainerName,
+          ordainerBirthDate: ordainerBirthDate,
+          ordainerMRN: document.getElementById('ordRepOrdainerMRN').value.trim(),
+          ordainerOffice: document.getElementById('ordRepOrdainerOffice').value.trim(),
+          stakeRepName: document.getElementById('ordRepStakeRepName').value.trim(),
+          stakeRepCalling: document.getElementById('ordRepStakeRepCalling').value.trim()
+        });
+        const itemEl = document.getElementById('item-' + currentOrdinationReportItemId);
+        if (itemEl) itemEl.remove();
+        showToast('Ordination reported — thank you!', 'success');
+        closeOrdinationReportModal();
+        scheduleSilentRefresh(1000);
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    // ============================================================
+    // ORDINATION SUSTAINING — Report Sustained + Transfer
+    // ============================================================
+
+    async function handleReportSustaining(actionId, btn) {
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('reportSustaining', { itemId: actionId });
+        if (itemEl) itemEl.remove();
+        showToast('Sustaining reported', 'success');
+        scheduleSilentRefresh(1000);
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    async function handleTransferOrdinationNotification(actionId, btn) {
+      const sel = document.getElementById('hcTransfer_' + actionId);
+      const newAssigneeId = sel ? sel.value : '';
+      if (!newAssigneeId) {
+        showToast('Please select a high councilor to transfer to', 'error');
+        return;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('transferOrdinationNotification', {
+          itemId: actionId,
+          newAssigneeId: newAssigneeId
+        });
+        if (itemEl) itemEl.remove();
+        showToast('Task transferred', 'success');
+        scheduleSilentRefresh(1000);
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally {
+        setSyncing(false);
+      }
     }
 
     // Service Worker for PWA (optional but makes it a true PWA)
