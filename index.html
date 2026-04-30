@@ -1128,6 +1128,10 @@
               <input type="time" id="ordIntApptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <button class="btn btn-success" onclick="handleAssignOrdinationInterview('${item.actionId}', this)">Assign Interview</button>
             </div>
+            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+              <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ordinationInterviewSchedulePassed', this)">Interview Passed</button>
+              <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewScheduleReturnToBishop', this)">Return to Bishop</button>
+            </div>
           </div>
         </div>`;
       });
