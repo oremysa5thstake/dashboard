@@ -122,6 +122,16 @@
     .radio-option:hover{background:#f5f5f5;border-color:#5865F2}
     .radio-option.selected{background:#5865F2;color:#fff;border-color:#5865F2}
     @media(max-width:600px){.container{padding:12px}header{flex-direction:column;text-align:center}.header-right{width:100%;justify-content:center}.summary-bar{flex-direction:column}}
+    .help-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#d8d8d8;color:#555;font-size:11px;font-weight:700;cursor:pointer;border:none;padding:0;line-height:1;transition:all .15s;flex-shrink:0;font-family:inherit}
+    .help-btn:hover{background:#5865F2;color:#fff;transform:scale(1.1)}
+    .help-popover{position:fixed;background:#fff;border:1px solid #ddd;border-radius:10px;padding:14px 16px 12px;box-shadow:0 6px 20px rgba(0,0,0,.18);font-size:13px;line-height:1.5;color:#333;max-width:320px;min-width:240px;z-index:1100;display:none}
+    .help-popover.show{display:block}
+    .help-popover h4{font-size:14px;margin-bottom:8px;color:#1a1a1a;padding-right:22px;font-weight:600}
+    .help-popover p{margin-bottom:6px}
+    .help-popover ul{margin:6px 0 6px 18px}
+    .help-popover li{margin-bottom:4px}
+    .help-popover-close{position:absolute;top:6px;right:8px;background:none;border:none;font-size:20px;cursor:pointer;color:#999;line-height:1;padding:0;width:24px;height:24px}
+    .help-popover-close:hover{color:#333}
   </style>
 </head>
 <body>
@@ -146,6 +156,7 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <div class="help-popover" id="helpPopover"></div>
 
   <!-- Reassign Modal -->
   <div class="modal-overlay" id="reassignModal">
@@ -640,7 +651,7 @@
         html += `<div class="stake-links">
           <div class="stake-links-header" onclick="toggleStakeLinks()">
             <span>🔗 Stake Links</span>
-            <span class="chevron" id="stakeLinksChevron">${linksExpanded ? '▲' : '▼'}</span>
+            <span style="display:flex;align-items:center;gap:10px;">${helpBtn('stakeLinks')}<span class="chevron" id="stakeLinksChevron">${linksExpanded ? '▲' : '▼'}</span></span>
           </div>
           <div class="stake-links-content${linksExpanded ? ' expanded' : ''}" id="stakeLinksContent">
             <div class="stake-links-inner">`;
@@ -797,7 +808,7 @@
     }
 
     function renderApprovalsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta">' + helpBtn('approvals') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-approvals"><div class="section-inner">';
       html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll(this)">✓ Approve All</button></div>';
 
@@ -821,7 +832,7 @@
     }
 
     function renderExtendSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Callings & Releases to Extend</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Callings & Releases to Extend</div><div class="section-meta">' + helpBtn('extend') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-extend"><div class="section-inner">';
 
       items.forEach(item => {
@@ -867,7 +878,7 @@
     }
 
     function renderOrdinationsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta">' + helpBtn('ordinations') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordinations"><div class="section-inner">';
 
       if (items.length > 1) {
@@ -893,7 +904,7 @@
     }
 
     function renderTasksSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mytasks\')"><div class="section-title">✅ My Tasks</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mytasks\')"><div class="section-title">✅ My Tasks</div><div class="section-meta">' + helpBtn('mytasks') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-mytasks"><div class="section-inner">';
 
       items.forEach(item => {
@@ -916,7 +927,7 @@
     }
 
     function renderAppointmentsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'appointments\')"><div class="section-title">📅 Appointments to Schedule</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'appointments\')"><div class="section-title">📅 Appointments to Schedule</div><div class="section-meta">' + helpBtn('appointments') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-appointments"><div class="section-inner">';
 
       items.forEach(item => {
@@ -942,7 +953,7 @@
     }
 
     function renderCoordinateOrdinationsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'coordinateOrd\')"><div class="section-title">⛪ Ordinations to Coordinate</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'coordinateOrd\')"><div class="section-title">⛪ Ordinations to Coordinate</div><div class="section-meta">' + helpBtn('coordinateOrd') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-coordinateOrd"><div class="section-inner">';
 
       items.forEach(item => {
@@ -962,7 +973,7 @@
     }
 
     function renderOrdinationNotificationsSection(items, highCouncilors) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Sustaining</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Sustaining</div><div class="section-meta">' + helpBtn('ordNotify') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordNotify"><div class="section-inner">';
 
       const hcOptions = (highCouncilors || [])
@@ -996,7 +1007,7 @@
     }
 
     function renderSettingApartsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingAparts\')"><div class="section-title">🙏 Setting Aparts</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingAparts\')"><div class="section-title">🙏 Setting Aparts</div><div class="section-meta">' + helpBtn('settingAparts') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-settingAparts"><div class="section-inner">';
 
       items.forEach(item => {
@@ -1017,7 +1028,7 @@
     }
 
     function renderClerkReviewsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'clerkReviews\')"><div class="section-title">📝 Clerk Reviews</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'clerkReviews\')"><div class="section-title">📝 Clerk Reviews</div><div class="section-meta">' + helpBtn('clerkReviews') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-clerkReviews"><div class="section-inner">';
 
       items.forEach(item => {
@@ -1080,7 +1091,7 @@
     }
 
     function renderInterviewsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'interviews\')"><div class="section-title">📅 Interviews to Schedule</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'interviews\')"><div class="section-title">📅 Interviews to Schedule</div><div class="section-meta">' + helpBtn('interviews') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-interviews"><div class="section-inner">';
 
       items.forEach(item => {
@@ -1100,7 +1111,7 @@
     }
 
     function renderOrdinationInterviewSchedulesSection(items, stakePresidency) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordInterviewSched\')"><div class="section-title">📋 Ordination Interviews to Schedule</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordInterviewSched\')"><div class="section-title">📋 Ordination Interviews to Schedule</div><div class="section-meta">' + helpBtn('ordInterviewSched') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordInterviewSched"><div class="section-inner">';
 
       const spOptions = stakePresidency.map(sp =>
@@ -1176,7 +1187,7 @@
     }
 
     function renderOrdinationInterviewsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordInterviews\')"><div class="section-title">🤝 Ordination Interviews</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordInterviews\')"><div class="section-title">🤝 Ordination Interviews</div><div class="section-meta">' + helpBtn('ordInterviews') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordInterviews"><div class="section-inner">';
 
       items.forEach(item => {
@@ -1202,7 +1213,7 @@
     }
 
     function renderOrdinationReportsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordReports\')"><div class="section-title">📜 Ordinations to Report</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordReports\')"><div class="section-title">📜 Ordinations to Report</div><div class="section-meta">' + helpBtn('ordReports') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordReports"><div class="section-inner">';
 
       items.forEach(item => {
@@ -1226,7 +1237,7 @@
     }
 
     function renderMentionsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mentions\')"><div class="section-title">🏷️ Mentions</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mentions\')"><div class="section-title">🏷️ Mentions</div><div class="section-meta">' + helpBtn('mentions') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-mentions"><div class="section-inner">';
 
       if (items.length > 1) {
@@ -1252,7 +1263,7 @@
     }
 
     function renderAssignedToOthersSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'assigned\')"><div class="section-title">👥 Tasks You\'ve Assigned</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'assigned\')"><div class="section-title">👥 Tasks You\'ve Assigned</div><div class="section-meta">' + helpBtn('assigned') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-assigned"><div class="section-inner">';
 
       items.forEach(item => {
@@ -1282,7 +1293,7 @@
 
       // Open CC items section
       if (openItems.length > 0) {
-        html += '<div class="section cc-section"><div class="section-header expanded" onclick="toggleSection(\'ccOpen\')"><div class="section-title">📎 CC\'d Items</div><div class="section-meta"><span class="section-count">' + openItems.length + '</span><span class="chevron">▼</span></div></div>';
+        html += '<div class="section cc-section"><div class="section-header expanded" onclick="toggleSection(\'ccOpen\')"><div class="section-title">📎 CC\'d Items</div><div class="section-meta">' + helpBtn('ccOpen') + '<span class="section-count">' + openItems.length + '</span><span class="chevron">▼</span></div></div>';
         html += '<div class="section-content expanded" id="section-ccOpen"><div class="section-inner">';
 
         openItems.forEach(item => {
@@ -1329,7 +1340,7 @@
 
       // Completed CC items section (to acknowledge)
       if (completedItems.length > 0) {
-        html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✅ Awaiting Acknowledgement</div><div class="section-meta"><span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
+        html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✅ Awaiting Acknowledgement</div><div class="section-meta">' + helpBtn('ccCompleted') + '<span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
         html += '<div class="section-content expanded" id="section-ccCompleted"><div class="section-inner">';
 
         // Add "Acknowledge All" button if more than one item
@@ -1356,7 +1367,7 @@
     }
 
     function renderAdminSection(adminUsers) {
-      let html = '<div class="section admin-section"><div class="section-header expanded" onclick="toggleSection(\'admin\')"><div class="section-title">🔧 Admin Tools</div><div class="section-meta"><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section admin-section"><div class="section-header expanded" onclick="toggleSection(\'admin\')"><div class="section-title">🔧 Admin Tools</div><div class="section-meta">' + helpBtn('admin') + '<span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-admin"><div class="section-inner">';
 
       html += '<div style="margin-bottom:20px;"><div class="settings-label">📜 Run Scripts</div>';
@@ -1382,6 +1393,217 @@
 
       return html;
     }
+
+    // ============================================================
+    // SECTION HELP TEXT — edit the wording below to change
+    // what the "?" popup shows for each section. To turn the help
+    // button OFF for a section, delete or comment out its entry.
+    // `body` accepts simple HTML (<p>, <ul>, <li>, <b>, etc.).
+    // ============================================================
+    const SECTION_HELP = {
+      stakeLinks: {
+        title: 'Stake Links',
+        body: '<p>Quick links to commonly-used stake resources, sheets, and tools. Click any link to open it in a new tab.</p>'
+      },
+      approvals: {
+        title: 'Calling Approvals',
+        body: '<p>Calling recommendations awaiting your approval.</p>' +
+          '<ul>' +
+          '<li><b>✓ Approve:</b> Records your approval for this calling.</li>' +
+          '<li><b>⚠️ Concerns:</b> Flags this item for clerk follow-up before final approval.</li>' +
+          '<li><b>Approve All:</b> Approves every pending calling at once.</li>' +
+          '</ul>'
+      },
+      ordinations: {
+        title: 'Priesthood Ordinations',
+        body: '<p>Priesthood ordinations awaiting your sustaining vote.</p>' +
+          '<ul>' +
+          '<li><b>✓ Sustain:</b> Records your sustaining vote.</li>' +
+          '<li><b>⚠️ Concerns:</b> Flags this ordination for clerk review.</li>' +
+          '<li><b>Sustain All:</b> Sustains every pending ordination at once.</li>' +
+          '</ul>'
+      },
+      extend: {
+        title: 'Callings & Releases to Extend',
+        body: '<p>Callings or releases assigned to you to extend to a member.</p>' +
+          '<ul>' +
+          '<li><b>📅 Appointment Scheduled:</b> Pick a date/time once you\'ve scheduled the meeting.</li>' +
+          '<li><b>✓ Accepted / ✗ Declined:</b> Record the member\'s response after extending the calling.</li>' +
+          '<li><b>✓ Release Extended:</b> Mark the release as extended.</li>' +
+          '<li><b>↻ Reassign:</b> Hand this task off to someone else.</li>' +
+          '<li><b>📅 Reschedule:</b> Update an existing appointment\'s date/time.</li>' +
+          '</ul>'
+      },
+      appointments: {
+        title: 'Appointments to Schedule',
+        body: '<p>Member interviews or meetings that still need a date/time.</p>' +
+          '<ul>' +
+          '<li><b>📅 Appointment Scheduled:</b> Save the appointment date and time once it\'s set.</li>' +
+          '</ul>'
+      },
+      coordinateOrd: {
+        title: 'Ordinations to Coordinate',
+        body: '<p>Ordinations that need to be scheduled and coordinated with the bishop or family.</p>' +
+          '<ul>' +
+          '<li><b>✓ Coordinated:</b> Marks the ordination as coordinated and removes it from your list.</li>' +
+          '</ul>'
+      },
+      ordNotify: {
+        title: 'Ordination Sustaining',
+        body: '<p>Ordinations you\'ve been notified about for awareness — no action required beyond acknowledging.</p>' +
+          '<ul>' +
+          '<li><b>✓ Acknowledge:</b> Removes this notification from your dashboard.</li>' +
+          '</ul>'
+      },
+      settingAparts: {
+        title: 'Setting Aparts',
+        body: '<p>Members who have accepted callings and now need to be set apart.</p>' +
+          '<ul>' +
+          '<li><b>✓ Set Apart:</b> Marks the member as set apart in their calling.</li>' +
+          '</ul>'
+      },
+      clerkReviews: {
+        title: 'Clerk Reviews',
+        body: '<p>Items flagged for clerk attention — missing info, comments left by approvers, or special handling needed.</p>' +
+          '<ul>' +
+          '<li><b>✓ Review Complete:</b> Marks the review as resolved.</li>' +
+          '</ul>'
+      },
+      interviews: {
+        title: 'Interviews to Schedule',
+        body: '<p>Interviews (presidency or counselor) that need to be scheduled before a calling can move forward.</p>' +
+          '<ul>' +
+          '<li><b>✓ Scheduled:</b> Marks the interview as scheduled.</li>' +
+          '</ul>'
+      },
+      ordInterviewSched: {
+        title: 'Ordination Interviews to Schedule',
+        body: '<p>Ordination-related interviews that still need to be scheduled with a member of the stake presidency.</p>' +
+          '<ul>' +
+          '<li><b>📅 Schedule:</b> Pick the SP member and date/time for the interview.</li>' +
+          '</ul>'
+      },
+      ordInterviews: {
+        title: 'Ordination Interviews',
+        body: '<p>Scheduled ordination interviews assigned to you.</p>' +
+          '<ul>' +
+          '<li><b>✓ Complete:</b> Mark the interview as completed.</li>' +
+          '</ul>'
+      },
+      ordReports: {
+        title: 'Ordinations to Report',
+        body: '<p>Completed ordinations awaiting your report (date performed, who performed it, etc.).</p>' +
+          '<ul>' +
+          '<li><b>📝 Report Ordination:</b> Open the report form to record the ordination details.</li>' +
+          '</ul>'
+      },
+      mytasks: {
+        title: 'My Tasks',
+        body: '<p>Tasks assigned directly to you. Tasks can be created from the "+ New Task" button or generated automatically by the calling-approval workflow.</p>' +
+          '<ul>' +
+          '<li><b>✓ Complete:</b> Marks the task as done.</li>' +
+          '<li><b>↻ Reassign:</b> Reassign the task to someone else (clerks/secretaries/presidency only).</li>' +
+          '</ul>'
+      },
+      ccOpen: {
+        title: 'CC\'d Items',
+        body: '<p>Items where you\'ve been copied for visibility. The primary assignee is shown next to each item.</p>' +
+          '<ul>' +
+          '<li><b>✓ Mark Complete:</b> Marks the underlying item complete (on behalf of the primary assignee).</li>' +
+          '<li><b>↻ Reassign:</b> Reassigns the task (clerks/secretaries/presidency only).</li>' +
+          '<li>For extend-calling/release items, the same Accepted / Declined / Release Extended buttons are available.</li>' +
+          '</ul>'
+      },
+      ccCompleted: {
+        title: 'Awaiting Acknowledgement',
+        body: '<p>CC\'d items that the primary assignee has already completed. Acknowledge them to clear them from your dashboard.</p>' +
+          '<ul>' +
+          '<li><b>✓ Acknowledge:</b> Removes the item from your dashboard.</li>' +
+          '<li><b>Acknowledge All:</b> Clears every completed CC item at once.</li>' +
+          '</ul>'
+      },
+      mentions: {
+        title: 'Mentions',
+        body: '<p>Slack messages where you were @-mentioned. Convert them into trackable tasks or dismiss them.</p>' +
+          '<ul>' +
+          '<li><b>View in Slack:</b> Opens the original Slack message.</li>' +
+          '<li><b>📋 Create Task:</b> Turns the mention into a task assigned to anyone you choose.</li>' +
+          '<li><b>Dismiss:</b> Removes the mention from your dashboard.</li>' +
+          '</ul>'
+      },
+      assigned: {
+        title: 'Tasks You\'ve Assigned',
+        body: '<p>Tasks you assigned to someone else, shown here so you can track their progress.</p>' +
+          '<ul>' +
+          '<li><b>✓ Mark Complete:</b> Marks the task complete on behalf of the assignee.</li>' +
+          '<li><b>↻ Reassign:</b> Hands the task off to a different person.</li>' +
+          '</ul>'
+      },
+      stakeBusiness: {
+        title: 'Stake Business Confirmations',
+        body: '<p>Wards expecting you to attend their stake-business meeting. Confirm or arrange a replacement.</p>' +
+          '<ul>' +
+          '<li><b>✓ Yes, I\'ll Be There:</b> Confirms your attendance.</li>' +
+          '<li><b>Need Replacement:</b> Marks you as unavailable; stake clerks are notified to find a replacement.</li>' +
+          '<li><b>Already Found Replacement:</b> Reassigns the assignment to a high councilor you\'ve already arranged with.</li>' +
+          '</ul>'
+      },
+      admin: {
+        title: 'Admin Tools',
+        body: '<p>Admin-only utilities for running scripts and viewing other users\' dashboards.</p>' +
+          '<ul>' +
+          '<li><b>Process Calling Approvals:</b> Manually runs the calling-approvals processor.</li>' +
+          '<li><b>Process Priesthood Ordinations:</b> Manually runs the ordinations processor.</li>' +
+          '<li><b>Generate Stake Business Doc:</b> Builds the stake-conference business document.</li>' +
+          '<li><b>📢 Manual Notification Blast:</b> Forces queued notifications to send right now.</li>' +
+          '<li><b>View Dashboard As User:</b> Opens another user\'s dashboard for support/troubleshooting.</li>' +
+          '</ul>'
+      },
+      settings: {
+        title: 'Notification Settings',
+        body: '<p>Controls how often the system sends you Slack notifications.</p>' +
+          '<ul>' +
+          '<li><b>Primary Notifications:</b> For tasks assigned to you (callings to extend, clerk reviews, etc.).</li>' +
+          '<li><b>CC Notifications:</b> For items you\'re only copied on for visibility.</li>' +
+          '</ul>' +
+          '<p style="font-size:12px;color:#666;font-style:italic;">Approval requests are always sent immediately. Urgent items override your preference.</p>'
+      }
+    };
+
+    function helpBtn(key) {
+      if (!SECTION_HELP[key]) return '';
+      return '<button class="help-btn" onclick="showHelp(event,\'' + key + '\')" title="What is this?" aria-label="What is this section?">?</button>';
+    }
+    function showHelp(e, key) {
+      e.stopPropagation();
+      const info = SECTION_HELP[key];
+      if (!info) return;
+      const pop = document.getElementById('helpPopover');
+      pop.innerHTML = '<button class="help-popover-close" onclick="hideHelp()" aria-label="Close">×</button>' +
+        '<h4>' + info.title + '</h4>' + info.body;
+      pop.classList.add('show');
+      const btn = e.currentTarget,
+            r = btn.getBoundingClientRect(),
+            pr = pop.getBoundingClientRect();
+      let top = r.bottom + 8, left = r.right - pr.width;
+      if (left < 8) left = 8;
+      if (left + pr.width > window.innerWidth - 8) left = window.innerWidth - pr.width - 8;
+      if (top + pr.height > window.innerHeight - 8) top = r.top - pr.height - 8;
+      if (top < 8) top = 8;
+      pop.style.top = top + 'px';
+      pop.style.left = left + 'px';
+    }
+    function hideHelp() {
+      const p = document.getElementById('helpPopover');
+      if (p) p.classList.remove('show');
+    }
+    document.addEventListener('click', function(e) {
+      const pop = document.getElementById('helpPopover');
+      if (!pop || !pop.classList.contains('show')) return;
+      if (pop.contains(e.target)) return;
+      if (e.target.classList && e.target.classList.contains('help-btn')) return;
+      hideHelp();
+    });
 
     // Helper Functions
     function escapeHtml(text) {
@@ -1975,7 +2197,7 @@
       console.log('Settings received:', settings);
       console.log('primaryPref:', s.primaryPref, 'ccPref:', s.ccPref);
 
-      let html = '<div class="section" id="settingsSection"><div class="section-header expanded"><div class="section-title">⚙️ Notification Settings</div></div>';
+      let html = '<div class="section" id="settingsSection"><div class="section-header expanded"><div class="section-title">⚙️ Notification Settings</div><div class="section-meta">' + helpBtn('settings') + '</div></div>';
       html += '<div class="section-content expanded"><div class="section-inner">';
 
       html += '<div class="settings-group"><div class="settings-label">Primary Notifications</div>';
@@ -2110,7 +2332,7 @@
     // ============================================================
 
     function renderStakeBusinessSection(items, highCouncilors) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'stakeBusiness\')"><div class="section-title">⛪ Stake Business Confirmations</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'stakeBusiness\')"><div class="section-title">⛪ Stake Business Confirmations</div><div class="section-meta">' + helpBtn('stakeBusiness') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-stakeBusiness"><div class="section-inner">';
 
       items.forEach(item => {
