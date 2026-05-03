@@ -774,7 +774,7 @@
       }
 
       if (data.ccItems && data.ccItems.length > 0) {
-        html += renderCCSection(data.ccItems);
+        html += renderCCSection(data.ccItems, data.highCouncilors || [], data.stakePresidency || []);
       }
 
       if (data.mentions && data.mentions.length > 0) {
@@ -1282,8 +1282,10 @@
       return html;
     }
 
-    function renderCCSection(items) {
+    function renderCCSection(items, highCouncilors, stakePresidency) {
       const canReassign = userData.canReassign || false;
+      highCouncilors = highCouncilors || [];
+      stakePresidency = stakePresidency || [];
 
       // Split items into open and completed
       const openItems = items.filter(item => item.status !== 'Completed');
@@ -1300,6 +1302,7 @@
           const isExtendCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
           const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
           const isExtend = isExtendCalling || isExtendRelease;
+          const isSBConfirm = item.actionType === 'stake-business-confirm';
           const ccApptText = item.appointmentStatus || (isExtend ? 'Pending' : '');
           const appointmentStatusHtml = ccApptText ?
             `<div class="item-meta" style="${ccApptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(ccApptText)}</div>` : '';
@@ -1310,6 +1313,41 @@
               <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
             </div>`;
+          }
+
+          // Stake-business-confirm CC items get the same buttons as the primary view,
+          // with both High Councilors AND Stake Presidency in the replacement dropdown.
+          if (isSBConfirm) {
+            const sbNotesDisplay = (item.notes || '').replace(/\n/g, ' · ');
+            const sbMeetingTimeLine = item.meetingTime ? `<div class="item-meta">⛪ Sacrament: ${escapeHtmlDisplay(item.meetingTime)}</div>` : '';
+            const replacementCandidates = []
+              .concat(highCouncilors.map(u => ({ id: u.id, name: u.name, group: 'High Council' })))
+              .concat(stakePresidency.map(u => ({ id: u.id, name: u.name, group: 'Stake Presidency' })))
+              .filter(u => u.id !== userId);
+            const sbReplacementOptions = replacementCandidates
+              .map(u => `<option value="${u.id}">${escapeHtmlDisplay(u.name)} (${u.group})</option>`)
+              .join('');
+
+            html += `<div class="item" id="item-${item.actionId}">
+              <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
+              ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
+              ${sbNotesDisplay ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(sbNotesDisplay)}</div>` : ''}
+              ${sbMeetingTimeLine}
+              <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn btn-success" onclick="handleSBConfirm('${item.actionId}', this)">✓ Yes, They'll Be There</button>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <span style="font-size:13px;color:#555;">Request a replacement:</span>
+                  <select class="form-select" id="sbReplacement_${item.actionId}" style="width:auto;max-width:280px;font-size:13px;">
+                    <option value="">Select replacement...</option>
+                    ${sbReplacementOptions}
+                  </select>
+                  <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSBHaveReplacement('${item.actionId}', this)">↻ Request Replacement</button>
+                </div>
+              </div>
+            </div>`;
+            return;
           }
 
           html += `<div class="item" id="item-${item.actionId}">
@@ -1512,6 +1550,7 @@
           '<li><b>✓ Mark Complete:</b> Marks the underlying item complete (on behalf of the primary assignee).</li>' +
           '<li><b>↻ Reassign:</b> Reassigns the task (clerks/secretaries/presidency only).</li>' +
           '<li>For extend-calling/release items, the same Accepted / Declined / Release Extended buttons are available.</li>' +
+          '<li>For stake-business confirmations (CC\'d to all stake clerks), Confirm and Request Replacement are available; the replacement dropdown includes both High Councilors and Stake Presidency. (No "Need Replacement" — that\'s only for the assigned HC themselves.)</li>' +
           '</ul>'
       },
       ccCompleted: {
@@ -1541,11 +1580,11 @@
       },
       stakeBusiness: {
         title: 'Stake Business Confirmations',
-        body: '<p>Wards expecting you to attend their stake-business meeting. Confirm or arrange a replacement.</p>' +
+        body: '<p>Wards expecting you to attend their stake-business meeting. Confirm, mark unavailable, or pass it on to someone else.</p>' +
           '<ul>' +
           '<li><b>✓ Yes, I\'ll Be There:</b> Confirms your attendance.</li>' +
-          '<li><b>Need Replacement:</b> Marks you as unavailable; stake clerks are notified to find a replacement.</li>' +
-          '<li><b>Already Found Replacement:</b> Reassigns the assignment to a high councilor you\'ve already arranged with.</li>' +
+          '<li><b>✗ Need Replacement:</b> Marks you as unavailable. Stake clerks are CC\'d on every assignment, so they already see it on their dashboard.</li>' +
+          '<li><b>↻ Request Replacement:</b> Pass the assignment to another High Councilor; they\'ll get a Slack DM and the task on their dashboard. They can confirm or pass it on themselves.</li>' +
           '</ul>'
       },
       admin: {
@@ -2343,22 +2382,24 @@
           .join('');
 
         const notesDisplay = (item.notes || '').replace(/\n/g, ' · ');
+        const meetingTimeLine = item.meetingTime ? `<div class="item-meta">⛪ Sacrament: ${escapeHtmlDisplay(item.meetingTime)}</div>` : '';
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
           ${notesDisplay ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(notesDisplay)}</div>` : ''}
+          ${meetingTimeLine}
           <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px;">
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-success" onclick="handleSBConfirm('${item.actionId}', this)">✓ Yes, I'll Be There</button>
               <button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Need Replacement</button>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <span style="font-size:13px;color:#555;">Already found a replacement:</span>
+              <span style="font-size:13px;color:#555;">Request a replacement:</span>
               <select class="form-select" id="sbReplacement_${item.actionId}" style="width:auto;max-width:240px;font-size:13px;">
-                <option value="">Select HC...</option>
+                <option value="">Select replacement...</option>
                 ${hcOptions}
               </select>
-              <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSBHaveReplacement('${item.actionId}', this)">↻ Assign Replacement</button>
+              <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSBHaveReplacement('${item.actionId}', this)">↻ Request Replacement</button>
             </div>
           </div>
         </div>`;
