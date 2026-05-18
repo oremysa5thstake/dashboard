@@ -785,6 +785,11 @@
         html += renderAssignedToOthersSection(data.assignedToOthers);
       }
 
+      // Approval / Sustaining Status — for SP / clerks / execsec only.
+      if (data.approvalStatus && data.approvalStatus.length > 0) {
+        html += renderApprovalStatusSection(data.approvalStatus);
+      }
+
       // Admin Tools section
       if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
         html += renderAdminSection(data.adminUsers);
@@ -1404,6 +1409,53 @@
       return html;
     }
 
+    function renderApprovalStatusSection(items) {
+      // Group by phase for quick scanning. Each row gets a progress bar (approved / total approvers)
+      // and a one-line "Waiting on:" list for the named approvers who still need to vote.
+      let html = '<div class="section info-section"><div class="section-header expanded" onclick="toggleSection(\'approvalStatus\')"><div class="section-title">📊 Approval / Sustaining Status</div><div class="section-meta">' + helpBtn('approvalStatus') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-approvalStatus"><div class="section-inner">';
+
+      items.forEach(item => {
+        const totalApprovers = (item.approvedBy?.length || 0) + (item.waitingOn?.length || 0) + (item.opposed?.length || 0);
+        const approvedCount = item.approvedBy?.length || 0;
+        const opposedCount = item.opposed?.length || 0;
+        const pct = totalApprovers > 0 ? Math.round((approvedCount / totalApprovers) * 100) : 0;
+
+        const typeLabel = item.type === 'release-only' ? '↩ Release'
+                        : item.type === 'ordination'   ? '🙏 Ordination'
+                        : '📋 Calling';
+        const titleLine = `${escapeHtmlDisplay(item.member || 'N/A')} — ${escapeHtmlDisplay(item.calling || 'N/A')}${item.ward ? ' (' + escapeHtmlDisplay(item.ward) + ')' : ''}`;
+
+        const barColor = opposedCount > 0 ? '#dc3545' : (pct >= 100 ? '#28a745' : '#5865F2');
+        const progressBar = `
+          <div style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+            <div style="flex:1;height:6px;background:#e8e8e8;border-radius:3px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${barColor};transition:width .3s;"></div>
+            </div>
+            <span style="font-size:12px;color:#666;white-space:nowrap;">${approvedCount} / ${totalApprovers}${opposedCount > 0 ? ' • ' + opposedCount + ' opposed' : ''}</span>
+          </div>`;
+
+        const approvedNames = (item.approvedBy || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
+        const waitingNames = (item.waitingOn || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
+        const opposedNames = (item.opposed || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
+
+        html += `<div class="item">
+          <div class="item-header">
+            <div class="item-title">${titleLine}</div>
+            <div class="item-badges"><span class="badge badge-info">${typeLabel}</span></div>
+          </div>
+          <div class="item-meta">Phase: ${escapeHtmlDisplay(item.phase || '—')}</div>
+          ${progressBar}
+          ${approvedNames ? `<div class="item-meta" style="color:#28a745;">✓ Approved: ${approvedNames}</div>` : ''}
+          ${waitingNames ? `<div class="item-meta" style="color:#856404;">⏳ Waiting on: ${waitingNames}</div>` : ''}
+          ${opposedNames ? `<div class="item-meta" style="color:#dc3545;">⚠️ Opposed: ${opposedNames}</div>` : ''}
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
     function renderAdminSection(adminUsers) {
       let html = '<div class="section admin-section"><div class="section-header expanded" onclick="toggleSection(\'admin\')"><div class="section-title">🔧 Admin Tools</div><div class="section-meta">' + helpBtn('admin') + '<span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-admin"><div class="section-inner">';
@@ -1585,6 +1637,18 @@
           '<li><b>✓ Yes, I\'ll Be There:</b> Confirms your attendance.</li>' +
           '<li><b>✗ Need Replacement:</b> Marks you as unavailable. Stake clerks are CC\'d on every assignment, so they already see it on their dashboard.</li>' +
           '<li><b>↻ Request Replacement:</b> Pass the assignment to another High Councilor; they\'ll get a Slack DM and the task on their dashboard. They can confirm or pass it on themselves.</li>' +
+          '</ul>'
+      },
+      approvalStatus: {
+        title: 'Approval / Sustaining Status',
+        body: '<p>For Stake Presidency, clerks, and executive secretaries: shows every calling, release, and ordination currently working through approval/sustaining — who has voted and who hasn\'t.</p>' +
+          '<ul>' +
+          '<li><b>Progress bar:</b> approved vs. total approvers. Green = fully approved, blue = in progress, red = someone opposed.</li>' +
+          '<li><b>Phase:</b> Phase 1 (SP), Phase 2 (HC), Polling All, Release, etc. — mirrors the value in col C of Calling Approvals / Priesthood Ordinations.</li>' +
+          '<li><b>✓ Approved:</b> names of approvers who voted "Approve" / "Sustain".</li>' +
+          '<li><b>⏳ Waiting on:</b> named approvers whose vote is still pending.</li>' +
+          '<li><b>⚠️ Opposed:</b> any approver who voted something other than approve/empty.</li>' +
+          '<li>Release-only rows show only the Stake President as the relevant approver.</li>' +
           '</ul>'
       },
       admin: {
