@@ -729,6 +729,12 @@
         html += renderOrdinationsSection(data.ordinations);
       }
 
+      // Approval / Sustaining Status — for SP / clerks / execsec only.
+      // Placed right after the user's personal approval/sustaining sections, above everything else.
+      if (data.approvalStatus && data.approvalStatus.length > 0) {
+        html += renderApprovalStatusSection(data.approvalStatus);
+      }
+
       if (data.extendItems && data.extendItems.length > 0) {
         html += renderExtendSection(data.extendItems);
       }
@@ -783,11 +789,6 @@
 
       if (data.assignedToOthers && data.assignedToOthers.length > 0) {
         html += renderAssignedToOthersSection(data.assignedToOthers);
-      }
-
-      // Approval / Sustaining Status — for SP / clerks / execsec only.
-      if (data.approvalStatus && data.approvalStatus.length > 0) {
-        html += renderApprovalStatusSection(data.approvalStatus);
       }
 
       // Admin Tools section
@@ -1412,8 +1413,9 @@
     function renderApprovalStatusSection(items) {
       // Group by phase for quick scanning. Each row gets a progress bar (approved / total approvers)
       // and a one-line "Waiting on:" list for the named approvers who still need to vote.
-      let html = '<div class="section info-section"><div class="section-header expanded" onclick="toggleSection(\'approvalStatus\')"><div class="section-title">📊 Approval / Sustaining Status</div><div class="section-meta">' + helpBtn('approvalStatus') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content expanded" id="section-approvalStatus"><div class="section-inner">';
+      // Defaults to COLLAPSED — this is reference info, not an action item.
+      let html = '<div class="section info-section"><div class="section-header" onclick="toggleSection(\'approvalStatus\')"><div class="section-title">📊 Approval / Sustaining Status</div><div class="section-meta">' + helpBtn('approvalStatus') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-approvalStatus"><div class="section-inner">';
 
       items.forEach(item => {
         const totalApprovers = (item.approvedBy?.length || 0) + (item.waitingOn?.length || 0) + (item.opposed?.length || 0);
