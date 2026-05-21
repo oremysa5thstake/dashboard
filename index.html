@@ -775,16 +775,17 @@
         html += renderOrdinationReportsSection(data.ordinationReports);
       }
 
+      // Mentions appear just before My Tasks so personal callouts surface together.
+      if (data.mentions && data.mentions.length > 0) {
+        html += renderMentionsSection(data.mentions);
+      }
+
       if (data.myTasks && data.myTasks.length > 0) {
         html += renderTasksSection(data.myTasks);
       }
 
       if (data.ccItems && data.ccItems.length > 0) {
         html += renderCCSection(data.ccItems, data.highCouncilors || [], data.stakePresidency || []);
-      }
-
-      if (data.mentions && data.mentions.length > 0) {
-        html += renderMentionsSection(data.mentions);
       }
 
       if (data.assignedToOthers && data.assignedToOthers.length > 0) {
