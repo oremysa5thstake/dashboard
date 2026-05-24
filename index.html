@@ -2538,19 +2538,23 @@
 
         list.forEach(it => {
           const isMarked = typeof it.s !== 'undefined';
+          const isRelease = String(it.a || '').toLowerCase() === 'release';
+          const verbPast = isRelease ? 'Released' : 'Sustained';
+          const verbAction = isRelease ? 'Release' : 'Sustain';
           const markedLabel = isMarked
-            ? (it.s ? '<span style="color:#28a745;font-weight:600;">✓ Sustained</span>'
-                    : '<span style="color:#dc3545;font-weight:600;">✗ Not Sustained</span>')
+            ? (it.s ? `<span style="color:#28a745;font-weight:600;">✓ ${verbPast}</span>`
+                    : `<span style="color:#dc3545;font-weight:600;">✗ Not ${verbPast}</span>`)
             : '';
           const buttons = isMarked
             ? ''
             : `<div style="display:flex;gap:6px;margin-top:4px;">
-                <button class="btn btn-success btn-sm" onclick="handleSustainingMark('${item.actionId}', ${it.i}, true, this)">✓ Sustained</button>
-                <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSustainingMark('${item.actionId}', ${it.i}, false, this)">✗ Not Sustained</button>
+                <button class="btn btn-success btn-sm" onclick="handleSustainingMark('${item.actionId}', ${it.i}, true, this)">✓ ${verbPast}</button>
+                <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSustainingMark('${item.actionId}', ${it.i}, false, this)">✗ Not ${verbPast}</button>
               </div>`;
           const stakeBadge = String(it.where || '').toLowerCase() === 'stake' ? ' <span class="badge badge-info">Stake</span>' : '';
+          const releaseBadge = isRelease ? ' <span class="badge badge-warning" style="color:#333;">Release</span>' : '';
           body += `<div style="border-top:1px solid #eee;padding:8px 0;">
-            <div><strong>${escapeHtmlDisplay(it.m || '')}</strong> — ${escapeHtmlDisplay(it.c || '')} (${escapeHtmlDisplay(it.w || '')})${stakeBadge}</div>
+            <div><strong>${escapeHtmlDisplay(it.m || '')}</strong> — ${escapeHtmlDisplay(it.c || '')} (${escapeHtmlDisplay(it.w || '')})${releaseBadge}${stakeBadge}</div>
             ${markedLabel ? `<div style="margin-top:4px;">${markedLabel}</div>` : ''}
             ${buttons}
           </div>`;
@@ -2558,7 +2562,7 @@
 
         if (remaining.length > 0) {
           body += `<div style="margin-top:10px;">
-            <button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this)">✓ Sustain All Remaining</button>
+            <button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this)">✓ Mark All Remaining Complete</button>
           </div>`;
         }
 
