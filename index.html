@@ -1314,6 +1314,14 @@
           const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
           const isExtend = isExtendCalling || isExtendRelease;
           const isSBConfirm = item.actionType === 'stake-business-confirm';
+          const isSustainingReport = item.actionType === 'sustaining-report';
+
+          // Sustaining-report CCs get the SAME per-item buttons + doc link + Mark All Remaining
+          // as the primary view. Reassign button appears for SP/clerks/secretaries.
+          if (isSustainingReport) {
+            html += renderSustainingReportItem(item, { isCC: true, canReassign: canReassign });
+            return;
+          }
           const ccApptText = item.appointmentStatus || (isExtend ? 'Pending' : '');
           const appointmentStatusHtml = ccApptText ?
             `<div class="item-meta" style="${ccApptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(ccApptText)}</div>` : '';
@@ -1326,10 +1334,15 @@
             </div>`;
           }
 
-          // Stake-business-confirm CC items get the same buttons as the primary view,
-          // with both High Councilors AND Stake Presidency in the replacement dropdown.
+          // Stake-business-confirm CC items get the same buttons as the primary view.
+          // Both High Councilors AND Stake Presidency appear in the replacement dropdown.
+          // The Check-with-Backup / Unavailable button picks the same path the primary does,
+          // based on the backupHC + isReassigned hints parsed from notes.
           if (isSBConfirm) {
-            const sbNotesDisplay = (item.notes || '').replace(/\n/g, ' · ');
+            const sbVisibleNotes = (item.notes || '')
+              .split('\n')
+              .filter(l => !/^(Backup HC:|Reassigned:|Original HC:)/i.test(l))
+              .join(' · ');
             const sbMeetingTimeLine = item.meetingTime ? `<div class="item-meta">⛪ Sacrament: ${escapeHtmlDisplay(item.meetingTime)}</div>` : '';
             const replacementCandidates = []
               .concat(highCouncilors.map(u => ({ id: u.id, name: u.name, group: 'High Council' })))
@@ -1339,14 +1352,20 @@
               .map(u => `<option value="${u.id}">${escapeHtmlDisplay(u.name)} (${u.group})</option>`)
               .join('');
 
+            const sbShowCheckBackup = item.backupHC && !item.isReassigned;
+            const sbNegativeButton = sbShowCheckBackup
+              ? `<button class="btn btn-warning" style="color:#333;" onclick="handleSBCheckBackup('${item.actionId}', this)">↪ Check with ${escapeHtmlDisplay(item.backupHC)}</button>`
+              : `<button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Unavailable</button>`;
+
             html += `<div class="item" id="item-${item.actionId}">
               <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
               ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
-              ${sbNotesDisplay ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(sbNotesDisplay)}</div>` : ''}
+              ${sbVisibleNotes ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(sbVisibleNotes)}</div>` : ''}
               ${sbMeetingTimeLine}
               <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px;">
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                   <button class="btn btn-success" onclick="handleSBConfirm('${item.actionId}', this)">✓ Yes, They'll Be There</button>
+                  ${sbNegativeButton}
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                   <span style="font-size:13px;color:#555;">Request a replacement:</span>
@@ -1650,7 +1669,7 @@
           '</ul>'
       },
       sustainingReports: {
-        title: 'Sustainings to Report',
+        title: 'Sustainings/Releasings to Report',
         body: '<p>On Sunday morning the script builds a list of every sustaining you need to present in your ward (ward-level + every stake-wide item). Mark each one as sustained or not as you go.</p>' +
           '<ul>' +
           '<li><b>Document link</b> at the top opens the Stake Business doc for the day.</li>' +
@@ -2520,56 +2539,73 @@
       } finally { setSyncing(false); }
     }
 
-    function renderSustainingReportSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'sustainingReports\')"><div class="section-title">🙋 Sustainings to Report</div><div class="section-meta">' + helpBtn('sustainingReports') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content expanded" id="section-sustainingReports"><div class="section-inner">';
+    /**
+     * Render a single sustaining-report item card. Same UI is used by both the primary
+     * section and the CC bucket so anyone with the task in front of them can act on it.
+     * `opts.isCC` adds a small "CC'd to you" badge in the header; `opts.canReassign` adds
+     * the standard Reassign button.
+     */
+    function renderSustainingReportItem(item, opts) {
+      opts = opts || {};
+      const ward = item.sustainingReportWard || '';
+      const docUrl = item.sustainingReportDocUrl || '';
+      const list = item.sustainingReportItems || [];
+      const remaining = list.filter(it => typeof it.s === 'undefined');
+      const docLink = docUrl ? `<a href="${escapeHtmlDisplay(docUrl)}" target="_blank" rel="noopener" style="font-size:13px;">📄 Stake Business Document</a>` : '';
+      const ccBadge = opts.isCC ? ' <span class="badge badge-info" style="font-size:11px;">CC\'d to you</span>' : '';
+      const assignedLine = opts.isCC && item.assignedToNames
+        ? `<div class="item-meta">Assigned to: ${escapeHtmlDisplay(item.assignedToNames)}</div>`
+        : '';
 
-      items.forEach(item => {
-        const ward = item.sustainingReportWard || '';
-        const docUrl = item.sustainingReportDocUrl || '';
-        const list = item.sustainingReportItems || [];
-        const remaining = list.filter(it => typeof it.s === 'undefined');
-        const docLink = docUrl ? `<a href="${escapeHtmlDisplay(docUrl)}" target="_blank" rel="noopener" style="font-size:13px;">📄 Stake Business Document</a>` : '';
+      let body = `<div class="item" id="item-${item.actionId}">
+        <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || ('Sustainings — ' + ward))}${ccBadge}</div></div>
+        ${assignedLine}
+        ${docLink ? `<div class="item-meta">${docLink}</div>` : ''}
+        <div class="item-meta">Remaining: ${remaining.length} of ${list.length}</div>`;
 
-        let body = `<div class="item" id="item-${item.actionId}">
-          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || ('Sustainings — ' + ward))}</div></div>
-          ${docLink ? `<div class="item-meta">${docLink}</div>` : ''}
-          <div class="item-meta">Remaining: ${remaining.length} of ${list.length}</div>`;
-
-        list.forEach(it => {
-          const isMarked = typeof it.s !== 'undefined';
-          const isRelease = String(it.a || '').toLowerCase() === 'release';
-          const verbPast = isRelease ? 'Released' : 'Sustained';
-          const verbAction = isRelease ? 'Release' : 'Sustain';
-          const markedLabel = isMarked
-            ? (it.s ? `<span style="color:#28a745;font-weight:600;">✓ ${verbPast}</span>`
-                    : `<span style="color:#dc3545;font-weight:600;">✗ Not ${verbPast}</span>`)
-            : '';
-          const buttons = isMarked
-            ? ''
-            : `<div style="display:flex;gap:6px;margin-top:4px;">
-                <button class="btn btn-success btn-sm" onclick="handleSustainingMark('${item.actionId}', ${it.i}, true, this)">✓ ${verbPast}</button>
-                <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSustainingMark('${item.actionId}', ${it.i}, false, this)">✗ Not ${verbPast}</button>
-              </div>`;
-          const stakeBadge = String(it.where || '').toLowerCase() === 'stake' ? ' <span class="badge badge-info">Stake</span>' : '';
-          const releaseBadge = isRelease ? ' <span class="badge badge-warning" style="color:#333;">Release</span>' : '';
-          body += `<div style="border-top:1px solid #eee;padding:8px 0;">
-            <div><strong>${escapeHtmlDisplay(it.m || '')}</strong> — ${escapeHtmlDisplay(it.c || '')} (${escapeHtmlDisplay(it.w || '')})${releaseBadge}${stakeBadge}</div>
-            ${markedLabel ? `<div style="margin-top:4px;">${markedLabel}</div>` : ''}
-            ${buttons}
-          </div>`;
-        });
-
-        if (remaining.length > 0) {
-          body += `<div style="margin-top:10px;">
-            <button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this)">✓ Mark All Remaining Complete</button>
-          </div>`;
-        }
-
-        body += `</div>`;
-        html += body;
+      list.forEach(it => {
+        const isMarked = typeof it.s !== 'undefined';
+        const isRelease = String(it.a || '').toLowerCase() === 'release';
+        const verbPast = isRelease ? 'Released' : 'Sustained';
+        const markedLabel = isMarked
+          ? (it.s ? `<span style="color:#28a745;font-weight:600;">✓ ${verbPast}</span>`
+                  : `<span style="color:#dc3545;font-weight:600;">✗ Not ${verbPast}</span>`)
+          : '';
+        const buttons = isMarked
+          ? ''
+          : `<div style="display:flex;gap:6px;margin-top:4px;">
+              <button class="btn btn-success btn-sm" onclick="handleSustainingMark('${item.actionId}', ${it.i}, true, this)">✓ ${verbPast}</button>
+              <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSustainingMark('${item.actionId}', ${it.i}, false, this)">✗ Not ${verbPast}</button>
+            </div>`;
+        const stakeBadge = String(it.where || '').toLowerCase() === 'stake' ? ' <span class="badge badge-info">Stake</span>' : '';
+        const releaseBadge = isRelease ? ' <span class="badge badge-warning" style="color:#333;">Release</span>' : '';
+        body += `<div style="border-top:1px solid #eee;padding:8px 0;">
+          <div><strong>${escapeHtmlDisplay(it.m || '')}</strong> — ${escapeHtmlDisplay(it.c || '')} (${escapeHtmlDisplay(it.w || '')})${releaseBadge}${stakeBadge}</div>
+          ${markedLabel ? `<div style="margin-top:4px;">${markedLabel}</div>` : ''}
+          ${buttons}
+        </div>`;
       });
 
+      const trailingButtons = [];
+      if (remaining.length > 0) {
+        trailingButtons.push(`<button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this)">✓ Mark All Remaining Complete</button>`);
+      }
+      if (opts.canReassign) {
+        trailingButtons.push(`<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText || '')}')">↻ Reassign</button>`);
+      }
+      if (trailingButtons.length > 0) {
+        body += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">${trailingButtons.join('')}</div>`;
+      }
+
+      body += `</div>`;
+      return body;
+    }
+
+    function renderSustainingReportSection(items) {
+      const canReassign = userData.canReassign || false;
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'sustainingReports\')"><div class="section-title">🙋 Sustainings/Releasings to Report</div><div class="section-meta">' + helpBtn('sustainingReports') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-sustainingReports"><div class="section-inner">';
+      items.forEach(item => { html += renderSustainingReportItem(item, { isCC: false, canReassign: canReassign }); });
       html += '</div></div></div>';
       return html;
     }
