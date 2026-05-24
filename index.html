@@ -721,6 +721,10 @@
         html += renderStakeBusinessSection(data.stakeBusinessItems, data.highCouncilors || []);
       }
 
+      if (data.sustainingReports && data.sustainingReports.length > 0) {
+        html += renderSustainingReportSection(data.sustainingReports);
+      }
+
       if (data.approvals && data.approvals.length > 0) {
         html += renderApprovalsSection(data.approvals);
       }
@@ -1642,6 +1646,16 @@
           '<li><b>↻ Request Replacement:</b> Pass the assignment to another High Councilor; they\'ll get a Slack DM and the task on their dashboard. They can confirm or pass it on themselves.</li>' +
           '</ul>'
       },
+      sustainingReports: {
+        title: 'Sustainings to Report',
+        body: '<p>On Sunday morning the script builds a list of every sustaining you need to present in your ward (ward-level + every stake-wide item). Mark each one as sustained or not as you go.</p>' +
+          '<ul>' +
+          '<li><b>Document link</b> at the top opens the Stake Business doc for the day.</li>' +
+          '<li><b>Ward items:</b> when you mark sustained, the script immediately flips <code>Calling Approvals</code> col AO, creates the setting-apart task, and emails the ward clerks.</li>' +
+          '<li><b>Stake items:</b> get queued until every conducting ward has reported them sustained — only then does the cascade run.</li>' +
+          '<li>Use <b>Sustain All Remaining</b> if everything went through without exception.</li>' +
+          '</ul>'
+      },
       approvalStatus: {
         title: 'Approval / Sustaining Status',
         body: '<p>For Stake Presidency, clerks, and executive secretaries: shows every calling, release, and ordination currently working through approval/sustaining — who has voted and who hasn\'t.</p>' +
@@ -2448,17 +2462,29 @@
           .map(u => `<option value="${u.id}">${escapeHtmlDisplay(u.name)}</option>`)
           .join('');
 
-        const notesDisplay = (item.notes || '').replace(/\n/g, ' · ');
+        // Filter the notes display so the "Reassigned: true" / "Backup HC:" hints don't show as user-facing text.
+        const visibleNotes = (item.notes || '')
+          .split('\n')
+          .filter(l => !/^(Backup HC:|Reassigned:|Original HC:)/i.test(l))
+          .join(' · ');
         const meetingTimeLine = item.meetingTime ? `<div class="item-meta">⛪ Sacrament: ${escapeHtmlDisplay(item.meetingTime)}</div>` : '';
+
+        // Button choice: if a Backup HC is configured AND the task hasn't been reassigned yet,
+        // the negative button is "Check with [Backup]". Otherwise (already escalated, or no backup),
+        // the negative button is "Unavailable" which notifies clerks to find a replacement.
+        const showCheckBackup = item.backupHC && !item.isReassigned;
+        const negativeButton = showCheckBackup
+          ? `<button class="btn btn-warning" style="color:#333;" onclick="handleSBCheckBackup('${item.actionId}', this)">↪ Check with ${escapeHtmlDisplay(item.backupHC)}</button>`
+          : `<button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Unavailable</button>`;
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
-          ${notesDisplay ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(notesDisplay)}</div>` : ''}
+          ${visibleNotes ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(visibleNotes)}</div>` : ''}
           ${meetingTimeLine}
           <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:10px;margin-top:8px;">
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-success" onclick="handleSBConfirm('${item.actionId}', this)">✓ Yes, I'll Be There</button>
-              <button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Need Replacement</button>
+              ${negativeButton}
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <span style="font-size:13px;color:#555;">Request a replacement:</span>
@@ -2484,6 +2510,95 @@
         await performAction('sbConfirm', { itemId: actionId });
         if (itemEl) itemEl.remove();
         showToast('Confirmed — thank you!', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
+    }
+
+    function renderSustainingReportSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'sustainingReports\')"><div class="section-title">🙋 Sustainings to Report</div><div class="section-meta">' + helpBtn('sustainingReports') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-sustainingReports"><div class="section-inner">';
+
+      items.forEach(item => {
+        const ward = item.sustainingReportWard || '';
+        const docUrl = item.sustainingReportDocUrl || '';
+        const list = item.sustainingReportItems || [];
+        const remaining = list.filter(it => typeof it.s === 'undefined');
+        const docLink = docUrl ? `<a href="${escapeHtmlDisplay(docUrl)}" target="_blank" rel="noopener" style="font-size:13px;">📄 Stake Business Document</a>` : '';
+
+        let body = `<div class="item" id="item-${item.actionId}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || ('Sustainings — ' + ward))}</div></div>
+          ${docLink ? `<div class="item-meta">${docLink}</div>` : ''}
+          <div class="item-meta">Remaining: ${remaining.length} of ${list.length}</div>`;
+
+        list.forEach(it => {
+          const isMarked = typeof it.s !== 'undefined';
+          const markedLabel = isMarked
+            ? (it.s ? '<span style="color:#28a745;font-weight:600;">✓ Sustained</span>'
+                    : '<span style="color:#dc3545;font-weight:600;">✗ Not Sustained</span>')
+            : '';
+          const buttons = isMarked
+            ? ''
+            : `<div style="display:flex;gap:6px;margin-top:4px;">
+                <button class="btn btn-success btn-sm" onclick="handleSustainingMark('${item.actionId}', ${it.i}, true, this)">✓ Sustained</button>
+                <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSustainingMark('${item.actionId}', ${it.i}, false, this)">✗ Not Sustained</button>
+              </div>`;
+          const stakeBadge = String(it.where || '').toLowerCase() === 'stake' ? ' <span class="badge badge-info">Stake</span>' : '';
+          body += `<div style="border-top:1px solid #eee;padding:8px 0;">
+            <div><strong>${escapeHtmlDisplay(it.m || '')}</strong> — ${escapeHtmlDisplay(it.c || '')} (${escapeHtmlDisplay(it.w || '')})${stakeBadge}</div>
+            ${markedLabel ? `<div style="margin-top:4px;">${markedLabel}</div>` : ''}
+            ${buttons}
+          </div>`;
+        });
+
+        if (remaining.length > 0) {
+          body += `<div style="margin-top:10px;">
+            <button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this)">✓ Sustain All Remaining</button>
+          </div>`;
+        }
+
+        body += `</div>`;
+        html += body;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function handleSustainingMark(actionId, sbRow, sustained, btn) {
+      setSyncing(true);
+      try {
+        await performAction('sustainingReportMark', { itemId: actionId, sbRow: sbRow, sustained: sustained ? 'true' : 'false' });
+        showToast(sustained ? 'Marked sustained' : 'Marked not sustained', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      } finally { setSyncing(false); }
+    }
+
+    async function handleSustainingMarkAll(actionId, btn) {
+      if (!confirm('Mark every remaining item as sustained?')) return;
+      setSyncing(true);
+      try {
+        await performAction('sustainingReportAll', { itemId: actionId });
+        showToast('All items marked sustained', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      } finally { setSyncing(false); }
+    }
+
+    async function handleSBCheckBackup(actionId, btn) {
+      if (!confirm('This will pass the request to the backup high councilor. Continue?')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('sbCheckBackup', { itemId: actionId });
+        if (itemEl) itemEl.remove();
+        showToast('Backup high councilor has been notified', 'success');
         scheduleSilentRefresh();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
