@@ -779,6 +779,14 @@
         html += renderOrdinationReportsSection(data.ordinationReports);
       }
 
+      if (data.ordinationCertificates && data.ordinationCertificates.length > 0) {
+        html += renderOrdinationCertificatesSection(data.ordinationCertificates);
+      }
+
+      if (data.nameTagsToOrder && data.nameTagsToOrder.length > 0) {
+        html += renderNameTagsSection(data.nameTagsToOrder);
+      }
+
       // Mentions appear just before My Tasks so personal callouts surface together.
       if (data.mentions && data.mentions.length > 0) {
         html += renderMentionsSection(data.mentions);
@@ -808,6 +816,8 @@
           data.settingAparts?.length || data.clerkReviews?.length ||
           data.interviews?.length || data.ordinationInterviewSchedules?.length ||
           data.ordinationInterviews?.length || data.ordinationReports?.length ||
+          data.ordinationCertificates?.length ||
+          data.nameTagsToOrder?.length ||
           data.myTasks?.length || data.ccItems?.length ||
           data.stakeBusinessItems?.length;
 
@@ -1247,6 +1257,71 @@
       return html;
     }
 
+    function renderNameTagsSection(items) {
+      // Default collapsed — secretaries skim, only open when they're ready to order.
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'nameTags\')"><div class="section-title">🏷️ Name Tags to Order</div><div class="section-meta">' + helpBtn('nameTags') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-nameTags"><div class="section-inner">';
+
+      items.forEach(item => {
+        html += `<div class="item" id="nametag-${escapeHtmlDisplay(item.timestamp)}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.memberName)} — ${escapeHtmlDisplay(item.calling)}</div></div>
+          <div class="item-meta">${escapeHtmlDisplay(item.ward)}</div>
+          <div class="item-actions">
+            <button class="btn btn-primary" onclick="markNameTagOrdered('${escapeHtmlDisplay(item.timestamp)}', this)">✓ Mark Ordered</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function markNameTagOrdered(timestamp, btn) {
+      btn.disabled = true;
+      btn.textContent = '...';
+      setSyncing(true);
+      try {
+        await performAction('markNameTagOrdered', { timestamp: timestamp });
+        const card = document.getElementById('nametag-' + timestamp);
+        if (card) card.remove();
+        showToast('Marked ordered', 'success');
+        scheduleSilentRefresh();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '✓ Mark Ordered';
+        showToast('Error: ' + (e.message || 'failed to mark ordered'), 'error');
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    function renderOrdinationCertificatesSection(items) {
+      const stepMeta = {
+        'ordination-record-lcr':        { label: 'Mark Recorded on LCR',  action: 'markOrdinationLcrRecorded' },
+        'ordination-print-certificate': { label: 'Mark Certificate Printed', action: 'markCertificatePrinted' },
+        'ordination-sign-certificate':  { label: 'Mark Certificate Signed',  action: 'markCertificateSigned' },
+        'ordination-deliver-certificate': { label: 'Mark Certificate Delivered', action: 'markCertificateDelivered' }
+      };
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordCertificates\')"><div class="section-title">📜 Ordination Certificate Steps</div><div class="section-meta">' + helpBtn('ordCertificates') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-ordCertificates"><div class="section-inner">';
+
+      items.forEach(item => {
+        const meta = stepMeta[item.actionType] || { label: 'Mark Complete', action: 'markOrdinationLcrRecorded' };
+        const notesInfo = item.notes
+          ? `<div class="item-meta" style="font-size:13px;color:#555;line-height:1.5;margin-bottom:4px;">${escapeHtmlDisplay(item.notes)}</div>` : '';
+        html += `<div class="item" id="item-${item.actionId}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${notesInfo}
+          <div class="item-actions">
+            <button class="btn btn-primary" onclick="handleAction('${item.actionId}', '${meta.action}', this)">✓ ${meta.label}</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
     function renderMentionsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mentions\')"><div class="section-title">🏷️ Mentions</div><div class="section-meta">' + helpBtn('mentions') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-mentions"><div class="section-inner">';
@@ -1615,6 +1690,22 @@
         body: '<p>Completed ordinations awaiting your report (date performed, who performed it, etc.).</p>' +
           '<ul>' +
           '<li><b>📝 Report Ordination:</b> Open the report form to record the ordination details.</li>' +
+          '</ul>'
+      },
+      ordCertificates: {
+        title: 'Ordination Certificate Steps',
+        body: '<p>Sequential post-ordination steps for the Stake Asst Clerk-Membership (with the Stake Clerk CC\'d): record the ordination on LCR, print the certificate, get it signed by the Stake President, then have it delivered.</p>' +
+          '<ul>' +
+          '<li>Each step appears here only after the previous step is marked complete.</li>' +
+          '<li>The Deliver step also CCs the assigned High Councilor — sometimes the HC delivers, sometimes a clerk does.</li>' +
+          '</ul>'
+      },
+      nameTags: {
+        title: 'Name Tags to Order',
+        body: '<p>Every accepted calling that needs a name tag and hasn\'t had one ordered yet. Visible to executive secretaries; collapsed by default.</p>' +
+          '<ul>' +
+          '<li>The flag comes from <b>Callings Chart col AA</b> ("Name Tag?") — set that column non-empty for any calling that needs a tag.</li>' +
+          '<li><b>✓ Mark Ordered:</b> stamps Calling Approvals col AT (Name Tag) with today\'s date and removes the row from this list.</li>' +
           '</ul>'
       },
       mytasks: {
