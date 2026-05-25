@@ -1527,7 +1527,7 @@
       },
       approvals: {
         title: 'Calling Approvals',
-        body: '<p>Calling recommendations awaiting your approval.</p>' +
+        body: '<p>Calling recommendations awaiting your approval as outlined in General Handbook 30.8.</p>' +
           '<ul>' +
           '<li><b>✓ Approve:</b> Records your approval for this calling.</li>' +
           '<li><b>⚠️ Concerns:</b> Flags this item for clerk follow-up before final approval.</li>' +
@@ -1536,7 +1536,7 @@
       },
       ordinations: {
         title: 'Priesthood Ordinations',
-        body: '<p>Priesthood ordinations awaiting your sustaining vote.</p>' +
+        body: '<p>Priesthood ordinations awaiting your sustaining vote as outlined in General Handbook 18.10.1.3.</p>' +
           '<ul>' +
           '<li><b>✓ Sustain:</b> Records your sustaining vote.</li>' +
           '<li><b>⚠️ Concerns:</b> Flags this ordination for clerk review.</li>' +
@@ -1545,7 +1545,7 @@
       },
       extend: {
         title: 'Callings & Releases to Extend',
-        body: '<p>Callings or releases assigned to you to extend to a member.</p>' +
+        body: '<p>Callings or releases assigned to you to extend to a member. Selecting a date doesn\'t create any events on any calendar. It simply notates it on this task.</p>' +
           '<ul>' +
           '<li><b>📅 Appointment Scheduled:</b> Pick a date/time once you\'ve scheduled the meeting.</li>' +
           '<li><b>✓ Accepted / ✗ Declined:</b> Record the member\'s response after extending the calling.</li>' +
@@ -1556,7 +1556,7 @@
       },
       appointments: {
         title: 'Appointments to Schedule',
-        body: '<p>Member interviews or meetings that still need a date/time.</p>' +
+        body: '<p>Member interviews or meetings that still need a date/time. Selecting a date doesn\'t create any events on any calendar. It simply notates it on this task.</p>' +
           '<ul>' +
           '<li><b>📅 Appointment Scheduled:</b> Save the appointment date and time once it\'s set.</li>' +
           '</ul>'
@@ -1674,7 +1674,7 @@
         body: '<p>On Sunday morning the script builds a list of every sustaining you need to present in your ward (ward-level + every stake-wide item). Mark each one as sustained or not as you go.</p>' +
           '<ul>' +
           '<li><b>Document link</b> at the top opens the Stake Business doc for the day.</li>' +
-          '<li><b>Ward items:</b> when you mark sustained, the script immediately flips <code>Calling Approvals</code> col AO, creates the setting-apart task, and emails the ward clerks.</li>' +
+          '<li><b>Ward items:</b> when you mark sustained, the script immediately creates the setting-apart task, and emails the ward clerks within 1 hour.</li>' +
           '<li><b>Stake items:</b> get queued until every conducting ward has reported them sustained — only then does the cascade run.</li>' +
           '<li>Use <b>Sustain All Remaining</b> if everything went through without exception.</li>' +
           '</ul>'
