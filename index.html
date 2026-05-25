@@ -132,9 +132,24 @@
     .help-popover li{margin-bottom:4px}
     .help-popover-close{position:absolute;top:6px;right:8px;background:none;border:none;font-size:20px;cursor:pointer;color:#999;line-height:1;padding:0;width:24px;height:24px}
     .help-popover-close:hover{color:#333}
+    .user-overlay{position:fixed;inset:0;background:#f5f5f5;z-index:2000;display:none;flex-direction:column;overflow:hidden}
+    .user-overlay.open{display:flex}
+    .user-overlay-header{background:#5865F2;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;box-shadow:0 2px 4px rgba(0,0,0,.15)}
+    .user-overlay-title{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:12px}
+    .user-overlay-close{background:rgba(255,255,255,.2);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0}
+    .user-overlay-close:hover{background:rgba(255,255,255,.3)}
+    .user-overlay-content{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch}
   </style>
 </head>
 <body>
+  <div id="userOverlay" class="user-overlay" role="dialog" aria-modal="true" aria-labelledby="userOverlayName">
+    <div class="user-overlay-header">
+      <div class="user-overlay-title">👤 Viewing as: <span id="userOverlayName"></span></div>
+      <button class="user-overlay-close" onclick="closeUserDashboardOverlay()">✕ Close</button>
+    </div>
+    <div class="user-overlay-content" id="overlayContent"></div>
+  </div>
+
   <div class="container">
     <header>
       <h1>📋 Dashboard</h1>
@@ -325,6 +340,11 @@
 
     // Global state
     let userId = null;
+    // While the admin "View as another user" overlay is open, we render the
+    // target user's dashboard into #overlayContent (and swap `userId` so
+    // actions POST as that user). closeUserDashboardOverlay restores both.
+    let renderTargetId = 'content';
+    let stashedUserId = null;
     let userData = null;
     let currentData = null;
     let users = [];
@@ -556,7 +576,7 @@
 
       // No cache: show spinner and wait (first load or manual refresh)
       if (!currentData) {
-        document.getElementById('content').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading your dashboard...</p></div>';
+        document.getElementById(renderTargetId).innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading your dashboard...</p></div>';
       }
       setSyncing(true);
       try {
@@ -628,7 +648,7 @@
     }
 
     function showErrorPage(title, message) {
-      document.getElementById('content').innerHTML = `
+      document.getElementById(renderTargetId).innerHTML = `
         <div class="error-page">
           <h2>${title}</h2>
           <p>${message}</p>
@@ -825,7 +845,7 @@
         html += '<div class="empty-state"><div class="icon">✨</div><p>You\'re all caught up!</p><p style="font-size:12px;color:#999;margin-top:8px">No pending items at this time</p></div>';
       }
 
-      document.getElementById('content').innerHTML = html;
+      document.getElementById(renderTargetId).innerHTML = html;
     }
 
     function renderApprovalsSection(items) {
@@ -1583,7 +1603,8 @@
         html += '<option value="' + u.id + '">' + escapeHtmlDisplay(t) + '</option>';
       });
 
-      html += '</select><button class="btn btn-primary" onclick="openUserDashboard()">Open</button></div></div>';
+      html += '</select><button class="btn btn-primary" onclick="openUserDashboard()">Open</button>';
+      html += '<button class="btn btn-secondary" onclick="shareUserDashboardLink()">🔗 Share Link</button></div></div>';
       html += '</div></div></div>';
 
       return html;
@@ -1790,7 +1811,8 @@
           '<li><b>Process Priesthood Ordinations:</b> Manually runs the ordinations processor.</li>' +
           '<li><b>Generate Stake Business Doc:</b> Builds the stake-conference business document.</li>' +
           '<li><b>📢 Manual Notification Blast:</b> Forces queued notifications to send right now.</li>' +
-          '<li><b>View Dashboard As User:</b> Opens another user\'s dashboard for support/troubleshooting.</li>' +
+          '<li><b>Open (View as User):</b> Opens the selected user\'s dashboard in a full-screen overlay <em>inside</em> this PWA — close it with the ✕ Close button at top. Actions you take are submitted as that user.</li>' +
+          '<li><b>🔗 Share Link:</b> Shares a direct link to that user\'s dashboard. On iOS the native share sheet opens (Messages, Mail, etc.); on browsers without share support it falls back to copying the link to your clipboard.</li>' +
           '</ul>'
       },
       settings: {
@@ -2370,15 +2392,100 @@
     function openUserDashboard() {
       const select = document.getElementById('adminUserSelect');
       const selectedUserId = select.value;
-
       if (!selectedUserId) {
         showToast('Please select a user first', 'error');
         return;
       }
+      const selectedOption = select.options[select.selectedIndex];
+      const selectedUserName = selectedOption ? selectedOption.text : selectedUserId;
+      openUserDashboardOverlay(selectedUserId, selectedUserName);
+    }
 
-      // Open GitHub dashboard in new tab
-      const url = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
-      window.open(url, '_blank');
+    async function openUserDashboardOverlay(targetUserId, targetUserName) {
+      // Show overlay shell + loading state immediately
+      document.getElementById('userOverlayName').textContent = targetUserName;
+      document.getElementById('overlayContent').innerHTML =
+        '<div class="loading"><div class="spinner"></div><p>Loading dashboard...</p></div>';
+      document.getElementById('userOverlay').classList.add('open');
+
+      // Swap userId so actions taken in the overlay POST as the target user.
+      // Stash the original so closeUserDashboardOverlay can restore it.
+      stashedUserId = userId;
+      userId = targetUserId;
+      renderTargetId = 'overlayContent';
+
+      // Fetch the target user's dashboard. We bypass loadDashboardData()
+      // because we don't want to overwrite the cached "own" data.
+      try {
+        const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(targetUserId)}&forceRefresh=true`;
+        const response = await fetch(url, { method: 'GET' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        // Render directly into the overlay
+        renderDashboard(data);
+      } catch (e) {
+        document.getElementById('overlayContent').innerHTML =
+          '<div class="empty-state"><div class="icon">⚠️</div><p>Failed to load dashboard</p>' +
+          '<p style="font-size:12px;color:#999;margin-top:8px">' + escapeHtmlDisplay(e.message) + '</p></div>';
+      }
+    }
+
+    function closeUserDashboardOverlay() {
+      // Restore the admin's own userId + render target
+      if (stashedUserId) {
+        userId = stashedUserId;
+        stashedUserId = null;
+      }
+      renderTargetId = 'content';
+      document.getElementById('userOverlay').classList.remove('open');
+      document.getElementById('overlayContent').innerHTML = '';
+      // Refresh own dashboard in case actions taken in the overlay affected it
+      scheduleSilentRefresh();
+    }
+
+    async function shareUserDashboardLink() {
+      const select = document.getElementById('adminUserSelect');
+      const selectedUserId = select.value;
+      if (!selectedUserId) {
+        showToast('Please select a user first', 'error');
+        return;
+      }
+      const selectedOption = select.options[select.selectedIndex];
+      const selectedUserName = selectedOption ? selectedOption.text : selectedUserId;
+      const link = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
+
+      // Try the native share sheet first (iOS / Android Chrome)
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'Dashboard',
+            text: selectedUserName + "'s task dashboard",
+            url: link
+          });
+          return;
+        } catch (e) {
+          // User cancelling the share sheet throws AbortError — silent.
+          if (e && e.name !== 'AbortError') {
+            // Fall through to clipboard fallback on real errors.
+            console.warn('navigator.share failed, falling back to clipboard:', e);
+          } else {
+            return;
+          }
+        }
+      }
+      // Fallback: clipboard
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(link);
+          showToast('Link copied to clipboard', 'success');
+          return;
+        } catch (e) {
+          console.warn('clipboard.writeText failed:', e);
+        }
+      }
+      // Last-resort fallback: show a prompt the user can copy manually
+      prompt('Copy this link:', link);
     }
 
     // Settings Functions
