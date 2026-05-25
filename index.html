@@ -1811,7 +1811,7 @@
           '<li><b>Process Priesthood Ordinations:</b> Manually runs the ordinations processor.</li>' +
           '<li><b>Generate Stake Business Doc:</b> Builds the stake-conference business document.</li>' +
           '<li><b>📢 Manual Notification Blast:</b> Forces queued notifications to send right now.</li>' +
-          '<li><b>Open (View as User):</b> Opens the selected user\'s dashboard in a full-screen overlay <em>inside</em> this PWA — close it with the ✕ Close button at top. Actions you take are submitted as that user.</li>' +
+          '<li><b>Open (View as User):</b> Opens the selected user\'s dashboard in a new tab / iOS in-app browser. Actions you take are submitted as that user. (If iOS opens it without a visible close button, swipe-down from the top of the screen or use the share sheet to return.)</li>' +
           '<li><b>🔗 Share Link:</b> Shares a direct link to that user\'s dashboard. On iOS the native share sheet opens (Messages, Mail, etc.); on browsers without share support it falls back to copying the link to your clipboard.</li>' +
           '</ul>'
       },
@@ -2396,9 +2396,21 @@
         showToast('Please select a user first', 'error');
         return;
       }
-      const selectedOption = select.options[select.selectedIndex];
-      const selectedUserName = selectedOption ? selectedOption.text : selectedUserId;
-      openUserDashboardOverlay(selectedUserId, selectedUserName);
+      const url = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
+      // Programmatic anchor click matches how Stake Links open — gives iOS its
+      // best shot at treating this as an external-navigation (Safari View
+      // Controller with a Done button) rather than as same-PWA chrome.
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // If you want to switch back to the in-app overlay variant, change the
+      // body of this function to: openUserDashboardOverlay(selectedUserId, selectedOption.text).
+      // The overlay code (CSS, HTML, renderTargetId, openUserDashboardOverlay,
+      // closeUserDashboardOverlay) is still in place and ready to use.
     }
 
     async function openUserDashboardOverlay(targetUserId, targetUserName) {
@@ -2451,18 +2463,14 @@
         showToast('Please select a user first', 'error');
         return;
       }
-      const selectedOption = select.options[select.selectedIndex];
-      const selectedUserName = selectedOption ? selectedOption.text : selectedUserId;
       const link = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
 
-      // Try the native share sheet first (iOS / Android Chrome)
+      // Try the native share sheet first (iOS / Android Chrome).
+      // Only share the URL — no title or descriptive text so iOS Messages /
+      // Mail / etc. paste just the bare link with no preamble.
       if (navigator.share) {
         try {
-          await navigator.share({
-            title: 'Dashboard',
-            text: selectedUserName + "'s task dashboard",
-            url: link
-          });
+          await navigator.share({ url: link });
           return;
         } catch (e) {
           // User cancelling the share sheet throws AbortError — silent.
