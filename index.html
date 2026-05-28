@@ -147,6 +147,11 @@
     .calling-controls .badge{padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px}
     .calling-controls .badge.paused{background:#fff3cd;color:#856404}
     .calling-controls .badge.canceled{background:#f8d7da;color:#721c24}
+    /* Standalone status badge usable outside .calling-controls (e.g., the
+       Paused & Canceled section) */
+    .status-badge{padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px;display:inline-block}
+    .status-badge.paused{background:#fff3cd;color:#856404}
+    .status-badge.canceled{background:#f8d7da;color:#721c24}
   </style>
 </head>
 <body>
@@ -849,6 +854,10 @@
         html += renderAssignedToOthersSection(data.assignedToOthers);
       }
 
+      if (data.pausedCanceledCallings && data.pausedCanceledCallings.length > 0) {
+        html += renderPausedCanceledSection(data.pausedCanceledCallings);
+      }
+
       // Admin Tools section
       if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
         html += renderAdminSection(data.adminUsers);
@@ -863,6 +872,7 @@
           data.ordinationInterviews?.length || data.ordinationReports?.length ||
           data.ordinationCertificates?.length ||
           data.nameTagsToOrder?.length ||
+          data.pausedCanceledCallings?.length ||
           data.myTasks?.length || data.ccItems?.length ||
           data.stakeBusinessItems?.length;
 
@@ -1298,6 +1308,35 @@
           ${instructionText}
           <div class="item-actions">
             <button class="btn btn-primary" onclick="openOrdinationReportModal('${item.actionId}')">📝 Report Ordination</button>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function renderPausedCanceledSection(items) {
+      // Default collapsed — clerks open it when they want to manage paused/canceled
+      // callings. Each row shows ward + status + a Resume button. Paused rows
+      // additionally offer "Cancel Permanently" since that's a common follow-up.
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'pausedCanceled\')"><div class="section-title">⏸️ Paused &amp; Canceled Callings</div><div class="section-meta">' + helpBtn('pausedCanceled') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-pausedCanceled"><div class="section-inner">';
+
+      items.forEach(item => {
+        const s = String(item.status || '').toLowerCase();
+        const isPaused = s === 'paused';
+        const statusIcon = isPaused ? '⏸️' : '❌';
+        const statusLabel = isPaused ? 'Paused' : 'Canceled';
+        const wardActionLine = [item.ward, item.action].filter(Boolean).map(escapeHtmlDisplay).join(' — ');
+        const ts = String(item.timestamp || '').replace(/'/g, "\\'");
+        const displayMember = item.memberName || (item.action === 'Released' ? item.releasedMember : '') || '(no member)';
+        html += `<div class="item" id="paused-${escapeHtmlDisplay(item.timestamp)}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(displayMember)} — ${escapeHtmlDisplay(item.calling || '(no calling)')}</div></div>
+          ${wardActionLine ? '<div class="item-meta">' + wardActionLine + ' &bull; <span class="status-badge ' + s + '">' + statusIcon + ' ' + statusLabel + '</span></div>' : ''}
+          <div class="item-actions">
+            <button class="btn btn-success" onclick="setCallingStatus('${ts}', '', this)">▶️ Resume</button>
+            ${isPaused ? `<button class="btn btn-danger" onclick="setCallingStatus('${ts}', 'canceled', this)">❌ Cancel Permanently</button>` : ''}
           </div>
         </div>`;
       });
@@ -1749,6 +1788,15 @@
           '<ul>' +
           '<li>Each step appears here only after the previous step is marked complete.</li>' +
           '<li>The Deliver step also CCs the assigned High Councilor — sometimes the HC delivers, sometimes a clerk does.</li>' +
+          '</ul>'
+      },
+      pausedCanceled: {
+        title: 'Paused & Canceled Callings',
+        body: '<p>Every Calling Approvals row currently in <b>Paused</b> or <b>Canceled</b> state (Col S of the sheet). Visible to stake clerks, executive secretaries, and Stake Presidency. Collapsed by default.</p>' +
+          '<ul>' +
+          '<li><b>▶️ Resume:</b> Sets the row back to <b>Standard</b>. Downstream processing (extending, sustaining, setting apart, etc.) picks back up.</li>' +
+          '<li><b>❌ Cancel Permanently:</b> Only shown on paused rows. Moves the row from Paused to Canceled.</li>' +
+          '<li>This is the same column you set with the Pause / Cancel controls on individual action items. Coming here is just the centralized view.</li>' +
           '</ul>'
       },
       nameTags: {
