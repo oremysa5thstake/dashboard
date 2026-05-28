@@ -139,6 +139,14 @@
     .user-overlay-close{background:rgba(255,255,255,.2);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0}
     .user-overlay-close:hover{background:rgba(255,255,255,.3)}
     .user-overlay-content{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch}
+    .calling-controls{margin-top:8px;padding-top:8px;border-top:1px dashed #e0e0e0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+    .calling-controls .label{color:#666;font-style:italic}
+    .calling-controls .btn-cc{background:none;border:none;cursor:pointer;font-size:12px;padding:2px 6px;border-radius:3px;color:#5865F2}
+    .calling-controls .btn-cc:hover{background:#f0f0f0;text-decoration:underline}
+    .calling-controls .btn-cc.danger{color:#c0392b}
+    .calling-controls .badge{padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px}
+    .calling-controls .badge.paused{background:#fff3cd;color:#856404}
+    .calling-controls .badge.canceled{background:#f8d7da;color:#721c24}
   </style>
 </head>
 <body>
@@ -345,6 +353,23 @@
     // actions POST as that user). closeUserDashboardOverlay restores both.
     let renderTargetId = 'content';
     let stashedUserId = null;
+    // `stashedUserData` keeps the admin's own `userData` (with admin role
+    // flags) while the overlay is showing a different user's dashboard.
+    // Used so the Pause/Cancel/Resume controls appear based on the ADMIN's
+    // permissions, not the target user's.
+    let stashedUserData = null;
+
+    // ---- Actor helpers (overlay-aware) ----------------------------------
+    // The "actor" is the originally-logged-in admin: when the overlay is
+    // open we want permission checks to use that identity, not the target
+    // user's.
+    function getActorUserId() {
+      return stashedUserId || userId;
+    }
+    function actorCanReassign() {
+      const source = stashedUserData || (typeof userData !== 'undefined' ? userData : null);
+      return !!(source && source.canReassign);
+    }
     let userData = null;
     let currentData = null;
     let users = [];
@@ -911,6 +936,7 @@
             </div>
             ${appointmentControls}
           </div>
+          ${renderCallingControls(item)}
         </div>`;
       });
 
@@ -986,6 +1012,7 @@
               <button class="btn btn-success" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
             </div>
           </div>
+          ${renderCallingControls(item)}
         </div>`;
       });
 
@@ -1061,6 +1088,7 @@
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>
           </div>
+          ${renderCallingControls(item)}
         </div>`;
       });
 
@@ -1100,6 +1128,7 @@
           ${commentInfo}
           <div class="item-actions">${actionButtons}
           </div>
+          ${renderCallingControls(item)}
         </div>`;
       });
 
@@ -1495,6 +1524,7 @@
               </div>
               ${appointmentControls}
             </div>
+            ${renderCallingControls(item)}
           </div>`;
         });
 
@@ -2410,7 +2440,10 @@
 
       // Swap userId so actions taken in the overlay POST as the target user.
       // Stash the original so closeUserDashboardOverlay can restore it.
+      // Also stash the admin's userData so role-gated UI (Pause/Cancel/Resume,
+      // Reassign, etc.) uses the admin's permissions, not the target's.
       stashedUserId = userId;
+      stashedUserData = (typeof userData !== 'undefined') ? userData : null;
       userId = targetUserId;
       renderTargetId = 'overlayContent';
 
@@ -2437,11 +2470,72 @@
         userId = stashedUserId;
         stashedUserId = null;
       }
+      stashedUserData = null;
       renderTargetId = 'content';
       document.getElementById('userOverlay').classList.remove('open');
       document.getElementById('overlayContent').innerHTML = '';
       // Refresh own dashboard in case actions taken in the overlay affected it
       scheduleSilentRefresh();
+    }
+
+    // Render pause/cancel/resume controls for clerks/secretaries on any
+    // action item linked to a Calling Approvals row (item.callingStatus is
+    // defined on the backend whenever item.referenceId matches a CA row).
+    // Returns '' for non-clerks and for non-CA items so callers can drop it
+    // in unconditionally.
+    function renderCallingControls(item) {
+      if (!actorCanReassign()) return '';
+      if (item == null || item.callingStatus === undefined || item.callingStatus === null) return '';
+      const ts = String(item.referenceId || '');
+      if (!ts) return '';
+      const s = String(item.callingStatus || '').toLowerCase();
+      const safeTs = ts.replace(/'/g, "\\'");
+      let html = '<div class="calling-controls">';
+      if (s === 'paused') {
+        html += '<span class="badge paused">⏸️ Paused</span>';
+        html += '<span class="label">Calling actions on hold —</span>';
+        html += '<button class="btn-cc" onclick="setCallingStatus(\'' + safeTs + '\', \'\', this)">▶️ Resume</button>';
+        html += '<button class="btn-cc danger" onclick="setCallingStatus(\'' + safeTs + '\', \'canceled\', this)">❌ Cancel</button>';
+      } else if (s === 'canceled') {
+        html += '<span class="badge canceled">❌ Canceled</span>';
+        html += '<button class="btn-cc" onclick="setCallingStatus(\'' + safeTs + '\', \'\', this)">▶️ Resume</button>';
+      } else {
+        html += '<span class="label">Calling controls:</span>';
+        html += '<button class="btn-cc" onclick="setCallingStatus(\'' + safeTs + '\', \'paused\', this)">⏸️ Pause</button>';
+        html += '<button class="btn-cc danger" onclick="setCallingStatus(\'' + safeTs + '\', \'canceled\', this)">❌ Cancel</button>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    async function setCallingStatus(referenceId, newStatus, btn) {
+      // Confirm before canceling — pause/resume are reversible enough to not need a prompt.
+      if (newStatus === 'canceled') {
+        if (!confirm('Cancel this calling? It will stop all pending follow-ups (extending, sustaining, setting apart, etc.) until you resume it.')) {
+          return;
+        }
+      }
+      const originalText = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        await performAction('setCallingPriority', {
+          referenceId: referenceId,
+          status: newStatus,
+          actorUserId: getActorUserId()
+        });
+        const msg = newStatus === '' ? 'Calling resumed'
+                  : newStatus === 'paused' ? 'Calling paused'
+                  : newStatus === 'canceled' ? 'Calling canceled'
+                  : 'Calling updated';
+        showToast(msg, 'success');
+        scheduleSilentRefresh(500); // refresh quickly so badges / item filtering update
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = originalText; }
+        showToast('Error: ' + (e.message || 'failed to set status'), 'error');
+      } finally {
+        setSyncing(false);
+      }
     }
 
     async function shareUserDashboardLink() {
