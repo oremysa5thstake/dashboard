@@ -178,6 +178,12 @@
     .ms-step.req-pending .lbl::after{content:" *";color:#c0392b}
     .ms-phase-steps{display:none}
     .ms-phase-steps.open{display:block}
+    .ms-step.ms-edit{align-items:center;flex-wrap:wrap}
+    .ms-edit-ctl{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    .ms-edit-ctl input{padding:5px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;max-width:160px}
+    .ms-step .btn-cc{background:none;border:1px solid #5865F2;cursor:pointer;font-size:12px;padding:3px 9px;border-radius:5px;color:#5865F2}
+    .ms-step .btn-cc:hover{background:#eef0ff}
+    .ms-step .btn-cc.danger{border-color:#c0392b;color:#c0392b}
     .ms-empty{color:#999;font-size:13px;padding:20px;text-align:center}
   </style>
 </head>
@@ -2614,33 +2620,65 @@
       renderMemberStatusList(members);
     }
 
+    let _msOpenKey = null; // name|ward of the currently-expanded card (survives re-renders)
+
+    function _msKey(m) { return (String(m.name) + '|' + String(m.ward)).toLowerCase(); }
+
     function renderMemberStatusList(members) {
       const box = document.getElementById('msResults');
       if (!members || members.length === 0) {
         box.innerHTML = '<div class="ms-empty">No members match.</div>';
         return;
       }
-      box.innerHTML = members.map((m, i) => {
+      box.innerHTML = members.map(m => {
+        const key = _msKey(m);
+        const open = key === _msOpenKey;
         const tags = (m.calling ? '<span class="ms-tag calling">Calling</span>' : '') +
                      (m.ordination ? '<span class="ms-tag ord">Ordination</span>' : '');
         return `<div class="ms-card">
-          <div class="ms-card-head" onclick="toggleMsCard(${i})">
+          <div class="ms-card-head" onclick="toggleMsCard('${escapeHtmlDisplay(key).replace(/'/g, "\\'")}')">
             <div>
               <div class="ms-card-name">${escapeHtmlDisplay(m.name)}</div>
               <div class="ms-card-sub">${escapeHtmlDisplay(m.ward)}</div>
             </div>
             <div class="ms-tags">${tags}</div>
           </div>
-          <div class="ms-card-body" id="msBody-${i}">${renderMemberBody(m)}</div>
+          <div class="ms-card-body${open ? ' open' : ''}">${renderMemberBody(m)}</div>
         </div>`;
       }).join('');
-      // Stash the filtered list so toggleMsCard can find bodies by index
-      window._msVisible = members;
     }
 
-    function toggleMsCard(i) {
-      const body = document.getElementById('msBody-' + i);
-      if (body) body.classList.toggle('open');
+    function toggleMsCard(key) {
+      _msOpenKey = (_msOpenKey === key) ? null : key;
+      filterMemberStatus(); // re-render with the new open state
+    }
+
+    // Re-fetch member data and re-render, preserving search/ward filter + open card.
+    async function reloadMemberStatus() {
+      try {
+        const res = await performAction('getMemberStatus', { actorUserId: getActorUserId() });
+        memberStatusData = res;
+        filterMemberStatus();
+      } catch (e) {
+        showToast('Refresh failed: ' + (e.message || 'error'), 'error');
+      }
+    }
+
+    async function saveMemberStatusField(sheet, ref, col, valueType, value, btn) {
+      if (btn) { btn.disabled = true; btn.dataset.orig = btn.textContent; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        await performAction('setMemberStatusField', {
+          actorUserId: getActorUserId(), sheet: sheet, referenceId: ref, col: col, valueType: valueType, value: value
+        });
+        showToast('Saved', 'success');
+        await reloadMemberStatus();
+      } catch (e) {
+        showToast('Error: ' + (e.message || 'save failed'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = btn.dataset.orig || 'Save'; }
+      } finally {
+        setSyncing(false);
+      }
     }
 
     function renderMemberBody(m) {
@@ -2652,7 +2690,7 @@
                   ? ' — <span class="status-badge ' + escapeHtmlDisplay(m.calling.status.toLowerCase()) + '">' + escapeHtmlDisplay(m.calling.status) + '</span>' : '') +
                 '</div>';
         if (m.calling.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(m.calling.submittedDate) + '</div>';
-        html += renderTrack(m.calling);
+        html += renderTrack(m.calling, 'CA', m.calling.timestamp);
       }
       if (m.ordination) {
         html += '<div class="ms-track-title">🙏 Ordination: ' + escapeHtmlDisplay(m.ordination.office || '') + '</div>';
@@ -2664,7 +2702,7 @@
           else meta.push('SP interview: scheduled');
         }
         if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
-        html += renderTrack(m.ordination);
+        html += renderTrack(m.ordination, 'PO', m.ordination.timestamp);
       }
       if (!m.calling && !m.ordination) html += '<div class="ms-empty">No calling or ordination on file.</div>';
       return html;
@@ -2672,7 +2710,7 @@
 
     // Accordion: current phase open, completed phases collapsed (tap to view),
     // future phases locked. Phases whose steps are all non-applicable are hidden.
-    function renderTrack(track) {
+    function renderTrack(track, sheet, ref) {
       const all = (track && track.phases) || [];
       const cur = (track && track.currentPhase != null) ? track.currentPhase : null;
       const phases = all.filter(ph => ph.steps.some(s => s.applicable !== false));
@@ -2686,20 +2724,22 @@
           </div>`;
         }
         if (isCurrent) {
+          // Current phase: editable controls on editable steps.
           return `<div class="ms-phase current">
             <div class="ms-phase-label">Phase ${ph.phase} · current</div>
-            ${renderSteps(ph.steps)}
+            ${renderSteps(ph.steps, { sheet: sheet, ref: ref, editable: true })}
           </div>`;
         }
-        // Completed (past) phase — collapsed, tap to expand.
+        // Completed (past) phase — collapsed, tap to expand. Read-only.
         return `<div class="ms-phase complete">
           <div class="ms-phase-label" style="cursor:pointer" onclick="this.parentNode.querySelector('.ms-phase-steps').classList.toggle('open')">Phase ${ph.phase} ✓ complete <span style="font-weight:400;text-transform:none">(tap)</span></div>
-          <div class="ms-phase-steps">${renderSteps(ph.steps)}</div>
+          <div class="ms-phase-steps">${renderSteps(ph.steps, { sheet: sheet, ref: ref, editable: false })}</div>
         </div>`;
       }).join('');
     }
 
-    function renderSteps(steps) {
+    function renderSteps(steps, opts) {
+      opts = opts || {};
       const visible = steps.filter(s => s.applicable !== false);
       if (visible.length === 0) return '<div class="ms-step pending"><span class="lbl">No applicable steps</span></div>';
       // Approval phases: compact "X / Y" summary instead of one row per approver.
@@ -2710,10 +2750,43 @@
           (pending.length ? `<div class="ms-step pending"><span class="lbl">Waiting on</span><span class="val">${pending.map(s => escapeHtmlDisplay(s.label)).join(', ')}</span></div>` : '');
       }
       return visible.map(s => {
+        // Editable control (current phase only).
+        if (opts.editable && s.editable) {
+          return renderEditableStep(s, opts.sheet, opts.ref);
+        }
         const cls = (!s.done && !s.skipped ? 'pending' : '') + (s.required && !s.done && !s.skipped ? ' req-pending' : '');
         const val = s.skipped ? '(skipped)' : (s.done ? (escapeHtmlDisplay(s.value) || '✓') : '—');
         return `<div class="ms-step ${cls}"><span class="lbl">${escapeHtmlDisplay(s.label)}</span><span class="val">${val}</span></div>`;
       }).join('');
+    }
+
+    function renderEditableStep(s, sheet, ref) {
+      const lbl = escapeHtmlDisplay(s.label);
+      const call = (vt, v) => `saveMemberStatusField('${sheet}','${escapeHtmlDisplay(String(ref)).replace(/'/g,"\\'")}',${s.col},'${vt}',${v},this)`;
+      if (s.type === 'date') {
+        const id = `msf_${sheet}_${s.col}_${Math.random().toString(36).slice(2,7)}`;
+        const cur = s.done ? escapeHtmlDisplay(s.value) : '';
+        return `<div class="ms-step ms-edit">
+          <span class="lbl">${lbl}${cur ? ' — <span class="val">' + cur + '</span>' : ''}</span>
+          <span class="ms-edit-ctl"><input type="date" id="${id}" class="form-input">
+          <button class="btn-cc" onclick="saveMemberStatusField('${sheet}','${escapeHtmlDisplay(String(ref)).replace(/'/g,"\\'")}',${s.col},'date',document.getElementById('${id}').value,this)">Save</button></span>
+        </div>`;
+      }
+      if (s.type === 'text') {
+        const id = `msf_${sheet}_${s.col}_${Math.random().toString(36).slice(2,7)}`;
+        const cur = s.done ? escapeHtmlDisplay(s.value) : '';
+        return `<div class="ms-step ms-edit">
+          <span class="lbl">${lbl}</span>
+          <span class="ms-edit-ctl"><input type="text" id="${id}" class="form-input" value="${cur}" placeholder="…">
+          <button class="btn-cc" onclick="saveMemberStatusField('${sheet}','${escapeHtmlDisplay(String(ref)).replace(/'/g,"\\'")}',${s.col},'text',document.getElementById('${id}').value,this)">Save</button></span>
+        </div>`;
+      }
+      // boolean
+      if (s.done) {
+        return `<div class="ms-step"><span class="lbl">${lbl}</span><span class="val">${escapeHtmlDisplay(s.value) || '✓'} <button class="btn-cc danger" onclick="${call('boolean', 'false')}">undo</button></span></div>`;
+      }
+      const reqCls = s.required ? ' req-pending' : '';
+      return `<div class="ms-step pending${reqCls}"><span class="lbl">${lbl}</span><span class="val"><button class="btn-cc" onclick="${call('boolean', 'true')}">✓ Mark done</button></span></div>`;
     }
 
     // Render pause/cancel/resume controls for clerks/secretaries on any
