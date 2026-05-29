@@ -176,6 +176,8 @@
     .ms-step .val{font-weight:600;color:#222;text-align:right}
     .ms-step.pending .val{color:#bbb;font-weight:400}
     .ms-step.req-pending .lbl::after{content:" *";color:#c0392b}
+    .ms-phase-steps{display:none}
+    .ms-phase-steps.open{display:block}
     .ms-empty{color:#999;font-size:13px;padding:20px;text-align:center}
   </style>
 </head>
@@ -2649,44 +2651,68 @@
                 (m.calling.status && m.calling.status.toLowerCase() !== 'standard' && m.calling.status !== ''
                   ? ' — <span class="status-badge ' + escapeHtmlDisplay(m.calling.status.toLowerCase()) + '">' + escapeHtmlDisplay(m.calling.status) + '</span>' : '') +
                 '</div>';
-        html += renderPhases(m.calling.phases);
+        if (m.calling.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(m.calling.submittedDate) + '</div>';
+        html += renderTrack(m.calling);
       }
       if (m.ordination) {
         html += '<div class="ms-track-title">🙏 Ordination: ' + escapeHtmlDisplay(m.ordination.office || '') + '</div>';
-        html += renderPhases(m.ordination.phases);
+        const meta = [];
+        if (m.ordination.submittedDate) meta.push('Submitted ' + escapeHtmlDisplay(m.ordination.submittedDate));
+        if (m.ordination.interview) {
+          if (m.ordination.interview.pending) meta.push('SP interview: not yet scheduled');
+          else if (m.ordination.interview.scheduled) meta.push('SP interview: ' + escapeHtmlDisplay(m.ordination.interview.scheduled));
+          else meta.push('SP interview: scheduled');
+        }
+        if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
+        html += renderTrack(m.ordination);
       }
       if (!m.calling && !m.ordination) html += '<div class="ms-empty">No calling or ordination on file.</div>';
       return html;
     }
 
-    function renderPhases(phases) {
-      if (!phases || phases.length === 0) return '';
+    // Accordion: current phase open, completed phases collapsed (tap to view),
+    // future phases locked. Phases whose steps are all non-applicable are hidden.
+    function renderTrack(track) {
+      const all = (track && track.phases) || [];
+      const cur = (track && track.currentPhase != null) ? track.currentPhase : null;
+      const phases = all.filter(ph => ph.steps.some(s => s.applicable !== false));
+      if (phases.length === 0) return '<div class="ms-empty">No steps.</div>';
       return phases.map(ph => {
-        // A phase is "complete" (Stage A heuristic) when every required step is done,
-        // or — if none are marked required — when all steps are done.
-        const reqSteps = ph.steps.filter(s => s.required);
-        const gate = reqSteps.length ? reqSteps : ph.steps;
-        const complete = gate.every(s => s.done);
-        const anyDone = ph.steps.some(s => s.done);
-        const cls = complete ? 'complete' : (anyDone ? 'current' : '');
-        // Approval phases (1 & 2) get a compact summary instead of one row per approver.
-        const isApprovalPhase = ph.steps.length > 0 && ph.steps[0].isApprover;
-        let inner;
-        if (isApprovalPhase) {
-          const done = ph.steps.filter(s => s.done);
-          const pending = ph.steps.filter(s => !s.done);
-          inner = `<div class="ms-step"><span class="lbl">Approved/sustained</span><span class="val">${done.length} / ${ph.steps.length}</span></div>` +
-            (pending.length ? `<div class="ms-step pending"><span class="lbl">Waiting on</span><span class="val">${pending.map(s => escapeHtmlDisplay(s.label)).join(', ')}</span></div>` : '');
-        } else {
-          inner = ph.steps.map(s => {
-            const stepCls = (!s.done ? 'pending' : '') + (s.required && !s.done ? ' req-pending' : '');
-            return `<div class="ms-step ${stepCls}"><span class="lbl">${escapeHtmlDisplay(s.label)}</span><span class="val">${s.done ? (escapeHtmlDisplay(s.value) || '✓') : '—'}</span></div>`;
-          }).join('');
+        const isCurrent = ph.phase === cur;
+        const isFuture = (cur !== null && ph.phase > cur);
+        if (isFuture) {
+          return `<div class="ms-phase" style="opacity:.45">
+            <div class="ms-phase-label">🔒 Phase ${ph.phase}</div>
+          </div>`;
         }
-        return `<div class="ms-phase ${cls}">
-          <div class="ms-phase-label">Phase ${ph.phase}${complete ? ' ✓' : ''}</div>
-          ${inner}
+        if (isCurrent) {
+          return `<div class="ms-phase current">
+            <div class="ms-phase-label">Phase ${ph.phase} · current</div>
+            ${renderSteps(ph.steps)}
+          </div>`;
+        }
+        // Completed (past) phase — collapsed, tap to expand.
+        return `<div class="ms-phase complete">
+          <div class="ms-phase-label" style="cursor:pointer" onclick="this.parentNode.querySelector('.ms-phase-steps').classList.toggle('open')">Phase ${ph.phase} ✓ complete <span style="font-weight:400;text-transform:none">(tap)</span></div>
+          <div class="ms-phase-steps">${renderSteps(ph.steps)}</div>
         </div>`;
+      }).join('');
+    }
+
+    function renderSteps(steps) {
+      const visible = steps.filter(s => s.applicable !== false);
+      if (visible.length === 0) return '<div class="ms-step pending"><span class="lbl">No applicable steps</span></div>';
+      // Approval phases: compact "X / Y" summary instead of one row per approver.
+      if (visible[0].isApprover) {
+        const done = visible.filter(s => s.done);
+        const pending = visible.filter(s => !s.done);
+        return `<div class="ms-step"><span class="lbl">Approved/sustained</span><span class="val">${done.length} / ${visible.length}</span></div>` +
+          (pending.length ? `<div class="ms-step pending"><span class="lbl">Waiting on</span><span class="val">${pending.map(s => escapeHtmlDisplay(s.label)).join(', ')}</span></div>` : '');
+      }
+      return visible.map(s => {
+        const cls = (!s.done && !s.skipped ? 'pending' : '') + (s.required && !s.done && !s.skipped ? ' req-pending' : '');
+        const val = s.skipped ? '(skipped)' : (s.done ? (escapeHtmlDisplay(s.value) || '✓') : '—');
+        return `<div class="ms-step ${cls}"><span class="lbl">${escapeHtmlDisplay(s.label)}</span><span class="val">${val}</span></div>`;
       }).join('');
     }
 
