@@ -2742,14 +2742,22 @@
       opts = opts || {};
       const visible = steps.filter(s => s.applicable !== false);
       if (visible.length === 0) return '<div class="ms-step pending"><span class="lbl">No applicable steps</span></div>';
-      // Approval phases: compact "X / Y" summary instead of one row per approver.
-      if (visible[0].isApprover) {
-        const done = visible.filter(s => s.done);
-        const pending = visible.filter(s => !s.done);
-        return `<div class="ms-step"><span class="lbl">Approved/sustained</span><span class="val">${done.length} / ${visible.length}</span></div>` +
+
+      // Approver columns get a compact "X / Y approved" summary; non-approver
+      // steps (including editable ones like Preferred Ordination Date that share
+      // an approval phase) are rendered normally below — never dropped.
+      const approvers = visible.filter(s => s.isApprover);
+      const others = visible.filter(s => !s.isApprover);
+      let html = '';
+
+      if (approvers.length) {
+        const done = approvers.filter(s => s.done);
+        const pending = approvers.filter(s => !s.done);
+        html += `<div class="ms-step"><span class="lbl">Approved/sustained</span><span class="val">${done.length} / ${approvers.length}</span></div>` +
           (pending.length ? `<div class="ms-step pending"><span class="lbl">Waiting on</span><span class="val">${pending.map(s => escapeHtmlDisplay(s.label)).join(', ')}</span></div>` : '');
       }
-      return visible.map(s => {
+
+      html += others.map(s => {
         // Editable control (current phase only).
         if (opts.editable && s.editable) {
           return renderEditableStep(s, opts.sheet, opts.ref);
@@ -2758,6 +2766,8 @@
         const val = s.skipped ? '(skipped)' : (s.done ? (escapeHtmlDisplay(s.value) || '✓') : '—');
         return `<div class="ms-step ${cls}"><span class="lbl">${escapeHtmlDisplay(s.label)}</span><span class="val">${val}</span></div>`;
       }).join('');
+
+      return html;
     }
 
     function renderEditableStep(s, sheet, ref) {
