@@ -152,6 +152,31 @@
     .status-badge{padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px;display:inline-block}
     .status-badge.paused{background:#fff3cd;color:#856404}
     .status-badge.canceled{background:#f8d7da;color:#721c24}
+    /* Member Status tool */
+    .ms-controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;position:sticky;top:0;background:#f5f5f5;padding-bottom:8px;z-index:1}
+    .ms-controls input,.ms-controls select{flex:1;min-width:140px;padding:9px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px}
+    .ms-card{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.1);margin-bottom:10px;overflow:hidden}
+    .ms-card-head{padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .ms-card-head:hover{background:#fafafa}
+    .ms-card-name{font-weight:600;font-size:15px}
+    .ms-card-sub{font-size:12px;color:#777;margin-top:2px}
+    .ms-tags{display:flex;gap:6px;flex-shrink:0}
+    .ms-tag{font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px}
+    .ms-tag.calling{background:#e7e9fd;color:#3b41a8}
+    .ms-tag.ord{background:#e0f3e6;color:#1f7a3d}
+    .ms-card-body{padding:0 16px 12px;border-top:1px solid #eee;display:none}
+    .ms-card-body.open{display:block}
+    .ms-track-title{font-weight:700;font-size:13px;margin:12px 0 4px;color:#444}
+    .ms-phase{margin:8px 0;padding:8px 10px;border-left:3px solid #ddd;background:#fafafa;border-radius:0 6px 6px 0}
+    .ms-phase.complete{border-left-color:#28a745}
+    .ms-phase.current{border-left-color:#5865F2}
+    .ms-phase-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#888;margin-bottom:4px}
+    .ms-step{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:2px 0}
+    .ms-step .lbl{color:#555}
+    .ms-step .val{font-weight:600;color:#222;text-align:right}
+    .ms-step.pending .val{color:#bbb;font-weight:400}
+    .ms-step.req-pending .lbl::after{content:" *";color:#c0392b}
+    .ms-empty{color:#999;font-size:13px;padding:20px;text-align:center}
   </style>
 </head>
 <body>
@@ -163,11 +188,20 @@
     <div class="user-overlay-content" id="overlayContent"></div>
   </div>
 
+  <div id="memberStatusOverlay" class="user-overlay" role="dialog" aria-modal="true">
+    <div class="user-overlay-header">
+      <div class="user-overlay-title">🔍 Member Status</div>
+      <button class="user-overlay-close" onclick="closeMemberStatusOverlay()">✕ Close</button>
+    </div>
+    <div class="user-overlay-content" id="memberStatusContent"></div>
+  </div>
+
   <div class="container">
     <header>
       <h1>📋 Dashboard</h1>
       <div class="header-right">
         <span class="user-info" id="userInfo">Loading...</span>
+        <button class="header-btn" id="memberStatusBtn" onclick="openMemberStatus()" style="display:none;">🔍 Member Status</button>
         <button class="header-btn" onclick="openNewTaskModal()">➕ New Task</button>
         <button class="header-btn" onclick="toggleSettings()">⚙️</button>
         <button class="header-btn" id="refreshBtn" onclick="refreshData()" title="Refresh data">🔄 Refresh</button>
@@ -670,10 +704,13 @@
         name: data.userName || userId,
         userId: data.userId || userId,
         canReassign: data.canReassign || false,
-        isAdmin: data.isAdmin || false
+        isAdmin: data.isAdmin || false,
+        canMemberStatus: data.canMemberStatus || false
       };
 
       document.getElementById('userInfo').textContent = userData.name;
+      var msBtn = document.getElementById('memberStatusBtn');
+      if (msBtn) msBtn.style.display = userData.canMemberStatus ? '' : 'none';
       renderDashboard(data);
     }
 
@@ -2524,6 +2561,133 @@
       document.getElementById('overlayContent').innerHTML = '';
       // Refresh own dashboard in case actions taken in the overlay affected it
       scheduleSilentRefresh();
+    }
+
+    // ---- Member Status tool (Stage A — read-only) -----------------------
+    let memberStatusData = null;
+
+    async function openMemberStatus() {
+      document.getElementById('memberStatusContent').innerHTML =
+        '<div class="loading"><div class="spinner"></div><p>Loading member status…</p></div>';
+      document.getElementById('memberStatusOverlay').classList.add('open');
+      try {
+        const res = await performAction('getMemberStatus', { actorUserId: getActorUserId() });
+        memberStatusData = res;
+        renderMemberStatus();
+      } catch (e) {
+        document.getElementById('memberStatusContent').innerHTML =
+          '<div class="ms-empty">⚠️ Failed to load: ' + escapeHtmlDisplay(e.message || 'error') + '</div>';
+      }
+    }
+
+    function closeMemberStatusOverlay() {
+      document.getElementById('memberStatusOverlay').classList.remove('open');
+      document.getElementById('memberStatusContent').innerHTML = '';
+    }
+
+    function renderMemberStatus() {
+      const data = memberStatusData || {};
+      const members = data.members || [];
+      const wards = data.wards || [];
+      const wardOptions = ['<option value="">All wards I can see</option>']
+        .concat(wards.map(w => `<option value="${escapeHtmlDisplay(w)}">${escapeHtmlDisplay(w)}</option>`))
+        .join('');
+      let html = `<div class="ms-controls">
+        <input type="text" id="msSearch" placeholder="Search by name…" oninput="filterMemberStatus()">
+        <select id="msWard" onchange="filterMemberStatus()">${wardOptions}</select>
+      </div>
+      <div id="msResults"></div>`;
+      document.getElementById('memberStatusContent').innerHTML = html;
+      renderMemberStatusList(members);
+    }
+
+    function filterMemberStatus() {
+      const q = (document.getElementById('msSearch').value || '').toLowerCase().trim();
+      const ward = document.getElementById('msWard').value || '';
+      const members = (memberStatusData.members || []).filter(m => {
+        if (ward && m.ward !== ward) return false;
+        if (q && String(m.name).toLowerCase().indexOf(q) === -1) return false;
+        return true;
+      });
+      renderMemberStatusList(members);
+    }
+
+    function renderMemberStatusList(members) {
+      const box = document.getElementById('msResults');
+      if (!members || members.length === 0) {
+        box.innerHTML = '<div class="ms-empty">No members match.</div>';
+        return;
+      }
+      box.innerHTML = members.map((m, i) => {
+        const tags = (m.calling ? '<span class="ms-tag calling">Calling</span>' : '') +
+                     (m.ordination ? '<span class="ms-tag ord">Ordination</span>' : '');
+        return `<div class="ms-card">
+          <div class="ms-card-head" onclick="toggleMsCard(${i})">
+            <div>
+              <div class="ms-card-name">${escapeHtmlDisplay(m.name)}</div>
+              <div class="ms-card-sub">${escapeHtmlDisplay(m.ward)}</div>
+            </div>
+            <div class="ms-tags">${tags}</div>
+          </div>
+          <div class="ms-card-body" id="msBody-${i}">${renderMemberBody(m)}</div>
+        </div>`;
+      }).join('');
+      // Stash the filtered list so toggleMsCard can find bodies by index
+      window._msVisible = members;
+    }
+
+    function toggleMsCard(i) {
+      const body = document.getElementById('msBody-' + i);
+      if (body) body.classList.toggle('open');
+    }
+
+    function renderMemberBody(m) {
+      let html = '';
+      if (m.calling) {
+        html += '<div class="ms-track-title">📋 ' + escapeHtmlDisplay(m.calling.calling || 'Calling') +
+                ' (' + escapeHtmlDisplay(m.calling.action || '') + ')' +
+                (m.calling.status && m.calling.status.toLowerCase() !== 'standard' && m.calling.status !== ''
+                  ? ' — <span class="status-badge ' + escapeHtmlDisplay(m.calling.status.toLowerCase()) + '">' + escapeHtmlDisplay(m.calling.status) + '</span>' : '') +
+                '</div>';
+        html += renderPhases(m.calling.phases);
+      }
+      if (m.ordination) {
+        html += '<div class="ms-track-title">🙏 Ordination: ' + escapeHtmlDisplay(m.ordination.office || '') + '</div>';
+        html += renderPhases(m.ordination.phases);
+      }
+      if (!m.calling && !m.ordination) html += '<div class="ms-empty">No calling or ordination on file.</div>';
+      return html;
+    }
+
+    function renderPhases(phases) {
+      if (!phases || phases.length === 0) return '';
+      return phases.map(ph => {
+        // A phase is "complete" (Stage A heuristic) when every required step is done,
+        // or — if none are marked required — when all steps are done.
+        const reqSteps = ph.steps.filter(s => s.required);
+        const gate = reqSteps.length ? reqSteps : ph.steps;
+        const complete = gate.every(s => s.done);
+        const anyDone = ph.steps.some(s => s.done);
+        const cls = complete ? 'complete' : (anyDone ? 'current' : '');
+        // Approval phases (1 & 2) get a compact summary instead of one row per approver.
+        const isApprovalPhase = ph.steps.length > 0 && ph.steps[0].isApprover;
+        let inner;
+        if (isApprovalPhase) {
+          const done = ph.steps.filter(s => s.done);
+          const pending = ph.steps.filter(s => !s.done);
+          inner = `<div class="ms-step"><span class="lbl">Approved/sustained</span><span class="val">${done.length} / ${ph.steps.length}</span></div>` +
+            (pending.length ? `<div class="ms-step pending"><span class="lbl">Waiting on</span><span class="val">${pending.map(s => escapeHtmlDisplay(s.label)).join(', ')}</span></div>` : '');
+        } else {
+          inner = ph.steps.map(s => {
+            const stepCls = (!s.done ? 'pending' : '') + (s.required && !s.done ? ' req-pending' : '');
+            return `<div class="ms-step ${stepCls}"><span class="lbl">${escapeHtmlDisplay(s.label)}</span><span class="val">${s.done ? (escapeHtmlDisplay(s.value) || '✓') : '—'}</span></div>`;
+          }).join('');
+        }
+        return `<div class="ms-phase ${cls}">
+          <div class="ms-phase-label">Phase ${ph.phase}${complete ? ' ✓' : ''}</div>
+          ${inner}
+        </div>`;
+      }).join('');
     }
 
     // Render pause/cancel/resume controls for clerks/secretaries on any
