@@ -185,6 +185,12 @@
     .ms-step .btn-cc:hover{background:#eef0ff}
     .ms-step .btn-cc.danger{border-color:#c0392b;color:#c0392b}
     .ms-empty{color:#999;font-size:13px;padding:20px;text-align:center}
+    .ms-ward-label{flex:1;min-width:140px;padding:9px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:14px;color:#333;display:flex;align-items:center}
+    .ms-canceled-section{margin-top:18px;border-top:1px solid #ddd;padding-top:10px}
+    .ms-canceled-header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#fafafa;border-radius:8px;cursor:pointer;font-weight:600;color:#666;font-size:13px}
+    .ms-canceled-header:hover{background:#f0f0f0}
+    .ms-canceled-list{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}
+    .ms-canceled-list.open{max-height:10000px;padding-top:10px}
   </style>
 </head>
 <body>
@@ -2595,59 +2601,110 @@
 
     function renderMemberStatus() {
       const data = memberStatusData || {};
-      const members = data.members || [];
       const wards = data.wards || [];
-      const wardOptions = ['<option value="">All wards I can see</option>']
-        .concat(wards.map(w => `<option value="${escapeHtmlDisplay(w)}">${escapeHtmlDisplay(w)}</option>`))
-        .join('');
-      let html = `<div class="ms-controls">
+      let wardControl;
+      if (data.seeAll) {
+        // Stake leaders & clerks: dropdown, default option = whole stake.
+        const wardOptions = ['<option value="">Orem YSA 5th Stake</option>']
+          .concat(wards.map(w => `<option value="${escapeHtmlDisplay(w)}">${escapeHtmlDisplay(w)}</option>`))
+          .join('');
+        wardControl = `<select id="msWard" onchange="filterMemberStatus()">${wardOptions}</select>`;
+      } else {
+        // High councilor: scope is fixed to their assigned ward(s) — show as text.
+        const wardText = wards.length ? wards.join(', ') : '(no ward assigned)';
+        wardControl = `<span class="ms-ward-label" id="msWard" data-ward="${escapeHtmlDisplay(wards[0] || '')}">${escapeHtmlDisplay(wardText)}</span>`;
+      }
+      const html = `<div class="ms-controls">
         <input type="text" id="msSearch" placeholder="Search by name…" oninput="filterMemberStatus()">
-        <select id="msWard" onchange="filterMemberStatus()">${wardOptions}</select>
+        ${wardControl}
       </div>
       <div id="msResults"></div>`;
       document.getElementById('memberStatusContent').innerHTML = html;
-      renderMemberStatusList(members);
+      filterMemberStatus(); // initial render applies the canceled-split rule
+    }
+
+    // A member is "canceled" if every calling track is canceled and there are
+    // no ordinations on file. Mixed members (any active item) stay in the main list.
+    function _msIsCanceled(m) {
+      const callings = m.callings || (m.calling ? [m.calling] : []);
+      const ordinations = m.ordinations || (m.ordination ? [m.ordination] : []);
+      if (ordinations.length > 0) return false;
+      if (callings.length === 0) return false;
+      return callings.every(c => String(c.status || '').toLowerCase() === 'canceled');
     }
 
     function filterMemberStatus() {
       const q = (document.getElementById('msSearch').value || '').toLowerCase().trim();
-      const ward = document.getElementById('msWard').value || '';
+      const wardEl = document.getElementById('msWard');
+      const ward = (wardEl && wardEl.tagName === 'SELECT') ? wardEl.value : ''; // HC text view has no ward filter
       const members = (memberStatusData.members || []).filter(m => {
         if (ward && m.ward !== ward) return false;
         if (q && String(m.name).toLowerCase().indexOf(q) === -1) return false;
         return true;
       });
-      renderMemberStatusList(members);
+      if (q) {
+        // Search mode: one combined list so canceled members are visible too.
+        renderMemberStatusList(members, []);
+      } else {
+        const active = members.filter(m => !_msIsCanceled(m));
+        const canceled = members.filter(m => _msIsCanceled(m));
+        renderMemberStatusList(active, canceled);
+      }
     }
 
     let _msOpenKey = null; // name|ward of the currently-expanded card (survives re-renders)
 
     function _msKey(m) { return (String(m.name) + '|' + String(m.ward)).toLowerCase(); }
 
-    function renderMemberStatusList(members) {
+    function _msRenderCard(m) {
+      const key = _msKey(m);
+      const open = key === _msOpenKey;
+      const callings = m.callings || (m.calling ? [m.calling] : []);
+      const ordinations = m.ordinations || (m.ordination ? [m.ordination] : []);
+      const tags = (callings.length ? `<span class="ms-tag calling">Calling${callings.length > 1 ? 's ('+callings.length+')' : ''}</span>` : '') +
+                   (ordinations.length ? `<span class="ms-tag ord">Ordination${ordinations.length > 1 ? 's ('+ordinations.length+')' : ''}</span>` : '');
+      return `<div class="ms-card">
+        <div class="ms-card-head" onclick="toggleMsCard('${escapeHtmlDisplay(key).replace(/'/g, "\\'")}')">
+          <div>
+            <div class="ms-card-name">${escapeHtmlDisplay(m.name)}</div>
+            <div class="ms-card-sub">${escapeHtmlDisplay(m.ward)}</div>
+          </div>
+          <div class="ms-tags">${tags}</div>
+        </div>
+        <div class="ms-card-body${open ? ' open' : ''}">${renderMemberBody(m)}</div>
+      </div>`;
+    }
+
+    let _msCanceledOpen = false; // canceled section collapsed by default; toggled separately
+    function toggleMsCanceledSection() {
+      _msCanceledOpen = !_msCanceledOpen;
+      const el = document.getElementById('msCanceledList');
+      const chev = document.getElementById('msCanceledChev');
+      if (el) el.classList.toggle('open', _msCanceledOpen);
+      if (chev) chev.textContent = _msCanceledOpen ? '▲' : '▼';
+    }
+
+    function renderMemberStatusList(activeMembers, canceledMembers) {
       const box = document.getElementById('msResults');
-      if (!members || members.length === 0) {
+      const hasActive = activeMembers && activeMembers.length > 0;
+      const hasCanceled = canceledMembers && canceledMembers.length > 0;
+      if (!hasActive && !hasCanceled) {
         box.innerHTML = '<div class="ms-empty">No members match.</div>';
         return;
       }
-      box.innerHTML = members.map(m => {
-        const key = _msKey(m);
-        const open = key === _msOpenKey;
-        const callings = m.callings || (m.calling ? [m.calling] : []);
-        const ordinations = m.ordinations || (m.ordination ? [m.ordination] : []);
-        const tags = (callings.length ? `<span class="ms-tag calling">Calling${callings.length > 1 ? 's ('+callings.length+')' : ''}</span>` : '') +
-                     (ordinations.length ? `<span class="ms-tag ord">Ordination${ordinations.length > 1 ? 's ('+ordinations.length+')' : ''}</span>` : '');
-        return `<div class="ms-card">
-          <div class="ms-card-head" onclick="toggleMsCard('${escapeHtmlDisplay(key).replace(/'/g, "\\'")}')">
-            <div>
-              <div class="ms-card-name">${escapeHtmlDisplay(m.name)}</div>
-              <div class="ms-card-sub">${escapeHtmlDisplay(m.ward)}</div>
-            </div>
-            <div class="ms-tags">${tags}</div>
+      let html = hasActive ? activeMembers.map(_msRenderCard).join('') : '';
+      if (hasCanceled) {
+        html += `<div class="ms-canceled-section">
+          <div class="ms-canceled-header" onclick="toggleMsCanceledSection()">
+            <span>❌ Canceled (${canceledMembers.length})</span>
+            <span id="msCanceledChev" class="chevron">${_msCanceledOpen ? '▲' : '▼'}</span>
           </div>
-          <div class="ms-card-body${open ? ' open' : ''}">${renderMemberBody(m)}</div>
+          <div id="msCanceledList" class="ms-canceled-list${_msCanceledOpen ? ' open' : ''}">
+            ${canceledMembers.map(_msRenderCard).join('')}
+          </div>
         </div>`;
-      }).join('');
+      }
+      box.innerHTML = html;
     }
 
     function toggleMsCard(key) {
