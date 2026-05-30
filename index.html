@@ -2633,8 +2633,10 @@
       box.innerHTML = members.map(m => {
         const key = _msKey(m);
         const open = key === _msOpenKey;
-        const tags = (m.calling ? '<span class="ms-tag calling">Calling</span>' : '') +
-                     (m.ordination ? '<span class="ms-tag ord">Ordination</span>' : '');
+        const callings = m.callings || (m.calling ? [m.calling] : []);
+        const ordinations = m.ordinations || (m.ordination ? [m.ordination] : []);
+        const tags = (callings.length ? `<span class="ms-tag calling">Calling${callings.length > 1 ? 's ('+callings.length+')' : ''}</span>` : '') +
+                     (ordinations.length ? `<span class="ms-tag ord">Ordination${ordinations.length > 1 ? 's ('+ordinations.length+')' : ''}</span>` : '');
         return `<div class="ms-card">
           <div class="ms-card-head" onclick="toggleMsCard('${escapeHtmlDisplay(key).replace(/'/g, "\\'")}')">
             <div>
@@ -2683,28 +2685,33 @@
 
     function renderMemberBody(m) {
       let html = '';
-      if (m.calling) {
-        html += '<div class="ms-track-title">📋 ' + escapeHtmlDisplay(m.calling.calling || 'Calling') +
-                ' (' + escapeHtmlDisplay(m.calling.action || '') + ')' +
-                (m.calling.status && m.calling.status.toLowerCase() !== 'standard' && m.calling.status !== ''
-                  ? ' — <span class="status-badge ' + escapeHtmlDisplay(m.calling.status.toLowerCase()) + '">' + escapeHtmlDisplay(m.calling.status) + '</span>' : '') +
+      const callings = m.callings || (m.calling ? [m.calling] : []);
+      const ordinations = m.ordinations || (m.ordination ? [m.ordination] : []);
+
+      callings.forEach(c => {
+        html += '<div class="ms-track-title">📋 ' + escapeHtmlDisplay(c.calling || 'Calling') +
+                ' (' + escapeHtmlDisplay(c.action || '') + ')' +
+                (c.status && c.status.toLowerCase() !== 'standard' && c.status !== ''
+                  ? ' — <span class="status-badge ' + escapeHtmlDisplay(c.status.toLowerCase()) + '">' + escapeHtmlDisplay(c.status) + '</span>' : '') +
                 '</div>';
-        if (m.calling.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(m.calling.submittedDate) + '</div>';
-        html += renderTrack(m.calling, 'CA', m.calling.timestamp);
-      }
-      if (m.ordination) {
-        html += '<div class="ms-track-title">🙏 Ordination: ' + escapeHtmlDisplay(m.ordination.office || '') + '</div>';
+        if (c.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(c.submittedDate) + '</div>';
+        html += renderTrack(c, 'CA', c.timestamp);
+      });
+
+      ordinations.forEach(o => {
+        html += '<div class="ms-track-title">🙏 Ordination: ' + escapeHtmlDisplay(o.office || '') + '</div>';
         const meta = [];
-        if (m.ordination.submittedDate) meta.push('Submitted ' + escapeHtmlDisplay(m.ordination.submittedDate));
-        if (m.ordination.interview) {
-          if (m.ordination.interview.pending) meta.push('SP interview: not yet scheduled');
-          else if (m.ordination.interview.scheduled) meta.push('SP interview: ' + escapeHtmlDisplay(m.ordination.interview.scheduled));
+        if (o.submittedDate) meta.push('Submitted ' + escapeHtmlDisplay(o.submittedDate));
+        if (o.interview) {
+          if (o.interview.pending) meta.push('SP interview: not yet scheduled');
+          else if (o.interview.scheduled) meta.push('SP interview: ' + escapeHtmlDisplay(o.interview.scheduled));
           else meta.push('SP interview: scheduled');
         }
         if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
-        html += renderTrack(m.ordination, 'PO', m.ordination.timestamp);
-      }
-      if (!m.calling && !m.ordination) html += '<div class="ms-empty">No calling or ordination on file.</div>';
+        html += renderTrack(o, 'PO', o.timestamp);
+      });
+
+      if (callings.length === 0 && ordinations.length === 0) html += '<div class="ms-empty">No calling or ordination on file.</div>';
       return html;
     }
 
