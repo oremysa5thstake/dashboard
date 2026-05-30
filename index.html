@@ -1703,8 +1703,7 @@
 
       html += '<div style="margin-bottom:20px;"><div class="settings-label">📜 Run Scripts</div>';
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
-      html += '<button class="btn btn-primary" onclick="runScript(\'CallingApprovals\')">Process Calling Approvals</button>';
-      html += '<button class="btn btn-primary" onclick="runScript(\'PriesthoodOrdinations\')">Process Priesthood Ordinations</button>';
+      html += '<button class="btn btn-primary" onclick="runScript(\'UpdateFromSheet\')">🔄 Update from Sheet</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'StakeBusinessDoc\')">Generate Stake Business Doc</button>';
       html += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'CheckStakeBusinessAvailability\')">📅 Check Stake Business Availability</button>';
@@ -1936,8 +1935,7 @@
         title: 'Admin Tools',
         body: '<p>Admin-only utilities for running scripts and viewing other users\' dashboards.</p>' +
           '<ul>' +
-          '<li><b>Process Calling Approvals:</b> Manually runs the calling-approvals processor.</li>' +
-          '<li><b>Process Priesthood Ordinations:</b> Manually runs the ordinations processor.</li>' +
+          '<li><b>🔄 Update from Sheet:</b> Runs Calling Approvals + Priesthood Ordinations processors, then cross-checks every open action item against its source-sheet cell. If the sheet shows the work as already done (e.g. a high councilor filled the ordination details directly), the action item is auto-completed with a "Sheet reconciler" note. Also runs hourly on its own.</li>' +
           '<li><b>Generate Stake Business Doc:</b> Builds the stake-conference business document.</li>' +
           '<li><b>📢 Manual Notification Blast:</b> Forces queued notifications to send right now.</li>' +
           '<li><b>Open (View as User):</b> Opens the selected user\'s dashboard in a full-screen overlay <em>inside</em> this PWA — close it with the ✕ Close button at top. Actions you take are submitted as that user.</li>' +
