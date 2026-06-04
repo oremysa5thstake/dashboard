@@ -1112,12 +1112,18 @@
 
       items.forEach(item => {
         const prefDateInfo = item.preferredOrdinationDate
-          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)} <span style="color:#666;font-weight:400;">(please verify with him)</span></div>` : '';
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
           ${prefDateInfo}
           <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:8px;margin-top:8px;">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <span style="font-size:13px;color:#555;">Once coordinated, save the ordination date + time:</span>
+              <input type="date" id="ordDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="ordTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary btn-sm" onclick="saveOrdinationDate('${item.actionId}', this)">💾 Save Date</button>
+            </div>
             <button class="btn btn-success" onclick="handleReportSustaining('${item.actionId}', this)">✓ Report Sustained</button>
             ${hcOptions ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <span style="font-size:13px;color:#555;">Transfer to another HC:</span>
@@ -3416,6 +3422,30 @@
     // ============================================================
     // ORDINATION SUSTAINING — Report Sustained + Transfer
     // ============================================================
+
+    async function saveOrdinationDate(actionId, btn) {
+      const dateEl = document.getElementById('ordDate_' + actionId);
+      const timeEl = document.getElementById('ordTime_' + actionId);
+      const date = dateEl ? dateEl.value : '';
+      const time = timeEl ? timeEl.value : '';
+      if (!date) { showToast('Please pick a date', 'error'); return; }
+      const dateTimeStr = time ? (date + 'T' + time) : date;
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = '…';
+      setSyncing(true);
+      try {
+        const res = await performAction('saveOrdinationDate', { itemId: actionId, dateTimeStr: dateTimeStr });
+        showToast('Ordination date saved' + (res && res.savedDate ? ': ' + res.savedDate : ''), 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + (error.message || 'save failed'), 'error');
+        btn.disabled = false;
+        btn.textContent = orig;
+      } finally {
+        setSyncing(false);
+      }
+    }
 
     async function handleReportSustaining(actionId, btn) {
       const itemEl = btn ? btn.closest('.item') : null;
