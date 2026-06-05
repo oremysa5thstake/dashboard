@@ -2072,16 +2072,29 @@
       }
     }
 
+    // Tracks in-flight actions so a double-tap can't fire the same one twice.
+    // (Priesthood-Sustain double-taps caused duplicate Stake-Business rows before.)
+    const _handleActionInFlight = new Set();
+
     async function handleAction(actionId, action, btn) {
-      // Optimistically remove the item from view immediately — user sees instant response
+      const inFlightKey = action + '|' + actionId;
+      if (_handleActionInFlight.has(inFlightKey)) return; // ignore double-tap
+      _handleActionInFlight.add(inFlightKey);
+
+      // Disable the clicked button IMMEDIATELY (synchronously) so a fast second
+      // tap can't fire — pointer-events: none on a parent doesn't reliably
+      // block a touch that was already in flight on iOS Safari.
+      const origText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '…';
+      }
+
       const itemEl = btn ? btn.closest('.item') : null;
       if (itemEl) {
         itemEl.style.transition = 'opacity 0.2s';
         itemEl.style.opacity = '0.25';
         itemEl.style.pointerEvents = 'none';
-      } else if (btn) {
-        btn.disabled = true;
-        btn.textContent = '...';
       }
       setSyncing(true);
 
@@ -2096,16 +2109,18 @@
         if (itemEl) {
           itemEl.style.opacity = '1';
           itemEl.style.pointerEvents = '';
-        } else if (btn) {
+        }
+        if (btn) {
           btn.disabled = false;
-          if (action === 'approve') btn.textContent = '✓ Approve';
-          else if (action === 'concern') btn.textContent = '⚠️ Concerns';
-          else if (action === 'accepted') btn.textContent = '✓ Extended';
-          else if (action === 'ccComplete') btn.textContent = '✓ Mark Complete';
-          else if (action === 'acknowledge') btn.textContent = '✓ Acknowledge';
-          else btn.textContent = 'Action';
+          btn.textContent = origText || (
+            action === 'approve' ? '✓ Approve' :
+            action === 'concern' ? '⚠️ Concerns' :
+            action === 'accepted' ? '✓ Extended' :
+            action === 'ccComplete' ? '✓ Mark Complete' :
+            action === 'acknowledge' ? '✓ Acknowledge' : 'Action');
         }
       } finally {
+        _handleActionInFlight.delete(inFlightKey);
         setSyncing(false);
       }
     }
