@@ -1477,7 +1477,15 @@
 
       items.forEach(item => {
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
-        const notesInfo = item.notes ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
+        // Wrap the channel reference (stored as "#<channelName>" in notes) in
+        // an <a> linking to the Slack message permalink when one was captured
+        // at mention-creation time. Falls back to plain text if no permalink.
+        const channelLabel = item.notes ? escapeHtml(item.notes) : '';
+        const notesInfo = channelLabel
+          ? `<div class="item-meta">${item.permalink
+              ? `<a href="${escapeHtmlDisplay(item.permalink)}" target="_blank" rel="noopener">${channelLabel} ↗</a>`
+              : channelLabel}</div>`
+          : '';
 
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
