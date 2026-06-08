@@ -3303,27 +3303,66 @@
       return html;
     }
 
+    // Tracks in-flight sustaining marks (per-item AND per-task-bulk) so a fast
+    // second tap can't fire the same action twice. The backend was protected
+    // already, but the user couldn't tell the first click had registered.
+    const _sustainingMarkInFlight = new Set();
+
     async function handleSustainingMark(actionId, sbRow, sustained, btn) {
+      const key = 'mark|' + actionId + '|' + sbRow;
+      if (_sustainingMarkInFlight.has(key)) return;
+      _sustainingMarkInFlight.add(key);
+
+      // Disable both buttons in this item's button row + dim the whole item row,
+      // so the user sees instant feedback (the silent refresh paints the real
+      // state seconds later).
+      const buttonRow = btn ? btn.parentElement : null;
+      const sibButtons = buttonRow ? Array.from(buttonRow.querySelectorAll('button')) : [];
+      sibButtons.forEach(b => { b.disabled = true; });
+      const itemRow = btn ? btn.closest('div[style*="border-top"]') : null;
+      if (itemRow) { itemRow.style.opacity = '0.5'; itemRow.style.transition = 'opacity 0.2s'; }
+      if (btn) btn.textContent = '…';
       setSyncing(true);
       try {
         await performAction('sustainingReportMark', { itemId: actionId, sbRow: sbRow, sustained: sustained ? 'true' : 'false' });
         showToast(sustained ? 'Marked sustained' : 'Marked not sustained', 'success');
-        scheduleSilentRefresh();
+        scheduleSilentRefresh(500);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-      } finally { setSyncing(false); }
+        sibButtons.forEach(b => { b.disabled = false; });
+        if (itemRow) itemRow.style.opacity = '1';
+        if (btn) btn.textContent = sustained ? '✓ ' + (String(arguments[1])||'') : '✗ Not';
+      } finally {
+        _sustainingMarkInFlight.delete(key);
+        setSyncing(false);
+      }
     }
 
     async function handleSustainingMarkAll(actionId, btn) {
+      const key = 'markAll|' + actionId;
+      if (_sustainingMarkInFlight.has(key)) return;
       if (!confirm('Mark every remaining item as sustained?')) return;
+      _sustainingMarkInFlight.add(key);
+
+      // Optimistic feedback: dim the whole task card so the user sees the click
+      // registered. The silent refresh removes the card if it's now complete.
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.opacity = '0.4'; itemEl.style.transition = 'opacity 0.2s'; itemEl.style.pointerEvents = 'none'; }
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
         await performAction('sustainingReportAll', { itemId: actionId });
         showToast('All items marked sustained', 'success');
-        scheduleSilentRefresh();
+        if (itemEl) itemEl.remove(); // optimistic: task completes server-side too
+        scheduleSilentRefresh(500);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-      } finally { setSyncing(false); }
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Mark All Remaining Complete'; }
+      } finally {
+        _sustainingMarkInFlight.delete(key);
+        setSyncing(false);
+      }
     }
 
     async function handleSBCheckBackup(actionId, btn) {
