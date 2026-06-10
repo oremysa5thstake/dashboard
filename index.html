@@ -76,6 +76,14 @@
     .error-page{text-align:center;padding:60px 20px}
     .error-page h2{color:#dc3545;margin-bottom:16px}
     .error-page p{color:#666;line-height:1.6}
+    /* Stake-voting sections (Calling Approvals + Priesthood Ordinations) — light
+       blue so high councilors visually separate the "real vote" cards from
+       other dismiss-able tasks. Reusing the same color block keeps the two
+       sections cohesive. */
+    .voting-section{background:#e3f1fb;border:1px solid #8bb9d8}
+    .voting-section .section-header{background:#cee5f3}
+    .voting-section .section-header:hover{background:#bcd9eb}
+    .voting-section .item{background:#f3f9fd;border-color:#9fc3dc}
     .cc-section{background:#fefbe8;border:1px solid #d4c060}
     .cc-section .section-header{background:#f5eeaa}
     .cc-section .section-header:hover{background:#ede580}
@@ -935,7 +943,7 @@
     }
 
     function renderApprovalsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta">' + helpBtn('approvals') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section voting-section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta">' + helpBtn('approvals') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-approvals"><div class="section-inner">';
       html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll(this)">✓ Approve All</button></div>';
 
@@ -1006,7 +1014,7 @@
     }
 
     function renderOrdinationsSection(items) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta">' + helpBtn('ordinations') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section voting-section"><div class="section-header expanded" onclick="toggleSection(\'ordinations\')"><div class="section-title">🙏 Priesthood Ordinations</div><div class="section-meta">' + helpBtn('ordinations') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordinations"><div class="section-inner">';
 
       if (items.length > 1) {
@@ -2822,16 +2830,24 @@
           </div>`;
         }
         // Completed (past) phase — collapsed, tap to expand. Read-only.
+        // We pass isPast so renderSteps hides multi-phase fields (they show
+        // only in their first phase or the current phase) — otherwise a
+        // "Phases 1-5" field like Scheduled Stake Business would appear under
+        // every past phase as if it were that phase's completion date.
         return `<div class="ms-phase complete">
           <div class="ms-phase-label" style="cursor:pointer" onclick="this.parentNode.querySelector('.ms-phase-steps').classList.toggle('open')">Phase ${ph.phase} ✓ complete <span style="font-weight:400;text-transform:none">(tap)</span></div>
-          <div class="ms-phase-steps">${renderSteps(ph.steps, { sheet: sheet, ref: ref, editable: false })}</div>
+          <div class="ms-phase-steps">${renderSteps(ph.steps, { sheet: sheet, ref: ref, editable: false, isPast: true })}</div>
         </div>`;
       }).join('');
     }
 
     function renderSteps(steps, opts) {
       opts = opts || {};
-      const visible = steps.filter(s => s.applicable !== false);
+      // In past phases, hide multi-phase steps (they belong to multiple phases
+      // and would otherwise show as a misleading completion-date for every
+      // phase they span). They still render in the current phase where they
+      // matter.
+      const visible = steps.filter(s => s.applicable !== false && !(opts.isPast && s.isMultiPhase));
       if (visible.length === 0) return '<div class="ms-step pending"><span class="lbl">No applicable steps</span></div>';
 
       // Approver columns get a compact "X / Y approved" summary; non-approver
