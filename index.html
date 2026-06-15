@@ -1532,6 +1532,61 @@
       return html;
     }
 
+    // For a CC'd item, return the SAME primary-action button(s) the assigned
+    // user sees — so clicking from the CC view fires the real cascade (e.g.
+    // flips col AR for Set Apart, advances the certificate chain) instead of
+    // just dismissing the row. The backend handler for each action type already
+    // marks every row of the group (primary + CCs) complete by referenceId +
+    // actionType, so the primary's card disappears too.
+    function renderPrimaryActionForCCItem(item) {
+      const a = item.actionId;
+      const t = item.actionType;
+      const dt = escapeHtml(item.displayText || '');
+      switch (t) {
+        case 'setting-apart':
+          // Bare itemId routes through the modern setApart path which looks
+          // up the CA row by referenceId and flips col AR.
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'setApart', this)">✓ Set Apart</button>`;
+        case 'ordination-record-lcr':
+          return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markOrdinationLcrRecorded', this)">✓ Mark Recorded on LCR</button>`;
+        case 'ordination-print-certificate':
+          return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markCertificatePrinted', this)">✓ Mark Certificate Printed</button>`;
+        case 'ordination-sign-certificate':
+          return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markCertificateSigned', this)">✓ Mark Certificate Signed</button>`;
+        case 'ordination-deliver-certificate':
+          return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markCertificateDelivered', this)">✓ Mark Certificate Delivered</button>`;
+        case 'coordinate-ordination':
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'coordinated', this)">✓ Coordinated</button>`;
+        case 'ordination-notification':
+          return `<button class="btn btn-success" onclick="handleReportSustaining('${a}', this)">✓ Report Sustained</button>`;
+        case 'ordination-report':
+          return `<button class="btn btn-primary" onclick="openOrdinationReportModal('${a}')">📝 Report Ordination</button>`;
+        case 'ordination-interview':
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'ordinationInterviewPassed', this)">Interview Passed</button>
+                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewReturnToBishop', this)">Return to Bishop</button>`;
+        case 'ordination-interview-schedule':
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'ordinationInterviewSchedulePassed', this)">Interview Passed</button>
+                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewScheduleReturnToBishop', this)">Return to Bishop</button>`;
+        case 'clerk-review-ctr':
+          return `<button class="btn btn-success" onclick="handleClerkReview('${a}', 'ctrReview', 'yes', this)">✓ Yes — Has CTR</button>
+                  <button class="btn btn-danger" onclick="handleClerkReview('${a}', 'ctrReview', 'no', this)">✗ No — No CTR</button>`;
+        case 'clerk-review-priesthood':
+          return `<button class="btn btn-secondary" onclick="handleClerkReview('${a}', 'priesthoodReview', 'aaronic', this)">Aaronic Priesthood</button>
+                  <button class="btn btn-primary" onclick="handleClerkReview('${a}', 'priesthoodReview', 'elder', this)">Office of Elder</button>
+                  <button class="btn btn-primary" onclick="handleClerkReview('${a}', 'priesthoodReview', 'highpriest', this)">Office of High Priest</button>`;
+        case 'clerk-review-comment':
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'reviewComplete', this)">✓ Proceed with Polling</button>`;
+        case 'interview-needed':
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'scheduled', this)">✓ Scheduled</button>`;
+        case 'task':
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'complete', this)">✓ Complete</button>`;
+        default:
+          // Unknown / unmapped CC type — keep the safe acknowledge-style fall-back
+          // so the row at least disappears.
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'ccComplete', this)">✓ Mark Complete</button>`;
+      }
+    }
+
     function renderCCSection(items, highCouncilors, stakePresidency) {
       const canReassign = userData.canReassign || false;
       highCouncilors = highCouncilors || [];
@@ -1631,7 +1686,9 @@
                    <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Declined</button>` :
                   isExtendRelease ?
                   `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>` :
-                  `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ccComplete', this)">✓ Mark Complete</button>`
+                  /* Other CC types: render the same action button the primary sees,
+                     so the cascade (col flips, downstream tasks) runs the same way. */
+                  renderPrimaryActionForCCItem(item)
                 }
                 ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
                 ${isExtend && item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
