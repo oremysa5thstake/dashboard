@@ -1475,6 +1475,22 @@
       return html;
     }
 
+    // On iOS, https://slack.com/... permalinks trigger Universal Link handoff
+    // to the Slack app, but Safari also opens a sign-in tab. Redirect to the
+    // slack:// scheme on iOS to skip Safari entirely.
+    function openSlackPermalink(linkEl, ev) {
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (!isIOS) return true;
+      var m = /\/archives\/([A-Z0-9]+)\/p(\d+)/i.exec(linkEl.href);
+      if (!m) return true;
+      var channelId = m[1];
+      var tsRaw = m[2];
+      var ts = tsRaw.slice(0, -6) + '.' + tsRaw.slice(-6);
+      ev.preventDefault();
+      window.location.href = 'slack://channel?id=' + channelId + '&message=' + ts;
+      return false;
+    }
+
     function renderMentionsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mentions\')"><div class="section-title">🏷️ Mentions</div><div class="section-meta">' + helpBtn('mentions') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-mentions"><div class="section-inner">';
@@ -1494,7 +1510,7 @@
         const channelText = (channelLabel && !looksLikeChannelId) ? escapeHtml(channelLabel) + ' · ' : '';
         const notesInfo = (channelLabel || item.permalink)
           ? `<div class="item-meta">${channelText}${item.permalink
-              ? `<a href="${escapeHtmlDisplay(item.permalink)}" target="_blank" rel="noopener">View message in Slack ↗</a>`
+              ? `<a href="${escapeHtmlDisplay(item.permalink)}" target="_blank" rel="noopener" onclick="return openSlackPermalink(this, event)">View message in Slack ↗</a>`
               : ''}</div>`
           : '';
 
