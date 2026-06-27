@@ -1477,17 +1477,20 @@
 
     // On iOS, https://slack.com/... permalinks trigger Universal Link handoff
     // to the Slack app, but Safari also opens a sign-in tab. Redirect to the
-    // slack:// scheme on iOS to skip Safari entirely.
+    // slack:// scheme on iOS to skip Safari entirely. Slack needs both the
+    // team ID and channel ID to navigate to the specific message.
     function openSlackPermalink(linkEl, ev) {
       var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
       if (!isIOS) return true;
+      var teamId = (currentData && currentData.slackTeamId) ? currentData.slackTeamId : '';
+      if (!teamId) return true; // fall back to https:// link if no team ID
       var m = /\/archives\/([A-Z0-9]+)\/p(\d+)/i.exec(linkEl.href);
       if (!m) return true;
       var channelId = m[1];
       var tsRaw = m[2];
       var ts = tsRaw.slice(0, -6) + '.' + tsRaw.slice(-6);
       ev.preventDefault();
-      window.location.href = 'slack://channel?id=' + channelId + '&message=' + ts;
+      window.location.href = 'slack://channel?team=' + teamId + '&id=' + channelId + '&message=' + ts;
       return false;
     }
 
