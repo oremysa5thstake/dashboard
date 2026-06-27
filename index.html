@@ -1475,23 +1475,24 @@
       return html;
     }
 
-    // On iOS, https://slack.com/... permalinks trigger Universal Link handoff
-    // to the Slack app, but Safari also opens a sign-in tab. Redirect to the
-    // slack:// scheme on iOS to skip Safari entirely. Slack needs both the
-    // team ID and channel ID to navigate to the specific message.
-    function openSlackPermalink(linkEl, ev) {
-      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-      if (!isIOS) return true;
+    // Detect iOS — used to swap permalink hrefs to the slack:// scheme so
+    // tapping a mention doesn't leave a Safari sign-in tab behind.
+    var IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+    // Build the best "open in Slack" URL for the current device. On iOS, if
+    // we know the team ID, return a slack:// deep link (no Safari tab). On
+    // everything else (and as fallback), return the original https:// permalink.
+    function buildSlackOpenUrl(permalink) {
+      if (!permalink) return '';
+      if (!IS_IOS) return permalink;
       var teamId = (currentData && currentData.slackTeamId) ? currentData.slackTeamId : '';
-      if (!teamId) return true; // fall back to https:// link if no team ID
-      var m = /\/archives\/([A-Z0-9]+)\/p(\d+)/i.exec(linkEl.href);
-      if (!m) return true;
+      if (!teamId) return permalink;
+      var m = /\/archives\/([A-Z0-9]+)\/p(\d+)/i.exec(permalink);
+      if (!m) return permalink;
       var channelId = m[1];
       var tsRaw = m[2];
       var ts = tsRaw.slice(0, -6) + '.' + tsRaw.slice(-6);
-      ev.preventDefault();
-      window.location.href = 'slack://channel?team=' + teamId + '&id=' + channelId + '&message=' + ts;
-      return false;
+      return 'slack://channel?team=' + teamId + '&id=' + channelId + '&message=' + ts;
     }
 
     function renderMentionsSection(items) {
@@ -1511,9 +1512,11 @@
         const channelLabel = item.notes ? String(item.notes).trim() : '';
         const looksLikeChannelId = /^#C[A-Z0-9]+$/.test(channelLabel);
         const channelText = (channelLabel && !looksLikeChannelId) ? escapeHtml(channelLabel) + ' · ' : '';
-        const notesInfo = (channelLabel || item.permalink)
-          ? `<div class="item-meta">${channelText}${item.permalink
-              ? `<a href="${escapeHtmlDisplay(item.permalink)}" target="_blank" rel="noopener" onclick="return openSlackPermalink(this, event)">View message in Slack ↗</a>`
+        const openUrl = item.permalink ? buildSlackOpenUrl(item.permalink) : '';
+        const linkTarget = (openUrl && openUrl.indexOf('slack://') === 0) ? '' : ' target="_blank" rel="noopener"';
+        const notesInfo = (channelLabel || openUrl)
+          ? `<div class="item-meta">${channelText}${openUrl
+              ? `<a href="${escapeHtmlDisplay(openUrl)}"${linkTarget}>View message in Slack ↗</a>`
               : ''}</div>`
           : '';
 
