@@ -1684,12 +1684,13 @@
                   ${sbNegativeButton}
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                  <span style="font-size:13px;color:#555;">Request a replacement:</span>
+                  <span style="font-size:13px;color:#555;">Pick someone else:</span>
                   <select class="form-select" id="sbReplacement_${item.actionId}" style="width:auto;max-width:280px;font-size:13px;">
                     <option value="">Select replacement...</option>
                     ${sbReplacementOptions}
                   </select>
                   <button class="btn btn-warning btn-sm" style="color:#333;" onclick="handleSBHaveReplacement('${item.actionId}', this)">↻ Request Replacement</button>
+                  <button class="btn btn-success btn-sm" onclick="handleSBAlreadyConfirmed('${item.actionId}', this)">✓ Already Confirmed</button>
                 </div>
               </div>
             </div>`;
@@ -3517,6 +3518,27 @@
         await performAction('sbHaveReplacement', { itemId: actionId, replacementId: replacementId });
         if (itemEl) itemEl.remove();
         showToast('Replacement assigned and notified', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
+    }
+
+    async function handleSBAlreadyConfirmed(actionId, btn) {
+      const sel = document.getElementById('sbReplacement_' + actionId);
+      const confirmedId = sel ? sel.value : '';
+      if (!confirmedId) {
+        showToast('Pick who you already confirmed with first', 'error');
+        return;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('sbMarkAlreadyConfirmed', { itemId: actionId, confirmedId: confirmedId });
+        if (itemEl) itemEl.remove();
+        showToast('Marked as already confirmed', 'success');
         scheduleSilentRefresh();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
