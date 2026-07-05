@@ -2875,7 +2875,11 @@
         if (track.phaseStarted) line += ' (since ' + escapeHtmlDisplay(track.phaseStarted) + ')';
         return line;
       }
-      const pend = ph.steps.filter(s => s.applicable !== false && !s.done && !s.skipped && !s.isApprover);
+      const pendAll = ph.steps.filter(s => s.applicable !== false && !s.done && !s.skipped && !s.isApprover);
+      // Multi-phase fill-whenever fields (Preferred Stake Business Date etc.) only
+      // headline in their final phase — otherwise they'd mask the real next step.
+      const pendGating = pendAll.filter(s => !s.isMultiPhase || ph.phase === s.lastPhase);
+      const pend = pendGating.length ? pendGating : pendAll;
       const req = pend.filter(s => s.required);
       const pick = req.length ? req : pend;
       if (!pick.length) return '';
@@ -2887,7 +2891,7 @@
         35: '⏳ Waiting on calling to be extended' + by,
         36: '⏳ Waiting on counselors to be approved',
         37: '⏳ Waiting on release to be extended' + by,
-        38: '⏳ Waiting to be scheduled for Stake Business',
+        38: '⏳ Waiting on a preferred Stake Business date',
         39: '⏳ Waiting to be added to Stake Business',
         40: isRelease ? '⏳ Waiting to be released in Stake Business' : '⏳ Waiting to be sustained in Stake Business',
         41: '⏳ Waiting to be added to LCR',
@@ -2922,7 +2926,7 @@
                 '</div>';
         if (c.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(c.submittedDate) + '</div>';
         const nextLine = msNextStepLine(c, 'CA');
-        if (nextLine) html += '<div class="ms-card-sub" style="margin-top:2px;">' + nextLine + '</div>';
+        if (nextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + nextLine + '</div>';
         html += renderTrack(c, 'CA', c.timestamp);
       });
 
@@ -2937,7 +2941,7 @@
         }
         if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
         const oNextLine = msNextStepLine(o, 'PO');
-        if (oNextLine) html += '<div class="ms-card-sub" style="margin-top:2px;">' + oNextLine + '</div>';
+        if (oNextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + oNextLine + '</div>';
         html += renderTrack(o, 'PO', o.timestamp);
       });
 
