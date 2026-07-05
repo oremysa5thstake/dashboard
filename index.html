@@ -3052,8 +3052,11 @@
         if (s.doneDate && (s.value === '✓' || !s.value)) doneVal = '✓ ' + escapeHtmlDisplay(s.doneDate);
         return `<div class="ms-step"><span class="lbl">${lbl}</span><span class="val">${doneVal} <button class="btn-cc danger" onclick="${call('boolean', 'false')}">undo</button></span></div>`;
       }
+      // Milestone-specific button wording where "Mark done" would be ambiguous.
+      const boolBtnLabels = { CA35: '✓ Mark as Accepted', CA37: '✓ Mark as Extended', CA49: '✗ Mark as Declined' };
+      const btnLabel = boolBtnLabels[sheet + s.col] || '✓ Mark done';
       const reqCls = s.required ? ' req-pending' : '';
-      return `<div class="ms-step pending${reqCls}"><span class="lbl">${lbl}</span><span class="val"><button class="btn-cc" onclick="${call('boolean', 'true')}">✓ Mark done</button></span></div>`;
+      return `<div class="ms-step pending${reqCls}"><span class="lbl">${lbl}</span><span class="val"><button class="btn-cc" onclick="${call('boolean', 'true')}">${btnLabel}</button></span></div>`;
     }
 
     // Render pause/cancel/resume controls for clerks/secretaries on any
