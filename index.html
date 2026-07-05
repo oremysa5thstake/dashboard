@@ -2859,8 +2859,9 @@
     }
 
     // One-line "where is this at" summary for a track: which body we're waiting
-    // on (with progress) during approval phases, or the next pending step after.
-    function msNextStepLine(track) {
+    // on (with progress) during approval phases, or an explicit description of
+    // the next pending milestone after that.
+    function msNextStepLine(track, sheet) {
       const cur = track.currentPhase;
       if (cur == null) return '<span style="color:#28a745;">✅ All steps complete</span>';
       const ph = (track.phases || []).find(p => p.phase === cur);
@@ -2868,18 +2869,44 @@
       const appr = ph.steps.filter(s => s.isApprover);
       const apprPending = appr.filter(s => !s.done);
       if (apprPending.length) {
-        const body = ph.title || (apprPending[0].body === 'SP' ? 'Stake Presidency' : 'High Council');
-        let line = '⏳ Waiting on <strong>' + escapeHtmlDisplay(body) + '</strong> — ' + (appr.length - apprPending.length) + ' of ' + appr.length + ' approved';
+        const body = apprPending[0].body === 'SP' ? 'Stake Presidency' : 'High Council';
+        const verb = sheet === 'PO' ? 'Sustaining' : 'Approval';
+        let line = '⏳ Waiting on <strong>' + body + ' ' + verb + '</strong> — ' + (appr.length - apprPending.length) + ' of ' + appr.length + ' done';
         if (track.phaseStarted) line += ' (since ' + escapeHtmlDisplay(track.phaseStarted) + ')';
         return line;
       }
       const pend = ph.steps.filter(s => s.applicable !== false && !s.done && !s.skipped && !s.isApprover);
       const req = pend.filter(s => s.required);
       const pick = req.length ? req : pend;
-      if (pick.length) {
-        return '👉 Next step: <strong>' + pick.slice(0, 2).map(s => escapeHtmlDisplay(s.label)).join(', ') + '</strong>' + (pick.length > 2 ? '…' : '');
-      }
-      return '';
+      if (!pick.length) return '';
+      const s0 = pick[0];
+      const by = s0.assignee ? ' by <strong>' + escapeHtmlDisplay(s0.assignee) + '</strong>' : '';
+      // Explicit phrasing for the well-known milestones (keyed by sheet column).
+      const isRelease = String(track.action || '').toLowerCase() === 'released';
+      const friendlyCA = {
+        35: '⏳ Waiting on calling to be extended' + by,
+        36: '⏳ Waiting on counselors to be approved',
+        37: '⏳ Waiting on release to be extended' + by,
+        38: '⏳ Waiting to be scheduled for Stake Business',
+        39: '⏳ Waiting to be added to Stake Business',
+        40: isRelease ? '⏳ Waiting to be released in Stake Business' : '⏳ Waiting to be sustained in Stake Business',
+        41: '⏳ Waiting to be added to LCR',
+        42: '⏳ Waiting on secondary approval',
+        43: '⏳ Waiting to be set apart' + by,
+        44: '⏳ Waiting for setting apart to be recorded on LCR'
+      };
+      const friendlyPO = {
+        9:  '⏳ Waiting on stake interview',
+        30: '⏳ Waiting on sustaining to be confirmed',
+        31: '⏳ Waiting to be ordained',
+        38: '⏳ Waiting on ordinance to be recorded on LCR' + by,
+        39: '⏳ Waiting on certificate to be printed' + by,
+        40: '⏳ Waiting on certificate to be signed' + by,
+        41: '⏳ Waiting on certificate to be delivered' + by
+      };
+      const friendly = (sheet === 'PO' ? friendlyPO : friendlyCA)[s0.col];
+      if (friendly) return friendly;
+      return '👉 Next step: <strong>' + pick.slice(0, 2).map(s => escapeHtmlDisplay(s.label)).join(', ') + '</strong>' + (pick.length > 2 ? '…' : '');
     }
 
     function renderMemberBody(m) {
@@ -2894,7 +2921,7 @@
                   ? ' — <span class="status-badge ' + escapeHtmlDisplay(c.status.toLowerCase()) + '">' + escapeHtmlDisplay(c.status) + '</span>' : '') +
                 '</div>';
         if (c.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(c.submittedDate) + '</div>';
-        const nextLine = msNextStepLine(c);
+        const nextLine = msNextStepLine(c, 'CA');
         if (nextLine) html += '<div class="ms-card-sub" style="margin-top:2px;">' + nextLine + '</div>';
         html += renderTrack(c, 'CA', c.timestamp);
       });
@@ -2909,7 +2936,7 @@
           else meta.push('SP interview: scheduled');
         }
         if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
-        const oNextLine = msNextStepLine(o);
+        const oNextLine = msNextStepLine(o, 'PO');
         if (oNextLine) html += '<div class="ms-card-sub" style="margin-top:2px;">' + oNextLine + '</div>';
         html += renderTrack(o, 'PO', o.timestamp);
       });
