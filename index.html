@@ -2858,6 +2858,30 @@
       }
     }
 
+    // One-line "where is this at" summary for a track: which body we're waiting
+    // on (with progress) during approval phases, or the next pending step after.
+    function msNextStepLine(track) {
+      const cur = track.currentPhase;
+      if (cur == null) return '<span style="color:#28a745;">✅ All steps complete</span>';
+      const ph = (track.phases || []).find(p => p.phase === cur);
+      if (!ph) return '';
+      const appr = ph.steps.filter(s => s.isApprover);
+      const apprPending = appr.filter(s => !s.done);
+      if (apprPending.length) {
+        const body = ph.title || (apprPending[0].body === 'SP' ? 'Stake Presidency' : 'High Council');
+        let line = '⏳ Waiting on <strong>' + escapeHtmlDisplay(body) + '</strong> — ' + (appr.length - apprPending.length) + ' of ' + appr.length + ' approved';
+        if (track.phaseStarted) line += ' (since ' + escapeHtmlDisplay(track.phaseStarted) + ')';
+        return line;
+      }
+      const pend = ph.steps.filter(s => s.applicable !== false && !s.done && !s.skipped && !s.isApprover);
+      const req = pend.filter(s => s.required);
+      const pick = req.length ? req : pend;
+      if (pick.length) {
+        return '👉 Next step: <strong>' + pick.slice(0, 2).map(s => escapeHtmlDisplay(s.label)).join(', ') + '</strong>' + (pick.length > 2 ? '…' : '');
+      }
+      return '';
+    }
+
     function renderMemberBody(m) {
       let html = '';
       const callings = m.callings || (m.calling ? [m.calling] : []);
@@ -2870,6 +2894,8 @@
                   ? ' — <span class="status-badge ' + escapeHtmlDisplay(c.status.toLowerCase()) + '">' + escapeHtmlDisplay(c.status) + '</span>' : '') +
                 '</div>';
         if (c.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(c.submittedDate) + '</div>';
+        const nextLine = msNextStepLine(c);
+        if (nextLine) html += '<div class="ms-card-sub" style="margin-top:2px;">' + nextLine + '</div>';
         html += renderTrack(c, 'CA', c.timestamp);
       });
 
@@ -2883,6 +2909,8 @@
           else meta.push('SP interview: scheduled');
         }
         if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
+        const oNextLine = msNextStepLine(o);
+        if (oNextLine) html += '<div class="ms-card-sub" style="margin-top:2px;">' + oNextLine + '</div>';
         html += renderTrack(o, 'PO', o.timestamp);
       });
 
@@ -2900,15 +2928,16 @@
       return phases.map(ph => {
         const isCurrent = ph.phase === cur;
         const isFuture = (cur !== null && ph.phase > cur);
+        const phName = `Phase ${ph.phase}${ph.title ? ' · ' + escapeHtmlDisplay(ph.title) : ''}`;
         if (isFuture) {
           return `<div class="ms-phase" style="opacity:.45">
-            <div class="ms-phase-label">🔒 Phase ${ph.phase}</div>
+            <div class="ms-phase-label">🔒 ${phName}</div>
           </div>`;
         }
         if (isCurrent) {
           // Current phase: editable controls on editable steps.
           return `<div class="ms-phase current">
-            <div class="ms-phase-label">Phase ${ph.phase} · current</div>
+            <div class="ms-phase-label">${phName} · current</div>
             ${renderSteps(ph.steps, { sheet: sheet, ref: ref, editable: true })}
           </div>`;
         }
@@ -2918,7 +2947,7 @@
         // "Phases 1-5" field like Scheduled Stake Business would appear under
         // every past phase as if it were that phase's completion date.
         return `<div class="ms-phase complete">
-          <div class="ms-phase-label" style="cursor:pointer" onclick="this.parentNode.querySelector('.ms-phase-steps').classList.toggle('open')">Phase ${ph.phase} ✓ complete <span style="font-weight:400;text-transform:none">(tap)</span></div>
+          <div class="ms-phase-label" style="cursor:pointer" onclick="this.parentNode.querySelector('.ms-phase-steps').classList.toggle('open')">${phName} ✓ complete <span style="font-weight:400;text-transform:none">(tap)</span></div>
           <div class="ms-phase-steps">${renderSteps(ph.steps, { sheet: sheet, ref: ref, editable: false, isPast: true })}</div>
         </div>`;
       }).join('');
@@ -2943,7 +2972,8 @@
       if (approvers.length) {
         const done = approvers.filter(s => s.done);
         const pending = approvers.filter(s => !s.done);
-        html += `<div class="ms-step"><span class="lbl">Approved/sustained</span><span class="val">${done.length} / ${approvers.length}</span></div>` +
+        const bodyName = approvers[0].body === 'SP' ? 'Stake Presidency' : 'High Council';
+        html += `<div class="ms-step"><span class="lbl">${bodyName} approved</span><span class="val">${done.length} / ${approvers.length}${pending.length === 0 ? ' ✓' : ''}</span></div>` +
           (pending.length ? `<div class="ms-step pending"><span class="lbl">Waiting on</span><span class="val">${pending.map(s => escapeHtmlDisplay(s.label)).join(', ')}</span></div>` : '');
       }
 
@@ -2953,7 +2983,11 @@
           return renderEditableStep(s, opts.sheet, opts.ref);
         }
         const cls = (!s.done && !s.skipped ? 'pending' : '') + (s.required && !s.done && !s.skipped ? ' req-pending' : '');
-        const val = s.skipped ? '(skipped)' : (s.done ? (escapeHtmlDisplay(s.value) || '✓') : '—');
+        // Boolean cells only store TRUE — when the matching action item recorded
+        // a completion date, show "✓ <date>" instead of a bare checkmark.
+        let doneVal = escapeHtmlDisplay(s.value) || '✓';
+        if (s.done && s.doneDate && (s.value === '✓' || !s.value)) doneVal = '✓ ' + escapeHtmlDisplay(s.doneDate);
+        const val = s.skipped ? '(skipped)' : (s.done ? doneVal : '—');
         return `<div class="ms-step ${cls}"><span class="lbl">${escapeHtmlDisplay(s.label)}</span><span class="val">${val}</span></div>`;
       }).join('');
 
@@ -2983,7 +3017,9 @@
       }
       // boolean
       if (s.done) {
-        return `<div class="ms-step"><span class="lbl">${lbl}</span><span class="val">${escapeHtmlDisplay(s.value) || '✓'} <button class="btn-cc danger" onclick="${call('boolean', 'false')}">undo</button></span></div>`;
+        let doneVal = escapeHtmlDisplay(s.value) || '✓';
+        if (s.doneDate && (s.value === '✓' || !s.value)) doneVal = '✓ ' + escapeHtmlDisplay(s.doneDate);
+        return `<div class="ms-step"><span class="lbl">${lbl}</span><span class="val">${doneVal} <button class="btn-cc danger" onclick="${call('boolean', 'false')}">undo</button></span></div>`;
       }
       const reqCls = s.required ? ' req-pending' : '';
       return `<div class="ms-step pending${reqCls}"><span class="lbl">${lbl}</span><span class="val"><button class="btn-cc" onclick="${call('boolean', 'true')}">✓ Mark done</button></span></div>`;
