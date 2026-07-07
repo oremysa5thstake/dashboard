@@ -483,6 +483,17 @@
     // Only re-renders if counts actually changed
     let silentRefreshTimer = null;
     function scheduleSilentRefresh(delay = 6000) {
+      // 🎓 Demo mode: re-render from local state almost immediately (no network).
+      if (DEMO_MODE) {
+        if (silentRefreshTimer) clearTimeout(silentRefreshTimer);
+        silentRefreshTimer = setTimeout(() => {
+          silentRefreshTimer = null;
+          const scrollY = window.scrollY;
+          onDataLoaded(demoBuildData());
+          requestAnimationFrame(() => window.scrollTo(0, scrollY));
+        }, 350);
+        return;
+      }
       if (silentRefreshTimer) clearTimeout(silentRefreshTimer);
       silentRefreshTimer = setTimeout(async () => {
         silentRefreshTimer = null;
@@ -584,6 +595,9 @@
     window.addEventListener('DOMContentLoaded', initApp);
 
     function initApp() {
+      // 🎓 Demo mode: no login, no backend — everything is simulated locally.
+      if (DEMO_MODE) { demoInit(); return; }
+
       // Check if running as standalone PWA
       const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 
@@ -687,6 +701,8 @@
     }
 
     async function performAction(action, params = {}) {
+      // 🎓 Demo mode: route every action to the local simulator.
+      if (DEMO_MODE) return demoPerformAction(action, params);
       try {
         params.userId = userId;
         params.action = action;
@@ -975,7 +991,7 @@
         const isCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         const apptText = item.appointmentStatus || 'Pending';
-        const appointmentStatusHtml = `<div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}</div>`;
+        const appointmentStatusHtml = `<div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}${apptText !== 'Pending' ? gcalLinkHtml(item.displayText, apptText) : ''}</div>`;
 
         // Build appointment scheduling controls
         let appointmentControls = '';
@@ -1338,7 +1354,7 @@
       items.forEach(item => {
         const apptMatch = (item.notes || '').match(/Appointment:\s*(.+)/);
         const apptText = apptMatch ? apptMatch[1].trim() : '';
-        const apptInfo = apptText ? `<div class="item-meta" style="color:#28a745;font-style:italic;">Appointment: ${escapeHtmlDisplay(apptText)}</div>` : '';
+        const apptInfo = apptText ? `<div class="item-meta" style="color:#28a745;font-style:italic;">Appointment: ${escapeHtmlDisplay(apptText)}${gcalLinkHtml(item.displayText, apptText)}</div>` : '';
         const prefDateInfo = item.preferredOrdinationDate
           ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
 
@@ -1495,6 +1511,35 @@
       return 'slack://channel?team=' + teamId + '&id=' + channelId + '&message=' + ts;
     }
 
+    // Build a Google Calendar "create event" URL from our appointment text
+    // ("Jun 29, 2026 at 7:00pm"). Returns '' if the text doesn't parse or has
+    // no time component. Default event length: 30 minutes.
+    function gcalUrlForAppointment(title, apptText, details) {
+      const m = String(apptText || '').match(/^(\w{3,9}) (\d{1,2}), (\d{4}) at (\d{1,2}):(\d{2})\s?(am|pm)$/i);
+      if (!m) return '';
+      const months = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+      const mon = months[m[1].slice(0,3).toLowerCase()];
+      if (mon === undefined) return '';
+      let hr = parseInt(m[4], 10) % 12;
+      if (m[6].toLowerCase() === 'pm') hr += 12;
+      const start = new Date(parseInt(m[3],10), mon, parseInt(m[2],10), hr, parseInt(m[5],10));
+      if (isNaN(start.getTime())) return '';
+      const end = new Date(start.getTime() + 30 * 60000);
+      const fmt = d => d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') +
+                       'T' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '00';
+      return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+        '&text=' + encodeURIComponent(title || 'Appointment') +
+        '&dates=' + fmt(start) + '/' + fmt(end) +
+        (details ? '&details=' + encodeURIComponent(details) : '');
+    }
+
+    // Small "Add to Google Calendar" link, or '' when the appointment can't be parsed.
+    function gcalLinkHtml(title, apptText, details) {
+      const url = gcalUrlForAppointment(title, apptText, details);
+      if (!url) return '';
+      return ` <a href="${escapeHtmlDisplay(url)}" target="_blank" rel="noopener" style="font-size:12px;white-space:nowrap;">📆 Add to Google Calendar</a>`;
+    }
+
     function renderMentionsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'mentions\')"><div class="section-title">🏷️ Mentions</div><div class="section-meta">' + helpBtn('mentions') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-mentions"><div class="section-inner">';
@@ -1640,7 +1685,7 @@
           }
           const ccApptText = item.appointmentStatus || (isExtend ? 'Pending' : '');
           const appointmentStatusHtml = ccApptText ?
-            `<div class="item-meta" style="${ccApptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(ccApptText)}</div>` : '';
+            `<div class="item-meta" style="${ccApptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtmlDisplay(ccApptText)}${ccApptText !== 'Pending' ? gcalLinkHtml(item.displayText, ccApptText) : ''}</div>` : '';
           let appointmentControls = '';
           if (isExtend && (!item.appointmentStatus || item.appointmentStatus === 'Pending')) {
             appointmentControls = `<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
@@ -1828,7 +1873,12 @@
       });
 
       html += '</select><button class="btn btn-primary" onclick="openUserDashboard()">Open</button>';
-      html += '<button class="btn btn-secondary" onclick="shareUserDashboardLink()">🔗 Share Link</button></div></div>';
+      html += '<button class="btn btn-secondary" onclick="shareUserDashboardLink()">🔗 Share Link</button></div>';
+      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">';
+      html += '<button class="btn btn-secondary" onclick="window.open(location.pathname + \'?demo=hc\', \'_blank\')">🎓 High Councilor Demo</button>';
+      html += '<button class="btn btn-secondary btn-sm" onclick="copyDemoLink()">🔗 Copy Demo Link</button>';
+      html += '<span style="font-size:12px;color:#888;">Training walkthrough with fictional people — never touches real data.</span>';
+      html += '</div></div>';
       html += '</div></div></div>';
 
       return html;
@@ -3740,6 +3790,443 @@
       } finally {
         setSyncing(false);
       }
+    }
+
+    // ============================================================
+    // 🎓 HIGH COUNCILOR DEMO MODE (?demo=hc)
+    // A pure in-browser training walkthrough. Nothing in demo mode
+    // ever calls the backend or touches the spreadsheets — every
+    // click mutates local state (persisted in localStorage) and
+    // re-renders the same dashboard UI real users see.
+    // ============================================================
+
+    const DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === 'hc';
+    const DEMO_DOC_URL = 'https://docs.google.com/document/d/1GEFkw7OUvQ2D8iv6RRvCMfewAjEG_99vrv2mdRp6s2o/edit';
+    const DEMO_STATE_KEY = 'hcDemoState_v1';
+    const DEMO_WARD = '6-7th Ward';
+
+    // The fictional cast. All names are fake; unit names are real.
+    const DEMO_CAST = {
+      hcYou:   'Bro. Demoson (you)',
+      porter:  'Porter Gladwell',    // called EQ President, 6-7th Ward
+      marcus:  'Marcus Fielding',    // released as EQ President, 6-7th Ward
+      sadie:   'Sadie Larkspur',     // called Stake Relief Society Secretary (9th Ward)
+      tanner:  'Tanner Holbrook',    // called High Councilor (12th Ward) — needs HP sustaining
+      dallin:  'Dallin Whitmer'      // ordination to Elder, 6-7th Ward
+    };
+    const DEMO_SP = ['Pres. Whitfield', 'Pres. Lofgran', 'Pres. Barlowe'];
+    const DEMO_HC_NAMES = ['Bro. Ainsworth', 'Bro. Bellview', 'Bro. Corbridge', 'Bro. Duffin', 'Bro. Eastman',
+      'Bro. Fenwick', 'Bro. Garner', 'Bro. Highsmith', 'Bro. Ivory', 'Bro. Justesen', 'Bro. Kimballton'];
+
+    let demoState = null;
+
+    function demoFreshState() {
+      return {
+        approved: { c1: false, c2: false, c3: false, o1: false },
+        appt: '',
+        porterAccepted: false, marcusExtended: false,
+        sbConfirmed: false,
+        sus: {},                                  // sustaining-report marks, keyed by numeric item id
+        saPorter: false, saSadie: false,
+        ordDate: '', ordSustainReported: false, ordReported: false,
+        certLcr: false, certPrinted: false, certSigned: false, certDelivered: false
+      };
+    }
+
+    function demoLoad() {
+      try {
+        const raw = localStorage.getItem(DEMO_STATE_KEY);
+        demoState = raw ? Object.assign(demoFreshState(), JSON.parse(raw)) : demoFreshState();
+      } catch (e) { demoState = demoFreshState(); }
+    }
+    function demoSave() {
+      try { localStorage.setItem(DEMO_STATE_KEY, JSON.stringify(demoState)); } catch (e) {}
+    }
+    function demoRestart() {
+      try { localStorage.removeItem(DEMO_STATE_KEY); } catch (e) {}
+      location.reload();
+    }
+    function demoExit() {
+      location.href = location.pathname; // strip ?demo=hc
+    }
+    function copyDemoLink() {
+      const link = location.origin + location.pathname + '?demo=hc';
+      navigator.clipboard.writeText(link)
+        .then(() => showToast('Demo link copied to clipboard', 'success'))
+        .catch(() => prompt('Copy this demo link:', link));
+    }
+
+    function demoSundayText() {
+      const d = new Date();
+      d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function demoTodayText() {
+      return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    // "2026-07-12T19:00" (or bare date) -> "Jul 12, 2026 at 7:00pm"
+    function demoFormatDateTime(dtStr) {
+      const parts = String(dtStr || '').split('T');
+      const ymd = (parts[0] || '').split('-');
+      if (ymd.length !== 3) return dtStr;
+      const d = new Date(parseInt(ymd[0]), parseInt(ymd[1]) - 1, parseInt(ymd[2]));
+      let out = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      if (parts[1]) {
+        const t = parts[1].split(':');
+        let hr = parseInt(t[0], 10); const min = t[1] || '00';
+        const ampm = hr >= 12 ? 'pm' : 'am';
+        hr = hr % 12; if (hr === 0) hr = 12;
+        out += ' at ' + hr + ':' + min + ampm;
+      }
+      return out;
+    }
+
+    function demoInit() {
+      demoLoad();
+      userId = 'DEMOHC';
+      document.title = '🎓 Demo — Task Center';
+      // Fixed demo control bar
+      const bar = document.createElement('div');
+      bar.id = 'demoBar';
+      bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a2e;color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:14px;box-shadow:0 -2px 8px rgba(0,0,0,.25);';
+      bar.innerHTML = '<span>🎓 <strong>DEMO MODE</strong> — fictional people, no real data touched</span>' +
+        '<button class="btn btn-warning btn-sm" style="color:#333;" onclick="demoRestart()">↺ Restart Demo</button>' +
+        '<button class="btn btn-secondary btn-sm" onclick="demoExit()">Exit</button>';
+      document.body.appendChild(bar);
+      document.body.style.paddingBottom = '64px';
+      onDataLoaded(demoBuildData());
+    }
+
+    function demoAllCallingsApproved() {
+      return demoState.approved.c1 && demoState.approved.c2 && demoState.approved.c3;
+    }
+    function demoAllSustained() {
+      return [1, 2, 3, 4].every(i => typeof demoState.sus[i] !== 'undefined');
+    }
+    function demoComplete() {
+      const s = demoState;
+      return demoAllCallingsApproved() && s.approved.o1 && s.porterAccepted && s.marcusExtended &&
+        s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie &&
+        s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
+    }
+
+    function demoBuildData() {
+      const s = demoState;
+      const sunday = demoSundayText();
+      const data = {
+        success: true,
+        userName: '🎓 Bro. Demoson (Demo HC)',
+        userId: 'DEMOHC',
+        canReassign: false, isAdmin: false, canMemberStatus: true,
+        highCouncilors: [], stakePresidency: [], adminUsers: [],
+        stakeLinks: [], mentions: [], myTasks: [], ccItems: [], assignedToOthers: [],
+        appointmentItems: [], coordinateItems: [], clerkReviews: [], interviews: [],
+        ordinationInterviewSchedules: [], ordinationInterviews: [],
+        nameTagsToOrder: [], pausedCanceledCallings: [], approvalStatus: [],
+        approvals: [], ordinations: [], extendItems: [], stakeBusinessItems: [],
+        sustainingReports: [], settingAparts: [], ordinationNotifications: [],
+        ordinationReports: [], ordinationCertificates: [],
+        dashboardMessage: demoComplete()
+          ? '🎉 Demo complete! You walked the full pipeline: approvals → extend → stake business → sustaining → setting apart → ordination → certificate. Tap "Restart Demo" below to run it again.'
+          : '🎓 DEMO — a training walkthrough with fictional people. Work top to bottom; each completed task unlocks the next step, exactly like the real dashboard.'
+      };
+
+      // ── Stage 1: HC approvals (SP has already fully approved everything) ──
+      if (!s.approved.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum President', unit: DEMO_WARD });
+      if (!s.approved.c2) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '9th Ward' });
+      if (!s.approved.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '12th Ward',
+        hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
+      if (!s.approved.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
+
+      // ── Stage 2: extend tasks for the 6-7th Ward, assigned to the demo HC ──
+      if (demoAllCallingsApproved()) {
+        if (!s.porterAccepted) data.extendItems.push({
+          actionId: 'DEMO_EXT_PORTER', type: 'extend-calling', actionType: 'extend-calling',
+          displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum President (' + DEMO_WARD + ')',
+          appointmentStatus: s.appt || 'Pending'
+        });
+        if (!s.marcusExtended) data.extendItems.push({
+          actionId: 'DEMO_EXT_MARCUS', type: 'extend-release', actionType: 'extend-release',
+          displayText: 'Extend release to ' + DEMO_CAST.marcus + ' from Elders Quorum President (' + DEMO_WARD + ')'
+        });
+      }
+
+      // ── Stage 3: confirm you can conduct stake business on Sunday ──
+      if (s.porterAccepted && s.marcusExtended && !s.sbConfirmed) {
+        data.stakeBusinessItems.push({
+          actionId: 'DEMO_SB',
+          displayText: 'Confirm: conduct stake business in the ' + DEMO_WARD + ' on ' + sunday,
+          notes: 'Ward: ' + DEMO_WARD + '\nDate: ' + sunday,
+          meetingTime: '10:15 AM', backupHC: '', isReassigned: true
+        });
+      }
+
+      // ── Stage 4: Sunday sustaining report ──
+      if (s.sbConfirmed && !demoAllSustained()) {
+        data.sustainingReports.push({
+          actionId: 'DEMO_SUSREP',
+          displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + sunday + ' (DEMO)',
+          sustainingReportWard: DEMO_WARD,
+          sustainingReportDocUrl: DEMO_DOC_URL,
+          sustainingReportItems: [
+            { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum President', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
+            { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum President', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
+            { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '9th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
+            { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '12th Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] }
+          ]
+        });
+      }
+
+      // ── Stage 5: setting aparts ──
+      if (s.sus[1] === true && !s.saPorter) data.settingAparts.push({
+        actionId: 'DEMO_SA_PORTER', sourceRow: 0,
+        displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum President (' + DEMO_WARD + ')  ·  Assigned to: you'
+      });
+      if (s.sus[3] === true && !s.saSadie) data.settingAparts.push({
+        actionId: 'DEMO_SA_SADIE', sourceRow: 0,
+        displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (9th Ward)  ·  Assigned to: you + Stake Presidency'
+      });
+
+      // ── Stage 6: ordination pipeline for Dallin ──
+      if (s.approved.o1 && demoAllSustained() && !s.ordSustainReported) {
+        data.ordinationNotifications.push({
+          actionId: 'DEMO_ORDNOTIF',
+          displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been approved to be ordained an Elder. Please coordinate a time with them when you can be present for their ordination.',
+          preferredOrdinationDate: s.ordDate || ''
+        });
+      }
+      if (s.ordSustainReported && !s.ordReported) {
+        data.ordinationReports.push({
+          actionId: 'DEMO_ORDREPORT',
+          displayText: 'Report ordination: ' + DEMO_CAST.dallin + ' — Elder (' + DEMO_WARD + ')',
+          preferredOrdinationDate: s.ordDate || '',
+          notes: 'After the ordination takes place, submit the details so the certificate can be prepared. (Demo: any fictional details work.)'
+        });
+      }
+      if (s.ordReported) {
+        if (!s.certLcr) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_LCR', actionType: 'ordination-record-lcr',
+          displayText: DEMO_CAST.dallin + ' — record Elder ordination on LCR (' + DEMO_WARD + ')',
+          notes: 'In real life this task goes to the Stake Asst Clerk-Membership; the demo assigns it to you so you can see the whole chain.' });
+        else if (!s.certPrinted) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_PRINT', actionType: 'ordination-print-certificate',
+          displayText: DEMO_CAST.dallin + ' — print the ordination certificate' });
+        else if (!s.certSigned) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_SIGN', actionType: 'ordination-sign-certificate',
+          displayText: DEMO_CAST.dallin + ' — get the certificate signed' });
+        else if (!s.certDelivered) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_DELIVER', actionType: 'ordination-deliver-certificate',
+          displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
+      }
+
+      data.counts = {
+        pendingCallings: data.approvals.length,
+        pendingOrdinations: data.ordinations.length,
+        extendCallings: data.extendItems.filter(i => i.type === 'extend-calling').length,
+        extendReleases: data.extendItems.filter(i => i.type === 'extend-release').length,
+        myTasks: 0, ccItems: 0
+      };
+      return data;
+    }
+
+    // Demo replacement for the backend API. Mutates state, saves, and lets the
+    // normal scheduleSilentRefresh path re-render from the new state.
+    async function demoPerformAction(action, params) {
+      const s = demoState;
+      const id = String(params.itemId || '');
+
+      switch (action) {
+        case 'approve':
+        case 'concern': {
+          const map = { calling_1: 'c1', calling_2: 'c2', calling_3: 'c3', ordination_1: 'o1' };
+          if (map[id]) s.approved[map[id]] = true;
+          if (action === 'concern') showToast('In the real dashboard, ⚠️ Concerns pauses this item and notifies the clerks. The demo moves on as if approved.', 'success');
+          else if (demoAllCallingsApproved() && s.approved.o1) showToast('All approvals in! Watch for the extend tasks assigned to you.', 'success');
+          break;
+        }
+        case 'approveAll': s.approved.c1 = s.approved.c2 = s.approved.c3 = s.approved.o1 = true; break;
+        case 'sustainAll': s.approved.o1 = true; break;
+        case 'scheduleAppointment':
+        case 'rescheduleAppointment':
+          s.appt = demoFormatDateTime(params.appointmentDate + 'T' + params.appointmentTime);
+          break;
+        case 'accepted':
+          if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast(DEMO_CAST.porter.split(' ')[0] + ' accepted! He\'s now scheduled for stake business this Sunday.', 'success'); }
+          break;
+        case 'declined':
+          if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast('In real life, declining ends the process and notifies the Stake Presidency. For the demo, let\'s pretend he said yes 😉', 'success'); }
+          break;
+        case 'extended':
+          if (id === 'DEMO_EXT_MARCUS') s.marcusExtended = true;
+          break;
+        case 'sbConfirm': s.sbConfirmed = true; break;
+        case 'sbNeedReplacement':
+        case 'sbHaveReplacement':
+        case 'sbMarkAlreadyConfirmed':
+          throw new Error('In this demo, tap "✓ Yes, I\'ll Be There". (In real life this would notify the clerks or another high councilor.)');
+        case 'sustainingReportMark': {
+          const i = parseInt(params.sbRow, 10);
+          if (i >= 1 && i <= 4) s.sus[i] = (params.sustained === 'true' || params.sustained === true);
+          break;
+        }
+        case 'sustainingReportAll':
+          [1, 2, 3, 4].forEach(i => { if (typeof s.sus[i] === 'undefined') s.sus[i] = true; });
+          break;
+        case 'setApart':
+          if (id.indexOf('DEMO_SA_PORTER') === 0) s.saPorter = true;
+          if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
+          break;
+        case 'saveOrdinationDate': {
+          s.ordDate = demoFormatDateTime(params.dateTimeStr);
+          demoSave();
+          return { success: true, savedDate: s.ordDate };
+        }
+        case 'reportSustaining':
+          if (!s.ordDate) { throw new Error('Save the ordination date first (pick any future date), then report sustained.'); }
+          s.ordSustainReported = true;
+          break;
+        case 'transferOrdinationNotification':
+          throw new Error('Transfers are not part of this demo — in real life the task would move to the HC you pick.');
+        case 'submitOrdinationReport': s.ordReported = true; break;
+        case 'markOrdinationLcrRecorded': s.certLcr = true; break;
+        case 'markCertificatePrinted': s.certPrinted = true; break;
+        case 'markCertificateSigned': s.certSigned = true; break;
+        case 'markCertificateDelivered':
+          s.certDelivered = true;
+          showToast('🎉 That\'s the whole pipeline — demo complete!', 'success');
+          break;
+        case 'getMemberStatus':
+          return demoBuildMemberStatus();
+        default:
+          throw new Error('That button isn\'t part of this demo.');
+      }
+
+      demoSave();
+      return { success: true };
+    }
+
+    // ── Demo Member Status ──────────────────────────────────────
+    function demoBuildMemberStatus() {
+      const s = demoState;
+
+      function stp(label, done, o) {
+        o = o || {};
+        return {
+          label: label,
+          value: done === true ? '✓' : (typeof done === 'string' ? done : ''),
+          done: !!done, skipped: false,
+          required: !!o.req, skippable: false, applicable: true, editable: false,
+          type: 'boolean', isApprover: !!o.appr, isMultiPhase: false,
+          lastPhase: o.ph || 1, body: o.body || '', col: o.col || 0,
+          doneDate: o.doneDate || undefined, assignee: o.assignee || undefined
+        };
+      }
+      function spPhase() {
+        return { phase: 1, title: 'Stake Presidency', steps: DEMO_SP.map(n => stp(n, true, { appr: true, body: 'SP' })) };
+      }
+      function hcPhase(voted) {
+        const steps = DEMO_HC_NAMES.map(n => stp(n, true, { appr: true, body: 'HC' }));
+        steps.push(stp(DEMO_CAST.hcYou, !!voted, { appr: true, body: 'HC' }));
+        return { phase: 2, title: 'High Council', steps: steps };
+      }
+      function finish(phases) {
+        phases.forEach(ph => { ph.complete = ph.steps.every(x => x.done || x.skipped); });
+        let cur = null;
+        for (const ph of phases) { if (!ph.complete) { cur = ph.phase; break; } }
+        phases.forEach(ph => { ph.current = ph.phase === cur; });
+        return { phases: phases, currentPhase: cur };
+      }
+      const today = demoTodayText();
+      const sunday = demoSundayText();
+
+      // Porter — called, extended by the demo HC, sustained, set apart
+      const porter = finish([
+        spPhase(), hcPhase(s.approved.c1),
+        { phase: 3, title: 'Extend the Call', steps: [
+          stp('Extend Task Created', demoAllCallingsApproved() ? today : false, { ph: 3, col: 34 }),
+          stp('Accepted?', s.porterAccepted, { req: true, ph: 3, col: 35, assignee: 'Bro. Demoson' }),
+          stp('Release Extended?', s.marcusExtended, { ph: 3, col: 37, assignee: 'Bro. Demoson' })
+        ]},
+        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+          stp('Preferred Stake Business Date', s.porterAccepted ? sunday : false, { ph: 4, col: 38 }),
+          stp('Added to Stake Business', s.porterAccepted, { ph: 4, col: 39 }),
+          stp('Sustained', s.sus[1] === true, { req: true, ph: 4, col: 40 })
+        ]},
+        { phase: 5, title: 'Setting Apart', steps: [
+          stp('Set Apart', s.saPorter, { req: true, ph: 5, col: 43, assignee: 'Bro. Demoson' })
+        ]}
+      ]);
+
+      // Marcus — release-only
+      const marcus = finish([
+        { phase: 1, title: 'Stake Presidency', steps: [stp(DEMO_SP[0], true, { appr: true, body: 'SP' })] },
+        { phase: 3, title: 'Extend the Release', steps: [
+          stp('Release Extended?', s.marcusExtended, { req: true, ph: 3, col: 37, assignee: 'Bro. Demoson' })
+        ]},
+        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+          stp('Released in Stake Business', s.sus[2] === true, { req: true, ph: 4, col: 40 })
+        ]}
+      ]);
+
+      // Sadie — stake calling (extended by SP, set apart involves you)
+      const sadie = finish([
+        spPhase(), hcPhase(s.approved.c2),
+        { phase: 3, title: 'Extend the Call', steps: [
+          stp('Accepted?', demoAllCallingsApproved(), { req: true, ph: 3, col: 35, assignee: DEMO_SP[0] })
+        ]},
+        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+          stp('Sustained', s.sus[3] === true, { req: true, ph: 4, col: 40 })
+        ]},
+        { phase: 5, title: 'Setting Apart', steps: [
+          stp('Set Apart', s.saSadie, { req: true, ph: 5, col: 43 })
+        ]}
+      ]);
+
+      // Tanner — HC calling with HP sustaining
+      const tanner = finish([
+        spPhase(), hcPhase(s.approved.c3),
+        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+          stp('Sustained (and to be ordained a High Priest)', s.sus[4] === true, { req: true, ph: 4, col: 40 })
+        ]}
+      ]);
+
+      // Dallin — Elder ordination
+      const dallin = finish([
+        { phase: 1, title: 'Stake Presidency', steps: DEMO_SP.map(n => stp(n, true, { appr: true, body: 'SP' })) },
+        hcPhase(s.approved.o1),
+        { phase: 3, title: 'Ordination', steps: [
+          stp('Ordination Date Coordinated', s.ordDate || false, { ph: 3, col: 28 }),
+          stp('Sustained', s.ordSustainReported, { req: true, ph: 3, col: 30 }),
+          stp('Date Ordained', s.ordReported ? (s.ordDate || '✓') : false, { req: true, ph: 3, col: 31 })
+        ]},
+        { phase: 4, title: 'Certificate & Records', steps: [
+          stp('Ordinance Recorded on LCR', s.certLcr, { req: true, ph: 4, col: 38 }),
+          stp('Certificate Printed', s.certPrinted, { req: true, ph: 4, col: 39 }),
+          stp('Certificate Signed', s.certSigned, { req: true, ph: 4, col: 40 }),
+          stp('Certificate Delivered', s.certDelivered, { req: true, ph: 4, col: 41 })
+        ]}
+      ]);
+
+      const mk = (name, ward, callingEntry, ordEntry) => ({
+        name: name, ward: ward,
+        callings: callingEntry ? [callingEntry] : [],
+        ordinations: ordEntry ? [ordEntry] : []
+      });
+      const submitted = demoTodayText();
+
+      return {
+        success: true, seeAll: true,
+        assignedWards: [DEMO_WARD],
+        wards: [DEMO_WARD, '9th Ward', '12th Ward'],
+        members: [
+          mk(DEMO_CAST.dallin, DEMO_WARD, null,
+            { timestamp: 'demo-o1', submittedDate: submitted, office: 'Elder', interview: { scheduled: '(demo) completed' }, phaseStarted: '', phases: dallin.phases, currentPhase: dallin.currentPhase }),
+          mk(DEMO_CAST.marcus, DEMO_WARD,
+            { timestamp: 'demo-marcus', submittedDate: submitted, calling: 'Elders Quorum President', action: 'Released', status: '', phaseStarted: '', phases: marcus.phases, currentPhase: marcus.currentPhase }, null),
+          mk(DEMO_CAST.porter, DEMO_WARD,
+            { timestamp: 'demo-porter', submittedDate: submitted, calling: 'Elders Quorum President', action: 'Called', status: '', phaseStarted: '', phases: porter.phases, currentPhase: porter.currentPhase }, null),
+          mk(DEMO_CAST.sadie, '9th Ward',
+            { timestamp: 'demo-sadie', submittedDate: submitted, calling: 'Stake Relief Society Secretary', action: 'Called', status: '', phaseStarted: '', phases: sadie.phases, currentPhase: sadie.currentPhase }, null),
+          mk(DEMO_CAST.tanner, '12th Ward',
+            { timestamp: 'demo-tanner', submittedDate: submitted, calling: 'High Councilor', action: 'Called', status: '', phaseStarted: '', phases: tanner.phases, currentPhase: tanner.currentPhase }, null)
+        ]
+      };
     }
 
     // Service Worker for PWA (optional but makes it a true PWA)
