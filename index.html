@@ -362,6 +362,48 @@
     </div>
   </div>
 
+  <!-- Out-of-Unit Member Record Modal -->
+  <div class="modal-overlay" id="outOfUnitModal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <span class="modal-title">🏠 Out-of-Unit Member Record</span>
+        <button class="modal-close" onclick="closeOutOfUnitModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:13px;color:#555;line-height:1.5;background:#fff3cd;border-radius:6px;padding:10px 12px;margin-bottom:14px;">
+          This member's official membership record lives in another unit, so an <strong>out-of-unit record</strong> needs to be created in the YSA ward.
+          <strong>Contact info is not pulled from their main record</strong> and must be entered on their out-of-unit record — please collect it from them (a great moment is right at the setting apart).
+          Submitting sends everything to the stake clerks, who will route it to a ward clerk.
+        </div>
+        <div class="form-group">
+          <label class="form-label">Full Name *</label>
+          <input type="text" class="form-input" id="oouName">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date of Birth *</label>
+          <input type="date" class="form-input" id="oouDob">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone *</label>
+          <input type="tel" class="form-input" id="oouPhone" placeholder="e.g. 801-555-1234">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email *</label>
+          <input type="email" class="form-input" id="oouEmail" placeholder="name@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address *</label>
+          <textarea class="form-input" id="oouAddress" rows="2" placeholder="Street, City, State ZIP"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-secondary" onclick="closeOutOfUnitModal()">Cancel</button>
+        <button class="btn btn-secondary btn-sm" onclick="skipOutOfUnitForm()" title="Use only if their out-of-unit record already exists">Skip form — just mark set apart</button>
+        <button class="btn btn-primary" onclick="submitOutOfUnitRecord()">Submit &amp; Mark Set Apart</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Create Task Modal -->
   <div class="modal-overlay" id="newTaskModal">
     <div class="modal">
@@ -1136,7 +1178,7 @@
 
       items.forEach(item => {
         const prefDateInfo = item.preferredOrdinationDate
-          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)} <span style="color:#666;font-weight:400;">(please verify with him)</span></div>` : '';
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)} <span style="color:#666;font-weight:400;">(please verify with him)</span>${gcalLinkHtml('Ordination — ' + (item.displayText || '').split(' has been')[0], item.preferredOrdinationDate)}</div>` : '';
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
@@ -1165,6 +1207,21 @@
       return html;
     }
 
+    // The stake's own units. A setting-apart whose calling ward is anything else
+    // belongs to an Out-of-Unit member (official record lives in their home ward),
+    // so marking them set apart routes through the out-of-unit record form.
+    const IN_UNIT_WARDS = ['16th', '19th', '24th', '25th', '27th', '32nd', '33rd', '49th'];
+    function isOutOfUnitWard(ward) {
+      const w = String(ward || '').toLowerCase().replace(/\s*ward\s*$/i, '').trim();
+      if (!w) return false; // unknown ward — don't force the form
+      return !IN_UNIT_WARDS.some(u => w === u || w.indexOf(u + ' ') === 0);
+    }
+    // Pull "(Ward)" out of a setting-apart displayText when the item carries no ward field.
+    function wardFromDisplayText(text) {
+      const m = String(text || '').match(/\(([^()]*)\)/g);
+      return m && m.length ? m[m.length - 1].replace(/[()]/g, '') : '';
+    }
+
     function renderSettingApartsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingAparts\')"><div class="section-title">🙏 Setting Aparts</div><div class="section-meta">' + helpBtn('settingAparts') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-settingAparts"><div class="section-inner">';
@@ -1172,12 +1229,22 @@
       items.forEach(item => {
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         const actionId = item.actionId + '_SOURCEROW_' + (item.sourceRow || 0);
+        const ward = item.callingWard || wardFromDisplayText(item.displayText);
+        const isOOU = isOutOfUnitWard(ward);
+        const memberName = item.callingMember || String(item.displayText || '').split(' — ')[0];
+        const oouNote = isOOU
+          ? `<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:6px;">🏠 <strong>Out-of-Unit member</strong> — their record lives in another unit. When you mark them set apart you'll be asked for their contact info so the stake clerks can have an out-of-unit record created.</div>`
+          : '';
+        const setApartBtn = isOOU
+          ? `<button class="btn btn-success" onclick="openOutOfUnitModal('${actionId}', '${escapeHtml(memberName).replace(/'/g, "\\'")}', '${escapeHtml(ward).replace(/'/g, "\\'")}')">✓ Set Apart</button>`
+          : `<button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>`;
 
-        html += `<div class="item">
+        html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
+          ${oouNote}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>
+            ${setApartBtn}
           </div>
           ${renderCallingControls(item)}
         </div>`;
@@ -1379,7 +1446,7 @@
 
       items.forEach(item => {
         const prefDateInfo = item.preferredOrdinationDate
-          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
+          ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}${gcalLinkHtml(item.displayText, item.preferredOrdinationDate)}</div>` : '';
         const instructionText = item.notes
           ? `<div class="item-meta" style="font-size:13px;color:#555;line-height:1.5;margin-bottom:4px;">${escapeHtmlDisplay(item.notes)}</div>` : '';
 
@@ -1511,26 +1578,34 @@
       return 'slack://channel?team=' + teamId + '&id=' + channelId + '&message=' + ts;
     }
 
-    // Build a Google Calendar "create event" URL from our appointment text
-    // ("Jun 29, 2026 at 7:00pm"). Returns '' if the text doesn't parse or has
-    // no time component. Default event length: 30 minutes.
+    // Build a Google Calendar "create event" URL from our appointment text.
+    // Accepts "Jun 29, 2026 at 7:00pm", "June 29, 2026 7:00 PM", and bare
+    // dates like "Jun 29, 2026" (rendered as an all-day event). Timed events
+    // default to 30 minutes. Returns '' if the text doesn't parse.
     function gcalUrlForAppointment(title, apptText, details) {
-      const m = String(apptText || '').match(/^(\w{3,9}) (\d{1,2}), (\d{4}) at (\d{1,2}):(\d{2})\s?(am|pm)$/i);
+      const m = String(apptText || '').trim().match(/^(\w{3,9}) (\d{1,2}), (\d{4})(?:(?: at | )(\d{1,2}):(\d{2})\s?(am|pm))?$/i);
       if (!m) return '';
       const months = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
       const mon = months[m[1].slice(0,3).toLowerCase()];
       if (mon === undefined) return '';
+      const base = 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+        '&text=' + encodeURIComponent(title || 'Appointment') +
+        (details ? '&details=' + encodeURIComponent(details) : '');
+      const fmtDay = d => d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+      if (!m[4]) {
+        // Date only → all-day event (end date is exclusive, so +1 day)
+        const day = new Date(parseInt(m[3],10), mon, parseInt(m[2],10));
+        if (isNaN(day.getTime())) return '';
+        const next = new Date(day.getTime() + 24 * 3600000);
+        return base + '&dates=' + fmtDay(day) + '/' + fmtDay(next);
+      }
       let hr = parseInt(m[4], 10) % 12;
       if (m[6].toLowerCase() === 'pm') hr += 12;
       const start = new Date(parseInt(m[3],10), mon, parseInt(m[2],10), hr, parseInt(m[5],10));
       if (isNaN(start.getTime())) return '';
       const end = new Date(start.getTime() + 30 * 60000);
-      const fmt = d => d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0') +
-                       'T' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '00';
-      return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
-        '&text=' + encodeURIComponent(title || 'Appointment') +
-        '&dates=' + fmt(start) + '/' + fmt(end) +
-        (details ? '&details=' + encodeURIComponent(details) : '');
+      const fmt = d => fmtDay(d) + 'T' + String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '00';
+      return base + '&dates=' + fmt(start) + '/' + fmt(end);
     }
 
     // Small "Add to Google Calendar" link, or '' when the appointment can't be parsed.
@@ -2194,6 +2269,12 @@
     }
 
     function refreshData() {
+      // 🎓 Demo mode: nothing to fetch — just re-render from local demo state.
+      if (DEMO_MODE) {
+        onDataLoaded(demoBuildData());
+        showToast('Demo view refreshed', 'success');
+        return;
+      }
       const btn = document.getElementById('refreshBtn');
       btn.disabled = true;
       btn.textContent = '⏳';
@@ -3508,7 +3589,11 @@
 
       const trailingButtons = [];
       if (remaining.length > 0) {
-        trailingButtons.push(`<button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this)">✓ Mark All Remaining Complete</button>`);
+        // Sustained/released wording so the button reads right when the list is
+        // all releases, all sustainings, or a mix.
+        const remRel = remaining.filter(it => String(it.a || '').toLowerCase() === 'release').length;
+        const verb = remRel === remaining.length ? 'Released' : (remRel === 0 ? 'Sustained' : 'Sustained/Released');
+        trailingButtons.push(`<button class="btn btn-primary" onclick="handleSustainingMarkAll('${item.actionId}', this, '${verb}')">✓ Mark All Remaining as ${verb}</button>`);
       }
       if (opts.canReassign) {
         trailingButtons.push(`<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText || '')}')">↻ Reassign</button>`);
@@ -3565,10 +3650,11 @@
       }
     }
 
-    async function handleSustainingMarkAll(actionId, btn) {
+    async function handleSustainingMarkAll(actionId, btn, verb) {
+      verb = verb || 'Sustained/Released';
       const key = 'markAll|' + actionId;
       if (_sustainingMarkInFlight.has(key)) return;
-      if (!confirm('Mark every remaining item as sustained?')) return;
+      if (!confirm('Mark every remaining item as ' + verb.toLowerCase() + '?')) return;
       _sustainingMarkInFlight.add(key);
 
       // Optimistic feedback: dim the whole task card so the user sees the click
@@ -3579,13 +3665,13 @@
       setSyncing(true);
       try {
         await performAction('sustainingReportAll', { itemId: actionId });
-        showToast('All items marked sustained', 'success');
+        showToast('All items marked ' + verb.toLowerCase(), 'success');
         if (itemEl) itemEl.remove(); // optimistic: task completes server-side too
         scheduleSilentRefresh(500);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
         if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
-        if (btn) { btn.disabled = false; btn.textContent = '✓ Mark All Remaining Complete'; }
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Mark All Remaining as ' + verb; }
       } finally {
         _sustainingMarkInFlight.delete(key);
         setSyncing(false);
@@ -3722,6 +3808,69 @@
     }
 
     // ============================================================
+    // OUT-OF-UNIT MEMBER RECORD (setting aparts outside stake units)
+    // ============================================================
+
+    let currentOOUItemId = null;
+    let currentOOUWard = '';
+
+    function openOutOfUnitModal(actionId, memberName, ward) {
+      currentOOUItemId = actionId;
+      currentOOUWard = ward || '';
+      document.getElementById('oouName').value = memberName || '';
+      document.getElementById('oouDob').value = '';
+      document.getElementById('oouPhone').value = '';
+      document.getElementById('oouEmail').value = '';
+      document.getElementById('oouAddress').value = '';
+      document.getElementById('outOfUnitModal').classList.add('show');
+    }
+
+    function closeOutOfUnitModal() {
+      document.getElementById('outOfUnitModal').classList.remove('show');
+      currentOOUItemId = null;
+    }
+
+    // Escape hatch: the out-of-unit record already exists — just mark set apart.
+    async function skipOutOfUnitForm() {
+      const itemId = currentOOUItemId;
+      closeOutOfUnitModal();
+      if (!itemId) return;
+      setSyncing(true);
+      try {
+        await performAction('setApart', { itemId: itemId });
+        showToast('Marked set apart', 'success');
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally { setSyncing(false); }
+    }
+
+    async function submitOutOfUnitRecord() {
+      const name = document.getElementById('oouName').value.trim();
+      const dob = document.getElementById('oouDob').value;
+      const phone = document.getElementById('oouPhone').value.trim();
+      const email = document.getElementById('oouEmail').value.trim();
+      const address = document.getElementById('oouAddress').value.trim();
+      if (!name || !dob || !phone || !email || !address) {
+        showToast('Please fill in every field — the ward clerk needs all of it for the out-of-unit record', 'error');
+        return;
+      }
+      setSyncing(true);
+      try {
+        await performAction('submitOutOfUnitRecord', {
+          itemId: currentOOUItemId,
+          memberName: name, dob: dob, phone: phone, email: email, address: address,
+          ward: currentOOUWard
+        });
+        showToast('Out-of-unit record sent to the stake clerks — and marked set apart', 'success');
+        closeOutOfUnitModal();
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally { setSyncing(false); }
+    }
+
+    // ============================================================
     // ORDINATION SUSTAINING — Report Sustained + Transfer
     // ============================================================
 
@@ -3810,8 +3959,8 @@
       hcYou:   'Bro. Demoson (you)',
       porter:  'Porter Gladwell',    // called EQ President, 6-7th Ward
       marcus:  'Marcus Fielding',    // released as EQ President, 6-7th Ward
-      sadie:   'Sadie Larkspur',     // called Stake Relief Society Secretary (9th Ward)
-      tanner:  'Tanner Holbrook',    // called High Councilor (12th Ward) — needs HP sustaining
+      sadie:   'Sadie Larkspur',     // called Stake Relief Society Secretary (24th Ward)
+      tanner:  'Tanner Holbrook',    // called High Councilor (32nd Ward) — needs HP sustaining
       dallin:  'Dallin Whitmer'      // ordination to Elder, 6-7th Ward
     };
     const DEMO_SP = ['Pres. Whitfield', 'Pres. Lofgran', 'Pres. Barlowe'];
@@ -3932,9 +4081,9 @@
       };
 
       // ── Stage 1: HC approvals (SP has already fully approved everything) ──
-      if (!s.approved.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum President', unit: DEMO_WARD });
-      if (!s.approved.c2) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '9th Ward' });
-      if (!s.approved.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '12th Ward',
+      if (!s.approved.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
+      if (!s.approved.c2) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
+      if (!s.approved.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
       if (!s.approved.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
@@ -3942,12 +4091,12 @@
       if (demoAllCallingsApproved()) {
         if (!s.porterAccepted) data.extendItems.push({
           actionId: 'DEMO_EXT_PORTER', type: 'extend-calling', actionType: 'extend-calling',
-          displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum President (' + DEMO_WARD + ')',
+          displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
           appointmentStatus: s.appt || 'Pending'
         });
         if (!s.marcusExtended) data.extendItems.push({
           actionId: 'DEMO_EXT_MARCUS', type: 'extend-release', actionType: 'extend-release',
-          displayText: 'Extend release to ' + DEMO_CAST.marcus + ' from Elders Quorum President (' + DEMO_WARD + ')'
+          displayText: 'Extend release to ' + DEMO_CAST.marcus + ' from Elders Quorum Second Counselor (' + DEMO_WARD + ')'
         });
       }
 
@@ -3969,29 +4118,35 @@
           sustainingReportWard: DEMO_WARD,
           sustainingReportDocUrl: DEMO_DOC_URL,
           sustainingReportItems: [
-            { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum President', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
-            { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum President', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
-            { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '9th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
-            { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '12th Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] }
+            { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
+            { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
+            { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '24th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
+            { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] }
           ]
         });
       }
 
       // ── Stage 5: setting aparts ──
+      // Porter's ward (6-7th) is NOT one of the stake's units, so his card also
+      // demonstrates the Out-of-Unit record form.
       if (s.sus[1] === true && !s.saPorter) data.settingAparts.push({
         actionId: 'DEMO_SA_PORTER', sourceRow: 0,
-        displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum President (' + DEMO_WARD + ')  ·  Assigned to: you'
+        callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD,
+        displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum Second Counselor (' + DEMO_WARD + ')  ·  Assigned to: you'
       });
       if (s.sus[3] === true && !s.saSadie) data.settingAparts.push({
         actionId: 'DEMO_SA_SADIE', sourceRow: 0,
-        displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (9th Ward)  ·  Assigned to: you + Stake Presidency'
+        callingMember: DEMO_CAST.sadie, callingWard: '24th Ward',
+        displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)  ·  Assigned to: you + Stake Presidency'
       });
 
-      // ── Stage 6: ordination pipeline for Dallin ──
-      if (s.approved.o1 && demoAllSustained() && !s.ordSustainReported) {
+      // ── Stage 6: ordination pipeline for Dallin. The notification appears the
+      // moment the demo user casts their sustaining vote — as though they were
+      // the last of the presidency + high council to sustain. ──
+      if (s.approved.o1 && !s.ordSustainReported) {
         data.ordinationNotifications.push({
           actionId: 'DEMO_ORDNOTIF',
-          displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been approved to be ordained an Elder. Please coordinate a time with them when you can be present for their ordination.',
+          displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained by the Stake Presidency and High Council to be ordained an Elder. He can be ordained AFTER he has been sustained in sacrament meeting. Please coordinate a time with them when you can be present for their ordination.',
           preferredOrdinationDate: s.ordDate || ''
         });
       }
@@ -4006,7 +4161,7 @@
       if (s.ordReported) {
         if (!s.certLcr) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_LCR', actionType: 'ordination-record-lcr',
           displayText: DEMO_CAST.dallin + ' — record Elder ordination on LCR (' + DEMO_WARD + ')',
-          notes: 'In real life this task goes to the Stake Asst Clerk-Membership; the demo assigns it to you so you can see the whole chain.' });
+          notes: 'In real life this task goes to the Stake Asst Clerk-Membership with you (the assigned HC) CC\'d so you can follow — or complete — each certificate step.' });
         else if (!s.certPrinted) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_PRINT', actionType: 'ordination-print-certificate',
           displayText: DEMO_CAST.dallin + ' — print the ordination certificate' });
         else if (!s.certSigned) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_SIGN', actionType: 'ordination-sign-certificate',
@@ -4037,6 +4192,7 @@
           const map = { calling_1: 'c1', calling_2: 'c2', calling_3: 'c3', ordination_1: 'o1' };
           if (map[id]) s.approved[map[id]] = true;
           if (action === 'concern') showToast('In the real dashboard, ⚠️ Concerns pauses this item and notifies the clerks. The demo moves on as if approved.', 'success');
+          else if (id === 'ordination_1') showToast('You were the last to sustain — coordinating the ordination is now your task (see 📋 Ordination Sustaining below).', 'success');
           else if (demoAllCallingsApproved() && s.approved.o1) showToast('All approvals in! Watch for the extend tasks assigned to you.', 'success');
           break;
         }
@@ -4071,6 +4227,11 @@
         case 'setApart':
           if (id.indexOf('DEMO_SA_PORTER') === 0) s.saPorter = true;
           if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
+          break;
+        case 'submitOutOfUnitRecord':
+          if (id.indexOf('DEMO_SA_PORTER') === 0) s.saPorter = true;
+          if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
+          showToast('In real life this emails the member\'s details + ward-clerk instructions to the stake clerk and membership clerk. (Demo: no email sent.)', 'success');
           break;
         case 'saveOrdinationDate': {
           s.ordDate = demoFormatDateTime(params.dateTimeStr);
@@ -4213,17 +4374,17 @@
       return {
         success: true, seeAll: true,
         assignedWards: [DEMO_WARD],
-        wards: [DEMO_WARD, '9th Ward', '12th Ward'],
+        wards: [DEMO_WARD, '24th Ward', '32nd Ward'],
         members: [
           mk(DEMO_CAST.dallin, DEMO_WARD, null,
             { timestamp: 'demo-o1', submittedDate: submitted, office: 'Elder', interview: { scheduled: '(demo) completed' }, phaseStarted: '', phases: dallin.phases, currentPhase: dallin.currentPhase }),
           mk(DEMO_CAST.marcus, DEMO_WARD,
-            { timestamp: 'demo-marcus', submittedDate: submitted, calling: 'Elders Quorum President', action: 'Released', status: '', phaseStarted: '', phases: marcus.phases, currentPhase: marcus.currentPhase }, null),
+            { timestamp: 'demo-marcus', submittedDate: submitted, calling: 'Elders Quorum Second Counselor', action: 'Released', status: '', phaseStarted: '', phases: marcus.phases, currentPhase: marcus.currentPhase }, null),
           mk(DEMO_CAST.porter, DEMO_WARD,
-            { timestamp: 'demo-porter', submittedDate: submitted, calling: 'Elders Quorum President', action: 'Called', status: '', phaseStarted: '', phases: porter.phases, currentPhase: porter.currentPhase }, null),
-          mk(DEMO_CAST.sadie, '9th Ward',
+            { timestamp: 'demo-porter', submittedDate: submitted, calling: 'Elders Quorum Second Counselor', action: 'Called', status: '', phaseStarted: '', phases: porter.phases, currentPhase: porter.currentPhase }, null),
+          mk(DEMO_CAST.sadie, '24th Ward',
             { timestamp: 'demo-sadie', submittedDate: submitted, calling: 'Stake Relief Society Secretary', action: 'Called', status: '', phaseStarted: '', phases: sadie.phases, currentPhase: sadie.currentPhase }, null),
-          mk(DEMO_CAST.tanner, '12th Ward',
+          mk(DEMO_CAST.tanner, '32nd Ward',
             { timestamp: 'demo-tanner', submittedDate: submitted, calling: 'High Councilor', action: 'Called', status: '', phaseStarted: '', phases: tanner.phases, currentPhase: tanner.currentPhase }, null)
         ]
       };
