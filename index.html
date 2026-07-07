@@ -3968,6 +3968,7 @@
       'Bro. Fenwick', 'Bro. Garner', 'Bro. Highsmith', 'Bro. Ivory', 'Bro. Justesen', 'Bro. Kimballton'];
 
     let demoState = null;
+    let demoStakeLinks = []; // real stake links, fetched once (the only sheet read in demo)
 
     function demoFreshState() {
       return {
@@ -4044,6 +4045,17 @@
       document.body.appendChild(bar);
       document.body.style.paddingBottom = '64px';
       onDataLoaded(demoBuildData());
+      // Fetch the REAL stake links — the one and only thing the demo reads from
+      // the backend (read-only, public, no user data). Re-render when they land.
+      fetch(API_URL + '?action=getStakeLinks')
+        .then(r => r.json())
+        .then(d => {
+          if (d && d.success && Array.isArray(d.stakeLinks) && d.stakeLinks.length) {
+            demoStakeLinks = d.stakeLinks;
+            onDataLoaded(demoBuildData());
+          }
+        })
+        .catch(() => { /* links are a nicety; ignore failures in the demo */ });
     }
 
     function demoAllCallingsApproved() {
@@ -4068,7 +4080,7 @@
         userId: 'DEMOHC',
         canReassign: false, isAdmin: false, canMemberStatus: true,
         highCouncilors: [], stakePresidency: [], adminUsers: [],
-        stakeLinks: [], mentions: [], myTasks: [], ccItems: [], assignedToOthers: [],
+        stakeLinks: demoStakeLinks || [], mentions: [], myTasks: [], ccItems: [], assignedToOthers: [],
         appointmentItems: [], coordinateItems: [], clerkReviews: [], interviews: [],
         ordinationInterviewSchedules: [], ordinationInterviews: [],
         nameTagsToOrder: [], pausedCanceledCallings: [], approvalStatus: [],
