@@ -398,8 +398,7 @@
       </div>
       <div class="modal-footer" style="flex-wrap:wrap;gap:8px;">
         <button class="btn btn-secondary" onclick="closeOutOfUnitModal()">Cancel</button>
-        <button class="btn btn-secondary btn-sm" onclick="skipOutOfUnitForm()" title="Use only if their out-of-unit record already exists">Skip form — just mark set apart</button>
-        <button class="btn btn-primary" onclick="submitOutOfUnitRecord()">Submit &amp; Mark Set Apart</button>
+        <button class="btn btn-primary" onclick="submitOutOfUnitRecord()">Submit to Stake Clerks</button>
       </div>
     </div>
   </div>
@@ -975,6 +974,12 @@
         html += renderPausedCanceledSection(data.pausedCanceledCallings);
       }
 
+      // Recent Actions (Undo) — everyone gets it, above Admin Tools. Hidden in
+      // demo mode (demo actions live only in the browser).
+      if (!DEMO_MODE) {
+        html += renderUndoSection();
+      }
+
       // Admin Tools section
       if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
         html += renderAdminSection(data.adminUsers);
@@ -1228,23 +1233,35 @@
 
       items.forEach(item => {
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
-        const actionId = item.actionId + '_SOURCEROW_' + (item.sourceRow || 0);
         const ward = item.callingWard || wardFromDisplayText(item.displayText);
-        const isOOU = isOutOfUnitWard(ward);
         const memberName = item.callingMember || String(item.displayText || '').split(' — ')[0];
-        const oouNote = isOOU
-          ? `<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:6px;">🏠 <strong>Out-of-Unit member</strong> — their record lives in another unit. When you mark them set apart you'll be asked for their contact info so the stake clerks can have an out-of-unit record created.</div>`
+
+        // Companion task for Out-of-Unit members: collect their contact info and
+        // send it to the stake clerks. Separate from the Set Apart task so the
+        // two can be completed independently and in either order.
+        if (item.actionType === 'oou-record') {
+          html += `<div class="item" id="item-${item.actionId}">
+            <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+            ${assignedInfo}
+            <div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:6px;">🏠 <strong>Out-of-Unit member</strong> — their record lives in another unit, so an out-of-unit record must be created in the YSA ward. Collect their contact info (the setting apart is a great moment) and submit it to the stake clerks here.</div>
+            <div class="item-actions">
+              <button class="btn btn-primary" onclick="openOutOfUnitModal('${item.actionId}', '${escapeHtml(memberName).replace(/'/g, "\\'")}', '${escapeHtml(ward).replace(/'/g, "\\'")}')">📇 Fill Out Record Form</button>
+            </div>
+          </div>`;
+          return;
+        }
+
+        const actionId = item.actionId + '_SOURCEROW_' + (item.sourceRow || 0);
+        const oouNote = isOutOfUnitWard(ward)
+          ? `<div class="item-meta" style="color:#856404;font-style:italic;">🏠 Out-of-Unit member — don't forget the separate record-form task for them.</div>`
           : '';
-        const setApartBtn = isOOU
-          ? `<button class="btn btn-success" onclick="openOutOfUnitModal('${actionId}', '${escapeHtml(memberName).replace(/'/g, "\\'")}', '${escapeHtml(ward).replace(/'/g, "\\'")}')">✓ Set Apart</button>`
-          : `<button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>`;
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
           ${oouNote}
           <div class="item-actions">
-            ${setApartBtn}
+            <button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>
           </div>
           ${renderCallingControls(item)}
         </div>`;
@@ -1689,6 +1706,11 @@
           // Bare itemId routes through the modern setApart path which looks
           // up the CA row by referenceId and flips col AR.
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'setApart', this)">✓ Set Apart</button>`;
+        case 'oou-record': {
+          const oouWard = escapeHtml(item.callingWard || wardFromDisplayText(item.displayText)).replace(/'/g, "\\'");
+          const oouMember = escapeHtml(item.callingMember || String(item.displayText || '').split(' — ')[0]).replace(/'/g, "\\'");
+          return `<button class="btn btn-primary" onclick="openOutOfUnitModal('${a}', '${oouMember}', '${oouWard}')">📇 Fill Out Record Form</button>`;
+        }
         case 'ordination-record-lcr':
           return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markOrdinationLcrRecorded', this)">✓ Mark Recorded on LCR</button>`;
         case 'ordination-print-certificate':
@@ -1790,7 +1812,8 @@
 
             const sbShowCheckBackup = item.backupHC && !item.isReassigned;
             const sbNegativeButton = sbShowCheckBackup
-              ? `<button class="btn btn-warning" style="color:#333;" onclick="handleSBCheckBackup('${item.actionId}', this)">↪ Check with ${escapeHtmlDisplay(item.backupHC)}</button>`
+              ? `<button class="btn btn-warning" style="color:#333;" onclick="handleSBCheckBackup('${item.actionId}', this)">↪ Check with ${escapeHtmlDisplay(item.backupHC)}</button>
+                 <button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Neither Available</button>`
               : `<button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Unavailable</button>`;
 
             html += `<div class="item" id="item-${item.actionId}">
@@ -1920,6 +1943,76 @@
 
       html += '</div></div></div>';
       return html;
+    }
+
+    // ============================================================
+    // ↩️ RECENT ACTIONS (UNDO)
+    // Collapsed by default; fetches the user's last 10 logged actions
+    // when first opened. Undo restores the flipped sheet cells, reopens
+    // the completed task, and cancels downstream tasks it created.
+    // ============================================================
+
+    let _undoListLoaded = false;
+
+    function renderUndoSection() {
+      _undoListLoaded = false; // fresh DOM — refetch on next expand
+      let html = '<div class="section"><div class="section-header" onclick="toggleUndoSection()"><div class="section-title">↩️ Recent Actions</div><div class="section-meta">' + helpBtn('undo') + '<span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-undo"><div class="section-inner"><div id="undoList"><div class="ms-empty">Loading…</div></div></div></div></div>';
+      return html;
+    }
+
+    function toggleUndoSection() {
+      toggleSection('undo');
+      const section = document.getElementById('section-undo');
+      if (section && section.classList.contains('expanded') && !_undoListLoaded) {
+        loadUndoList();
+      }
+    }
+
+    async function loadUndoList() {
+      const box = document.getElementById('undoList');
+      if (!box) return;
+      box.innerHTML = '<div class="ms-empty">Loading…</div>';
+      try {
+        const res = await performAction('getRecentActions', {});
+        _undoListLoaded = true;
+        const actions = res.actions || [];
+        if (actions.length === 0) {
+          box.innerHTML = '<div class="ms-empty">No recent actions recorded yet. Actions you take from here on will appear here with an Undo option.</div>';
+          return;
+        }
+        box.innerHTML = actions.map(a => {
+          const undone = a.status === 'Undone';
+          const btn = undone
+            ? '<span style="color:#28a745;font-size:13px;white-space:nowrap;">✓ Undone</span>'
+            : `<button class="btn btn-danger btn-sm" onclick="undoRecentAction('${a.logId}', this)">↩️ Undo</button>`;
+          return `<div class="item" style="display:flex;justify-content:space-between;align-items:center;gap:10px;${undone ? 'opacity:.55;' : ''}">
+            <div style="min-width:0;">
+              <div style="font-size:14px;">${escapeHtmlDisplay(a.description)}</div>
+              <div class="item-meta">${escapeHtmlDisplay(a.when)}</div>
+            </div>
+            ${btn}
+          </div>`;
+        }).join('');
+      } catch (e) {
+        box.innerHTML = '<div class="ms-empty">⚠️ Could not load recent actions: ' + escapeHtmlDisplay(e.message || 'error') + '</div>';
+      }
+    }
+
+    async function undoRecentAction(logId, btn) {
+      if (!confirm('Undo this action? The related task will reopen and any sheet changes it made will be reversed.')) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('undoAction', { logId: logId });
+        showToast('Action undone' + (res.warning ? ' — ' + res.warning : ''), 'success');
+        _undoListLoaded = false;
+        await loadUndoList();
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Undo failed: ' + (e.message || 'error'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '↩️ Undo'; }
+      } finally { setSyncing(false); }
     }
 
     function renderAdminSection(adminUsers) {
@@ -2068,6 +2161,14 @@
           '<ul>' +
           '<li>Each step appears here only after the previous step is marked complete.</li>' +
           '<li>The Deliver step also CCs the assigned High Councilor — sometimes the HC delivers, sometimes a clerk does.</li>' +
+          '</ul>'
+      },
+      undo: {
+        title: 'Recent Actions (Undo)',
+        body: '<p>Your last 10 actions taken from this dashboard, newest first. Undoing one reopens the related task, reverses the spreadsheet changes it made, and cancels any follow-up tasks it created.</p>' +
+          '<ul>' +
+          '<li>Notifications or emails that already went out can\'t be recalled — where possible a correction email is sent, otherwise you\'ll see a note about what to double-check.</li>' +
+          '<li>Clerks, executive secretaries, and the Stake Presidency can also undo other users\' actions if needed.</li>' +
           '</ul>'
       },
       pausedCanceled: {
@@ -3492,12 +3593,13 @@
           .join(' · ');
         const meetingTimeLine = item.meetingTime ? `<div class="item-meta">⛪ Sacrament: ${escapeHtmlDisplay(item.meetingTime)}</div>` : '';
 
-        // Button choice: if a Backup HC is configured AND the task hasn't been reassigned yet,
-        // the negative button is "Check with [Backup]". Otherwise (already escalated, or no backup),
-        // the negative button is "Unavailable" which notifies clerks to find a replacement.
+        // Buttons: when a Backup HC is configured (and not yet escalated), offer BOTH
+        // "Check with [Backup]" AND "Neither Available" — if the primary already knows
+        // the backup can't make it, they shouldn't be forced through the backup step.
         const showCheckBackup = item.backupHC && !item.isReassigned;
         const negativeButton = showCheckBackup
-          ? `<button class="btn btn-warning" style="color:#333;" onclick="handleSBCheckBackup('${item.actionId}', this)">↪ Check with ${escapeHtmlDisplay(item.backupHC)}</button>`
+          ? `<button class="btn btn-warning" style="color:#333;" onclick="handleSBCheckBackup('${item.actionId}', this)">↪ Check with ${escapeHtmlDisplay(item.backupHC)}</button>
+             <button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Neither Available</button>`
           : `<button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Unavailable</button>`;
 
         html += `<div class="item" id="item-${item.actionId}">
@@ -3830,21 +3932,6 @@
       currentOOUItemId = null;
     }
 
-    // Escape hatch: the out-of-unit record already exists — just mark set apart.
-    async function skipOutOfUnitForm() {
-      const itemId = currentOOUItemId;
-      closeOutOfUnitModal();
-      if (!itemId) return;
-      setSyncing(true);
-      try {
-        await performAction('setApart', { itemId: itemId });
-        showToast('Marked set apart', 'success');
-        scheduleSilentRefresh(500);
-      } catch (e) {
-        showToast('Error: ' + e.message, 'error');
-      } finally { setSyncing(false); }
-    }
-
     async function submitOutOfUnitRecord() {
       const name = document.getElementById('oouName').value.trim();
       const dob = document.getElementById('oouDob').value;
@@ -3862,7 +3949,7 @@
           memberName: name, dob: dob, phone: phone, email: email, address: address,
           ward: currentOOUWard
         });
-        showToast('Out-of-unit record sent to the stake clerks — and marked set apart', 'success');
+        showToast('Out-of-unit record sent to the stake clerks', 'success');
         closeOutOfUnitModal();
         scheduleSilentRefresh(500);
       } catch (e) {
@@ -3977,7 +4064,7 @@
         porterAccepted: false, marcusExtended: false,
         sbConfirmed: false,
         sus: {},                                  // sustaining-report marks, keyed by numeric item id
-        saPorter: false, saSadie: false,
+        saPorter: false, saSadie: false, oouDone: false,
         ordDate: '', ordSustainReported: false, ordReported: false,
         certLcr: false, certPrinted: false, certSigned: false, certDelivered: false
       };
@@ -4067,7 +4154,7 @@
     function demoComplete() {
       const s = demoState;
       return demoAllCallingsApproved() && s.approved.o1 && s.porterAccepted && s.marcusExtended &&
-        s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie &&
+        s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie && s.oouDone &&
         s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
     }
 
@@ -4139,12 +4226,17 @@
       }
 
       // ── Stage 5: setting aparts ──
-      // Porter's ward (6-7th) is NOT one of the stake's units, so his card also
-      // demonstrates the Out-of-Unit record form.
+      // Porter's ward (6-7th) is NOT one of the stake's units, so he also gets a
+      // separate companion task demonstrating the Out-of-Unit record form.
       if (s.sus[1] === true && !s.saPorter) data.settingAparts.push({
         actionId: 'DEMO_SA_PORTER', sourceRow: 0,
         callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD,
         displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum Second Counselor (' + DEMO_WARD + ')  ·  Assigned to: you'
+      });
+      if (s.sus[1] === true && !s.oouDone) data.settingAparts.push({
+        actionId: 'DEMO_OOU_PORTER', actionType: 'oou-record',
+        callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD,
+        displayText: 'Out-of-Unit record needed: ' + DEMO_CAST.porter + ' (' + DEMO_WARD + ')'
       });
       if (s.sus[3] === true && !s.saSadie) data.settingAparts.push({
         actionId: 'DEMO_SA_SADIE', sourceRow: 0,
@@ -4241,8 +4333,7 @@
           if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
           break;
         case 'submitOutOfUnitRecord':
-          if (id.indexOf('DEMO_SA_PORTER') === 0) s.saPorter = true;
-          if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
+          if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
           showToast('In real life this emails the member\'s details + ward-clerk instructions to the stake clerk and membership clerk. (Demo: no email sent.)', 'success');
           break;
         case 'saveOrdinationDate': {
