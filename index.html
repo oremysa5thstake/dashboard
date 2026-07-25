@@ -2048,6 +2048,7 @@
       html += '<button class="btn btn-secondary" onclick="runScript(\'StakeBusinessDoc\')">Generate Stake Business Doc</button>';
       html += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'CheckStakeBusinessAvailability\')">📅 Check Stake Business Availability</button>';
+      html += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'SundaySustainingReport\')">🙋 Send Sunday Sustaining Reports</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'CleanupPendingNotifications\')">🧹 Clean Up Pending Notifications</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'SendClerkSummaryEmails\')">📧 Send Ward-Clerk Summary Emails</button>';
@@ -2887,6 +2888,18 @@
       try {
         await performAction('runScript', { scriptName: scriptName });
         showToast('Script started successfully', 'success');
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    // Proactive all-wards availability check — DMs every ward HC, so confirm
+    // clearly and report how many were actually messaged.
+    async function runAvailabilityAllWards() {
+      if (!confirm('Send an EARLY availability check to every ward\'s high councilor?\n\nThey\'ll get a message noting nothing is official yet. Wards already asked or confirmed this week are skipped so nobody is double-messaged.')) return;
+      try {
+        const res = await performAction('runScript', { scriptName: 'CheckStakeBusinessAvailabilityAllWards' });
+        showToast(res && res.message ? res.message : 'Early availability check sent', 'success');
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
       }
