@@ -362,6 +362,29 @@
     </div>
   </div>
 
+  <!-- Send Texts to High Councilors Modal -->
+  <div class="modal-overlay" id="sendTextsModal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <span class="modal-title">📱 Text HCs with Pending Approvals</span>
+        <button class="modal-close" onclick="closeSendTextsModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:13px;color:#555;line-height:1.5;margin-bottom:12px;">
+          Tap <strong>Text</strong> next to each high councilor — your phone's Messages app opens to just that person with the note (and their personal dashboard link) pre-filled. You tap Send, come back, and do the next one. Each is a separate 1-on-1 message, never a group text.
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea class="form-input" id="sendTextsMessage" rows="2">Can you take a look at these approvals when you have a moment?</textarea>
+        </div>
+        <div id="sendTextsList"><div class="ms-empty">Loading…</div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeSendTextsModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Out-of-Unit Member Record Modal -->
   <div class="modal-overlay" id="outOfUnitModal">
     <div class="modal" style="max-width:560px;">
@@ -2028,6 +2051,7 @@
       html += '<button class="btn btn-secondary" onclick="runScript(\'SundaySustainingReport\')">🙋 Send Sunday Sustaining Reports</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'CleanupPendingNotifications\')">🧹 Clean Up Pending Notifications</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'SendClerkSummaryEmails\')">📧 Send Ward-Clerk Summary Emails</button>';
+      html += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
       html += '</div></div>';
 
       html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';
@@ -3907,6 +3931,71 @@
       } finally {
         setSyncing(false);
       }
+    }
+
+    // ============================================================
+    // 📱 TEXT HIGH COUNCILORS WITH PENDING APPROVALS
+    // Opens the user's own Messages app, one HC at a time, via sms: links.
+    // The app never sends SMS itself — this guarantees separate 1-on-1 threads.
+    // ============================================================
+
+    let _sendTextsRecipients = [];
+
+    async function openSendTextsModal() {
+      _sendTextsRecipients = [];
+      document.getElementById('sendTextsList').innerHTML = '<div class="ms-empty">Loading…</div>';
+      document.getElementById('sendTextsModal').classList.add('show');
+      try {
+        const res = await performAction('getHcsWithPendingApprovals', {});
+        _sendTextsRecipients = res.recipients || [];
+        renderSendTextsList(res.recipients || [], res.skipped || []);
+      } catch (e) {
+        document.getElementById('sendTextsList').innerHTML = '<div class="ms-empty">⚠️ Could not load: ' + escapeHtmlDisplay(e.message || 'error') + '</div>';
+      }
+    }
+
+    function closeSendTextsModal() {
+      document.getElementById('sendTextsModal').classList.remove('show');
+    }
+
+    function renderSendTextsList(recipients, skipped) {
+      const box = document.getElementById('sendTextsList');
+      if (recipients.length === 0 && skipped.length === 0) {
+        box.innerHTML = '<div class="ms-empty">🎉 No high councilors have pending approvals or sustainings right now.</div>';
+        return;
+      }
+      let html = '';
+      if (recipients.length) {
+        html += '<div class="item-meta" style="margin-bottom:6px;">High councilors with pending items (' + recipients.length + '):</div>';
+        html += recipients.map((rec, i) => `
+          <div class="item" id="sendtext-${i}" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div style="min-width:0;"><strong>${escapeHtmlDisplay(rec.name)}</strong></div>
+            <button class="btn btn-primary btn-sm" id="sendtext-btn-${i}" onclick="sendTextToHc(${i})">📱 Text</button>
+          </div>`).join('');
+      }
+      if (skipped.length) {
+        html += `<div class="item-meta" style="margin-top:10px;color:#856404;background:#fff3cd;padding:8px;border-radius:4px;">
+          ⚠️ No phone number on file for: ${escapeHtmlDisplay(skipped.join(', '))}. Add their number in column F of the Stake Callings sheet to text them.</div>`;
+      }
+      box.innerHTML = html;
+    }
+
+    function sendTextToHc(i) {
+      const rec = _sendTextsRecipients[i];
+      if (!rec) return;
+      const note = (document.getElementById('sendTextsMessage').value || '').trim();
+      let body = note;
+      if (rec.dashboardUrl) body += (body ? '\n\n' : '') + rec.dashboardUrl;
+      // Clean the phone to digits (keep a leading +).
+      let num = String(rec.phone).trim().replace(/[^\d+]/g, '');
+      // iOS wants sms:NUMBER&body=… ; most others use ?body=… .
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      const sep = isIOS ? '&' : '?';
+      const url = 'sms:' + num + sep + 'body=' + encodeURIComponent(body);
+      // Mark as sent (they still confirm on-device).
+      const btn = document.getElementById('sendtext-btn-' + i);
+      if (btn) { btn.textContent = '✓ Opened'; btn.className = 'btn btn-success btn-sm'; }
+      window.location.href = url;
     }
 
     // ============================================================
