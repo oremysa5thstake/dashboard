@@ -20,25 +20,36 @@
   button.ghost { background:transparent; border:1px solid #4b5563; }
   button:hover { filter:brightness(1.12); }
   .hint { padding:10px 16px; font-size:13px; color:#5b6270; background:#eef1f6; border-bottom:1px solid var(--line); }
-  .layout { display:flex; align-items:flex-start; gap:0; }
+  .layout { display:flex; align-items:flex-start; }
   .stage { flex:1 1 auto; min-width:0; padding:14px; }
   .mapc { position:relative; width:100%; max-width:1100px; margin:0 auto; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
-  .mapc img { width:100%; display:block; user-select:none; -webkit-user-drag:none; }
-  .piece { position:absolute; box-sizing:border-box; border:2.5px solid var(--red); background:rgba(220,38,38,.42);
-           border-radius:8px; display:flex; align-items:center; justify-content:center; text-align:center;
-           font-size:12px; font-weight:800; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.55);
-           cursor:grab; touch-action:none; user-select:none; overflow:hidden; }
-  .piece.blue { border-color:var(--blue); background:rgba(37,99,235,.42); }
-  .piece.dragging { cursor:grabbing; box-shadow:0 3px 12px rgba(0,0,0,.4); z-index:20; }
-  .piece .rz { position:absolute; right:-1px; bottom:-1px; width:18px; height:18px; background:rgba(0,0,0,.45);
+  .mapc > img.base { width:100%; display:block; user-select:none; -webkit-user-drag:none; }
+
+  .piece { position:absolute; cursor:grab; touch-action:none; user-select:none; }
+  .piece.dragging { box-shadow:0 3px 14px rgba(0,0,0,.45); z-index:20; }
+  .piece > img.pimg { width:100%; height:auto; display:block; border-radius:4px; pointer-events:none; -webkit-user-drag:none; }
+  .piece .tint { position:absolute; inset:0; background:var(--red); opacity:.5; pointer-events:none;
+                 -webkit-mask-size:100% 100%; mask-size:100% 100%; -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat; border-radius:4px; }
+  .piece.blue .tint { background:var(--blue); }
+  .piece .plabel { position:absolute; top:2px; left:2px; font-size:11px; font-weight:800; color:#fff; text-shadow:0 1px 2px #000;
+                   background:rgba(0,0,0,.4); padding:1px 6px; border-radius:6px; pointer-events:none; white-space:nowrap; }
+  .piece .rz { position:absolute; right:-2px; bottom:-2px; width:18px; height:18px; background:rgba(0,0,0,.5);
                border-radius:8px 0 0 0; cursor:nwse-resize; touch-action:none; }
+  /* fallback rectangle (before the PNG exists) */
+  .piece.fallback { border:2.5px solid var(--red); background:rgba(220,38,38,.42); border-radius:8px;
+                    display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:12px; text-shadow:0 1px 2px #000; }
+  .piece.fallback.blue { border-color:var(--blue); background:rgba(37,99,235,.42); }
+  .piece.fallback > img.pimg, .piece.fallback .tint { display:none; }
+  .piece.fallback .plabel { position:static; background:none; text-shadow:0 1px 2px #000; }
+
   .panel { flex:0 0 260px; background:var(--panel); border-left:1px solid var(--line); padding:12px; position:sticky; top:0; align-self:flex-start; max-height:100vh; overflow:auto; }
   .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; margin:0 0 8px; }
-  .wrow { display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:8px; }
+  .wrow { display:flex; align-items:center; gap:6px; padding:6px 4px; border-radius:8px; }
   .wrow:hover, .wrow.hot { background:#f0f3ff; }
   .sw { width:12px; height:12px; border-radius:3px; flex:0 0 auto; background:var(--red); }
   .wrow.blue .sw { background:var(--blue); }
   .wn { flex:1 1 auto; font-size:13px; min-width:0; }
+  .full { font-size:12px; color:#6b7280; text-decoration:none; padding:0 4px; }
   .choice { display:flex; }
   .choice button { padding:3px 8px; font-size:12px; border:1px solid var(--line); background:transparent; color:#6b7280; font-weight:700; }
   .choice button:first-child { border-radius:6px 0 0 6px; }
@@ -76,13 +87,13 @@
 </header>
 
 <div class="hint">
-  <strong>Drag</strong> each ward label onto its spot on the map · drag the <strong>bottom-right corner</strong> to resize it to cover the ward · <strong>tap</strong> a piece (or use the list) to switch it between <span style="color:#dc2626;font-weight:700;">16th</span> and <span style="color:#2563eb;font-weight:700;">49th</span>. Your layout saves automatically.
+  <strong>Drag</strong> each ward piece onto its spot · drag the <strong>bottom-right corner</strong> to resize (aspect stays locked) · <strong>tap</strong> a piece (or use the list) to switch it <span style="color:#dc2626;font-weight:700;">16th</span> / <span style="color:#2563eb;font-weight:700;">49th</span>. Layout saves automatically.
 </div>
 
 <div class="layout">
   <div class="stage">
     <div class="mapc" id="mapc">
-      <img src="maps/overview.jpg" alt="Orem YSA 16th &amp; 49th overview" id="baseimg">
+      <img class="base" src="maps/overview.jpg" alt="Orem YSA 16th &amp; 49th overview" id="baseimg">
       <!-- pieces injected here -->
     </div>
   </div>
@@ -103,53 +114,61 @@
     {id:'sw3', name:'Stonewood 3rd'}, {id:'sw4', name:'Stonewood 4th'},
     {id:'sw5', name:'Stonewood 5th'}
   ];
+  const pngFor = id => 'maps/' + id + '.png';   // draggable piece image (provided by you)
+  const jpgFor = id => 'maps/' + id + '.jpg';   // full ward poster (for the "map" link)
   function abbr(n){ const m=n.match(/(\d+)/); const pre=n.replace(/\s*\d.*/,'').split(/\s+/).map(w=>w[0]).join('').toUpperCase(); return pre+' '+(m?m[1]:''); }
 
-  // state[id] = { x,y,w,h (percent of map), c:'16'|'49' }
+  // state[id] = { x,y,w (percent of map), h (percent; only used for fallback rectangles), c:'16'|'49' }
   let state = {};
   function defaultState(){
     const st={};
-    WARDS.forEach((w,i)=>{
-      const col=i%4, row=Math.floor(i/4);
-      st[w.id] = { x: 2+col*15, y: 2+row*8, w: 13, h: 6.5, c:C16 };
-    });
+    WARDS.forEach((w,i)=>{ const col=i%4, row=Math.floor(i/4); st[w.id]={ x:2+col*15, y:2+row*8, w:13, h:6.5, c:C16 }; });
     return st;
   }
+  function mergeState(o){ const d=defaultState(); WARDS.forEach(w=>{ if(o[w.id]) d[w.id]=Object.assign(d[w.id],o[w.id]); }); return d; }
   function loadState(){
     const h=(location.hash||'').replace(/^#/,'');
-    if(h){ try{ const o=JSON.parse(decodeURIComponent(escape(atob(h)))); if(o && o.ch1) return mergeState(o); }catch(e){} }
+    if(h){ try{ const o=JSON.parse(decodeURIComponent(escape(atob(h)))); if(o&&o.ch1) return mergeState(o); }catch(e){} }
     try{ const s=localStorage.getItem(STORE); if(s) return mergeState(JSON.parse(s)); }catch(e){}
     return defaultState();
   }
-  function mergeState(o){ const d=defaultState(); WARDS.forEach(w=>{ if(o[w.id]) d[w.id]=Object.assign(d[w.id], o[w.id]); }); return d; }
-  function save(){
-    try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){}
-  }
+  function save(){ try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){} }
 
   const mapc = document.getElementById('mapc');
   const pieces = {};
 
   WARDS.forEach(w => {
     const p = document.createElement('div');
-    p.className='piece'; p.id='pc-'+w.id; p.title=w.name+' Ward';
-    p.innerHTML = '<span>'+abbr(w.name)+'</span><div class="rz" data-rz="1"></div>';
+    p.className='piece fallback'; p.id='pc-'+w.id; p.title=w.name+' Ward';
+    const url = pngFor(w.id);
+    p.innerHTML =
+      '<img class="pimg" alt="'+w.name+'">' +
+      '<div class="tint" style="-webkit-mask-image:url(\''+url+'\');mask-image:url(\''+url+'\')"></div>' +
+      '<span class="plabel">'+abbr(w.name)+'</span>' +
+      '<div class="rz" data-rz="1"></div>';
+    const img = p.querySelector('img.pimg');
+    img.addEventListener('load', ()=>{ p.classList.remove('fallback'); applyPiece(w.id); });
+    img.addEventListener('error', ()=>{ p.classList.add('fallback'); applyPiece(w.id); });
+    img.src = url;   // triggers load or error
     p.addEventListener('pointerdown', e => startDrag(e, w.id));
     pieces[w.id]=p; mapc.appendChild(p);
   });
 
   function applyPiece(id){
     const s=state[id], p=pieces[id];
-    p.style.left=s.x+'%'; p.style.top=s.y+'%'; p.style.width=s.w+'%'; p.style.height=s.h+'%';
+    p.style.left=s.x+'%'; p.style.top=s.y+'%'; p.style.width=s.w+'%';
+    p.style.height = p.classList.contains('fallback') ? ((s.h||6.5)+'%') : 'auto';
     p.classList.toggle('blue', s.c===C49);
   }
 
   // ---- drag / resize / tap ----
   let act=null;
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
   function startDrag(e, id){
     e.preventDefault();
     const isRz = e.target && e.target.dataset && e.target.dataset.rz;
     const r = mapc.getBoundingClientRect();
-    act = { id, mode: isRz?'resize':'drag', sx:e.clientX, sy:e.clientY, rw:r.width, rh:r.height, orig:Object.assign({},state[id]), moved:false };
+    act = { id, mode:isRz?'resize':'drag', sx:e.clientX, sy:e.clientY, rw:r.width, rh:r.height, orig:Object.assign({},state[id]), moved:false };
     pieces[id].classList.add('dragging');
     try{ e.target.setPointerCapture(e.pointerId); }catch(_){}
   }
@@ -157,23 +176,23 @@
     if(!act) return;
     const dxp=(e.clientX-act.sx)/act.rw*100, dyp=(e.clientY-act.sy)/act.rh*100;
     if(Math.abs(e.clientX-act.sx)+Math.abs(e.clientY-act.sy) > 4) act.moved=true;
-    const s=state[act.id];
+    const s=state[act.id], p=pieces[act.id];
     if(act.mode==='drag'){
+      const hpc = p.offsetHeight/act.rh*100;
       s.x=clamp(act.orig.x+dxp, 0, 100-s.w);
-      s.y=clamp(act.orig.y+dyp, 0, 100-s.h);
-    } else {
+      s.y=clamp(act.orig.y+dyp, 0, Math.max(0,100-hpc));
+    } else { // resize — width only for images (aspect locked); width+height for fallback rects
       s.w=clamp(act.orig.w+dxp, 4, 100-s.x);
-      s.h=clamp(act.orig.h+dyp, 3, 100-s.y);
+      if(p.classList.contains('fallback')) s.h=clamp((act.orig.h||6.5)+dyp, 3, 100-s.y);
     }
     applyPiece(act.id);
   }
   function onUp(){
     if(!act) return;
     pieces[act.id].classList.remove('dragging');
-    if(!act.moved && act.mode==='drag'){ toggleWard(act.id); }   // tap = flip color
+    if(!act.moved && act.mode==='drag') toggleWard(act.id);   // tap = flip color
     act=null; save();
   }
-  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
@@ -184,6 +203,7 @@
     const row=document.createElement('div');
     row.className='wrow'; row.id='row-'+w.id;
     row.innerHTML='<span class="sw"></span><span class="wn">'+w.name+'</span>'+
+      '<a class="full" href="'+jpgFor(w.id)+'" target="_blank" title="Open full ward map">🔍</a>'+
       '<span class="choice"><button id="l16-'+w.id+'" onclick="setWard(\''+w.id+'\',\'16\')">16</button>'+
       '<button id="l49-'+w.id+'" onclick="setWard(\''+w.id+'\',\'49\')">49</button></span>';
     row.addEventListener('mouseenter',()=>flashPiece(w.id,true));
@@ -192,6 +212,7 @@
   });
   function flashPiece(id,on){
     pieces[id].style.outline = on ? '3px solid #111' : '';
+    pieces[id].style.zIndex = on ? '25' : '';
     const row=document.getElementById('row-'+id); if(row) row.classList.toggle('hot',on);
   }
 
