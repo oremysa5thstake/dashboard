@@ -110,6 +110,7 @@
   <div class="panel">
     <h2>Member Stats</h2>
     <div id="statsBody"><div class="smsg">Loading…</div></div>
+    <button class="ghost" id="detectBtn" style="margin-top:8px;font-size:12px;display:none;" onclick="detectWards()">🏠 Write detected wards to sheet (to review)</button>
     <h2 style="margin-top:16px;">Geographic Wards</h2>
     <div id="wardList"></div>
   </div>
@@ -286,25 +287,41 @@
   function loadStats(){
     const uid = new URLSearchParams(location.search).get('uid');
     const box = document.getElementById('statsBody');
+    const detectBtn = document.getElementById('detectBtn');
     if(!uid){ box.innerHTML='<div class="smsg">Open this planner from the app’s <b>Admin Tools</b> button so it can load member stats.</div>'; return; }
     fetch(API_URL+'?action=getVarsityStats&userId='+encodeURIComponent(uid))
       .then(r=>r.json())
       .then(d=>{
         if(!d || d.success===false){ box.innerHTML='<div class="smsg">Stats unavailable: '+((d&&d.error)||'error')+'</div>'; return; }
-        if(!d.geoColumnFound){ box.innerHTML='<div class="smsg">Add a <b>Geographic Ward</b> column to the “Varsity YSAs” sheet (values like <i>Cherry Hill 6th</i>, <i>Stonewood 2nd</i>) and fill it in — then per-ward stats appear here and roll into 16th/49th as you assign wards.</div>'; return; }
+        if(!d.geoColumnFound){ box.innerHTML='<div class="smsg">Add member <b>addresses</b> to the “Varsity YSAs” sheet (Orem grid format, e.g. <i>1850 S 500 W</i>) — the app reads each address and figures out the ward automatically. (A manual <b>Geographic Ward</b> column also works and overrides detection.)</div>'; return; }
         wardStats = d.wards || {};
         buildStatsTable(); updateStats();
+        detectBtn.style.display = '';
+        if((d.matched||0)===0){
+          box.insertAdjacentHTML('beforeend','<div class="smsg" style="margin-top:6px;">No members matched yet — add addresses (like <i>1850 S 500 W</i>) or a Geographic Ward column.</div>');
+        }
         if(d.unmatched>0){
           const n=document.createElement('div'); n.className='statnote';
-          n.textContent='⚠️ '+d.unmatched+' member(s) had a Geographic Ward that didn’t match one of the 12 — check the spelling in the sheet.';
+          n.textContent='⚠️ '+d.unmatched+' member(s) couldn’t be placed from their address (e.g., far-west edge or a named street). Fill their Geographic Ward in the sheet by hand.';
           box.appendChild(n);
-        }
-        if((d.matched||0)===0){
-          box.insertAdjacentHTML('beforeend','<div class="smsg" style="margin-top:6px;">No members matched yet — fill in the Geographic Ward column.</div>');
         }
       })
       .catch(()=>{ box.innerHTML='<div class="smsg">Couldn’t reach the stats service.</div>'; });
   }
+
+  function detectWards(){
+    const uid = new URLSearchParams(location.search).get('uid');
+    if(!uid){ alert('Open this planner from Admin Tools to use this.'); return; }
+    const btn=document.getElementById('detectBtn'); const o=btn.textContent; btn.disabled=true; btn.textContent='Detecting…';
+    fetch(API_URL+'?action=detectGeographicWards&userId='+encodeURIComponent(uid))
+      .then(r=>r.json()).then(d=>{
+        btn.disabled=false; btn.textContent=o;
+        if(!d || d.success===false){ alert('Failed: '+((d&&d.error)||'error')); return; }
+        alert('Detected wards written to the “Geographic Ward” column of the sheet:\n\n• Filled from address: '+d.filled+'\n• Kept (already set): '+d.kept+'\n• Couldn’t match: '+d.unmatched+'\n\nUnmatched rows were left blank — review the sheet and fill those in by hand.');
+        wardStats=null; loadStats();
+      }).catch(()=>{ btn.disabled=false; btn.textContent=o; alert('Couldn’t reach the service.'); });
+  }
+  window.detectWards=detectWards;
   function copyLink(){
     const hash = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
     const url = location.origin+location.pathname+'#'+hash;
