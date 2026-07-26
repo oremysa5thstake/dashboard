@@ -22,7 +22,7 @@
   .mapwrap { flex:1 1 auto; min-width:0; padding:14px; display:flex; flex-direction:column; }
   #map { width:100%; height:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; touch-action:manipulation; }
   .maphint { font-size:12px; color:#6b7280; margin-top:8px; }
-  .panel { flex:0 0 300px; background:var(--panel); border-left:1px solid var(--line); padding:12px; overflow:auto; max-height:calc(100vh - 66px); }
+  .panel { flex:0 0 300px; background:var(--panel); border-left:1px solid var(--line); padding:12px; overflow:auto; position:sticky; top:0; align-self:flex-start; max-height:100vh; }
   .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; margin:0 0 8px; }
   .wardrow { display:flex; align-items:center; gap:8px; padding:7px 6px; border-radius:8px; }
   .wardrow:hover, .wardrow.hot { background:#f0f3ff; }
@@ -36,13 +36,18 @@
   .choice input:checked + span { color:#fff; }
   .choice label.c16 { }
   .choice input.r16:checked ~ span, .choice label:has(.r16:checked) { }
-  .cellword text { pointer-events:none; }
   .ward-g { cursor:pointer; }
-  .ward-g.dim { opacity:.32; }
-  .ward-lbl { font-weight:700; paint-order:stroke; stroke:#fff; stroke-width:6px; stroke-linejoin:round; }
+  .ward-g.dim { opacity:.34; }
+  .ward-fill { fill-opacity:.72; }
+  .ward-g.dim .ward-fill { fill-opacity:.45; }
+  .ward-outline { fill:none; stroke:#3a3f4b; stroke-width:2; stroke-linejoin:round; pointer-events:none; }
+  .ward-lbl { font-weight:800; paint-order:stroke; stroke:#fff; stroke-width:6px; stroke-linejoin:round; pointer-events:none; }
+  .divide { fill:none; stroke:#0b0d12; stroke-width:8; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
+  .divide-casing { fill:none; stroke:#fff; stroke-width:13; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
   .gridline { stroke:#e6e8ec; stroke-width:1.2; }
-  .gridline.major { stroke:#cfd3da; }
-  .axislbl { fill:#9aa0aa; font-size:26px; }
+  .gridline.major { stroke:#c3c8d1; stroke-width:2; }
+  .axislbl { fill:#8a909b; font-size:24px; }
+  .axislbl.major { fill:#5b6270; font-weight:700; }
   @media (max-width:820px) {
     .layout { flex-direction:column; }
     .panel { flex-basis:auto; border-left:0; border-top:1px solid var(--line); max-height:none; }
@@ -54,6 +59,10 @@
     .gridline { stroke:#222633; } .gridline.major { stroke:#333a4a; }
     .axislbl { fill:#5b6270; }
     .ward-lbl { stroke:#11131a; }
+    .ward-outline { stroke:#aeb4c0; }
+    .divide { stroke:#fff; } .divide-casing { stroke:#0b0d12; }
+    .gridline { stroke:#222633; } .gridline.major { stroke:#3a4152; }
+    .axislbl { fill:#5b6270; } .axislbl.major { fill:#8a919f; }
     .wardrow:hover, .wardrow.hot { background:#1e2233; }
     .choice label { border-color:#2a2e39; }
     button { background:#2a2f3c; }
@@ -79,7 +88,7 @@
 <div class="layout">
   <div class="mapwrap">
     <svg id="map" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ward grid map"></svg>
-    <div class="maphint">Red = <strong>16th Ward</strong> · Blue = <strong>49th Ward</strong>. Tap a ward on the map to flip it, or use the list. South is down; left is West, right is East. Grid lines are at 100-address intervals. (Simplified grid built from the coordinates you provided — verify the shapes look right.)</div>
+    <div class="maphint">Red = <strong>16th Ward</strong> · Blue = <strong>49th Ward</strong>. Tap a ward to flip it (or use the list). The <strong>bold black/white line</strong> is the resulting 16th↔49th boundary and moves as you reassign wards. South is down; left is West, right is East; grid lines every 100 addresses (bold every 400). Simplified street-grid built from the coordinates you provided — verify the shapes look right.</div>
   </div>
   <div class="panel">
     <h2>Geographic Wards</h2>
@@ -421,47 +430,91 @@
   const svg = document.getElementById('map');
   const pad = 60;
   svg.setAttribute('viewBox', `${eLo-pad} ${sLo-pad} ${(eHi-eLo)+pad*2} ${(sHi-sLo)+pad*2}`);
-
   function el(tag, attrs) { const e=document.createElementNS(SVGNS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
 
-  // gridlines + axis labels at 100-address intervals
-  const gGrid = el('g',{});
-  for (let e=Math.ceil(eLo/100)*100; e<=eHi; e+=100) {
-    gGrid.appendChild(el('line',{x1:e,y1:sLo-pad,x2:e,y2:sHi+pad,class:'gridline'+(e%500===0?' major':'')}));
-    gGrid.appendChild(el('text',{x:e,y:sLo-pad+22,class:'axislbl','text-anchor':'middle'})).textContent = Math.abs(e)+(e<0?'W':e>0?'E':'');
+  // Expand rows into a per-cell index so we can draw clean ward OUTLINES (the
+  // boundary of the union of a ward's cells) and the dynamic 16th/49th divide
+  // (edges where a 16th cell meets a 49th cell), instead of a raw pixel grid.
+  const cellWard = {};                 // "s|e" -> ward
+  const wardCells = {};                // ward -> [ "s|e", ... ]
+  wards.forEach(w => wardCells[w] = []);
+  rows.forEach(r => {
+    for (let s=r.sMin; s<=r.sMax; s+=CELL) for (let e=r.eMin; e<=r.eMax; e+=CELL) {
+      const k = s+'|'+e;
+      if (cellWard[k]) continue;
+      cellWard[k] = r.ward; wardCells[r.ward].push(k);
+    }
+  });
+
+  // Outline = the cell edges that don't have a same-ward neighbor.
+  function outlinePath(cellKeys) {
+    const set = new Set(cellKeys); let d = '';
+    cellKeys.forEach(k => {
+      const p = k.split('|'), s=+p[0], e=+p[1];
+      if (!set.has((s-CELL)+'|'+e)) d += `M${e} ${s}L${e+CELL} ${s}`;
+      if (!set.has((s+CELL)+'|'+e)) d += `M${e} ${s+CELL}L${e+CELL} ${s+CELL}`;
+      if (!set.has(s+'|'+(e-CELL))) d += `M${e} ${s}L${e} ${s+CELL}`;
+      if (!set.has(s+'|'+(e+CELL))) d += `M${e+CELL} ${s}L${e+CELL} ${s+CELL}`;
+    });
+    return d;
   }
-  for (let s=Math.ceil(sLo/100)*100; s<=sHi; s+=100) {
-    gGrid.appendChild(el('line',{x1:eLo-pad,y1:s,x2:eHi+pad,y2:s,class:'gridline'+(s%500===0?' major':'')}));
-    gGrid.appendChild(el('text',{x:eLo-pad+4,y:s-4,class:'axislbl'})).textContent = s+'S';
+  // Fill = the ward's row-rectangles, each nudged out ~0.5 so seams don't show.
+  function fillPath(list) {
+    return list.map(r => `M${r.eMin-0.5} ${r.sMin-0.5}H${r.eMax+CELL+0.5}V${r.sMax+CELL+0.5}H${r.eMin-0.5}Z`).join('');
+  }
+
+  // Edges between cells of DIFFERENT wards — the candidate 16th/49th boundary.
+  const interEdges = []; // { d, a, b }
+  Object.keys(cellWard).forEach(k => {
+    const p = k.split('|'), s=+p[0], e=+p[1], w=cellWard[k];
+    const right = cellWard[s+'|'+(e+CELL)], down = cellWard[(s+CELL)+'|'+e];
+    if (right && right !== w) interEdges.push({ d:`M${e+CELL} ${s}L${e+CELL} ${s+CELL}`, a:w, b:right });
+    if (down  && down  !== w) interEdges.push({ d:`M${e} ${s+CELL}L${e+CELL} ${s+CELL}`, a:w, b:down });
+  });
+
+  // Street grid + labels (Orem address grid: South streets vertical position,
+  // West = negative, East = positive). Majors (multiples of 400) are bolder.
+  const gGrid = el('g',{});
+  for (let e=Math.ceil((eLo-pad)/100)*100; e<=eHi+pad; e+=100) {
+    const major = e % 400 === 0;
+    gGrid.appendChild(el('line',{x1:e,y1:sLo-pad,x2:e,y2:sHi+pad,class:'gridline'+(major?' major':'')}));
+    gGrid.appendChild(el('text',{x:e,y:sLo-pad+22,class:'axislbl'+(major?' major':''),'text-anchor':'middle'}))
+      .textContent = e===0 ? 'Center' : (Math.abs(e)+(e<0?' W':' E'));
+  }
+  for (let s=Math.ceil((sLo-pad)/100)*100; s<=sHi+pad; s+=100) {
+    const major = s % 400 === 0;
+    gGrid.appendChild(el('line',{x1:eLo-pad,y1:s,x2:eHi+pad,y2:s,class:'gridline'+(major?' major':'')}));
+    gGrid.appendChild(el('text',{x:eLo-pad+4,y:s-4,class:'axislbl'+(major?' major':'')})).textContent = s+' S';
   }
   svg.appendChild(gGrid);
 
-  const groups = {};   // ward -> <g>
+  // Ward regions: clickable fill + outline + label.
+  const fills = {}, groups = {};
   wards.forEach(ward => {
-    const g = el('g',{class:'ward-g'});
-    g.dataset.ward = ward;
-    byWard[ward].forEach(r => {
-      g.appendChild(el('rect',{
-        x:r.eMin, y:r.sMin, width:(r.eMax-r.eMin)+CELL, height:(r.sMax-r.sMin)+CELL,
-        stroke:'rgba(255,255,255,.55)','stroke-width':1
-      }));
-    });
+    const g = el('g',{class:'ward-g'}); g.dataset.ward = ward;
+    const fp = el('path',{class:'ward-fill', d:fillPath(byWard[ward])}); fills[ward] = fp;
+    g.appendChild(fp);
+    g.appendChild(el('path',{class:'ward-outline', d:outlinePath(wardCells[ward])}));
     const c = centroid(byWard[ward]);
-    const lbl = el('text',{x:c.x, y:c.y, class:'ward-lbl','text-anchor':'middle','dominant-baseline':'central','font-size':30});
+    const lbl = el('text',{x:c.x, y:c.y, class:'ward-lbl','text-anchor':'middle','dominant-baseline':'central','font-size':34});
     lbl.textContent = abbr(ward);
     g.appendChild(lbl);
-    g.addEventListener('click', () => { setWard(ward, plan[ward]===C16?C49:C16); });
+    g.addEventListener('click', () => setWard(ward, plan[ward]===C16?C49:C16));
     g.addEventListener('mouseenter', () => hot(ward,true));
     g.addEventListener('mouseleave', () => hot(ward,false));
-    groups[ward] = g;
-    svg.appendChild(g);
+    groups[ward] = g; svg.appendChild(g);
   });
 
-  function fillFor(v) { return v===C49 ? 'var(--blue)' : 'var(--red)'; }
-  function paintWard(ward) {
-    const col = plan[ward]===C49 ? '#2563eb' : '#dc2626';
-    groups[ward].querySelectorAll('rect').forEach(rc => rc.setAttribute('fill', col));
+  // The 16th/49th dividing line, on top (white casing under a dark line).
+  const divideCasing = el('path',{class:'divide-casing', d:''});
+  const divideEl = el('path',{class:'divide', d:''});
+  svg.appendChild(divideCasing); svg.appendChild(divideEl);
+  function updateDivide() {
+    const d = interEdges.filter(x => plan[x.a] !== plan[x.b]).map(x => x.d).join('');
+    divideEl.setAttribute('d', d); divideCasing.setAttribute('d', d);
   }
+
+  function paintWard(ward) { fills[ward].setAttribute('fill', plan[ward]===C49 ? '#2563eb' : '#dc2626'); }
   function hot(ward, on) {
     document.querySelectorAll('.ward-g').forEach(g => g.classList.toggle('dim', on && g.dataset.ward!==ward));
     const row = document.getElementById('row-'+cssId(ward));
@@ -509,9 +562,9 @@
     document.getElementById('tallyBlue').textContent = '49th: '+b;
     document.getElementById('tallyNote').textContent = a+b+' geographic wards';
   }
-  function setWard(ward, v) { plan[ward]=v; syncWard(ward); updateTally(); savePlan(); }
-  function setAll(v) { wards.forEach(w=>plan[w]=v); wards.forEach(syncWard); updateTally(); savePlan(); }
-  function resetPlan() { if(!confirm('Reset every ward back to 16th?')) return; plan=defaultPlan(); wards.forEach(syncWard); updateTally(); savePlan(); }
+  function setWard(ward, v) { plan[ward]=v; syncWard(ward); updateDivide(); updateTally(); savePlan(); }
+  function setAll(v) { wards.forEach(w=>plan[w]=v); wards.forEach(syncWard); updateDivide(); updateTally(); savePlan(); }
+  function resetPlan() { if(!confirm('Reset every ward back to 16th?')) return; plan=defaultPlan(); wards.forEach(syncWard); updateDivide(); updateTally(); savePlan(); }
   function copyLink() {
     const url = location.origin + location.pathname + '#' + encodePlan(plan);
     (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
@@ -526,6 +579,7 @@
   // ---- init ----
   plan = loadPlan();
   wards.forEach(syncWard);
+  updateDivide();
   updateTally();
 </script>
 </body>
