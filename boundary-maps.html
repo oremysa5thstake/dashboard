@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>YSA 16th ↔ 49th Boundary Planner (real maps)</title>
+<title>YSA 16th ↔ 49th Boundary Planner</title>
 <style>
   :root { --red:#dc2626; --blue:#2563eb; --bg:#f4f5f7; --panel:#fff; --line:#e2e4e8; --ink:#1a1a2e; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--ink); }
-  header { background:var(--ink); color:#fff; padding:12px 16px; position:sticky; top:0; z-index:20; }
+  header { background:var(--ink); color:#fff; padding:12px 16px; position:sticky; top:0; z-index:30; }
   header h1 { font-size:16px; margin:0 0 8px; }
   .tally { display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:14px; }
   .pill { border-radius:999px; padding:4px 12px; font-weight:700; }
@@ -19,47 +19,49 @@
   button { font:inherit; border:0; border-radius:8px; padding:6px 12px; cursor:pointer; background:#374151; color:#fff; }
   button.ghost { background:transparent; border:1px solid #4b5563; }
   button:hover { filter:brightness(1.12); }
-  main { padding:16px; max-width:1400px; margin:0 auto; }
-  .context { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:18px; }
-  .context h2 { font-size:14px; margin:0 0 8px; }
-  .context p { font-size:13px; color:#5b6270; margin:0 0 10px; line-height:1.5; }
-  .context img { width:100%; max-width:820px; display:block; border:1px solid var(--line); border-radius:8px; cursor:zoom-in; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; }
-  .card { background:var(--panel); border:4px solid var(--red); border-radius:12px; overflow:hidden; transition:border-color .15s; }
-  .card.blue { border-color:var(--blue); }
-  .cardbar { padding:6px 10px; font-size:13px; font-weight:800; color:#fff; background:var(--red); display:flex; justify-content:space-between; align-items:center; transition:background .15s; }
-  .card.blue .cardbar { background:var(--blue); }
-  /* natural image height (no aspect-ratio dependency) so the wash always has a box to cover */
-  .imgwrap { position:relative; overflow:hidden; cursor:zoom-in; line-height:0; }
-  .imgwrap img { width:100%; height:auto; display:block; }
-  .wash { position:absolute; inset:0; background:var(--red); opacity:.42; pointer-events:none; transition:background .15s, opacity .15s; }
-  .card.blue .wash { background:var(--blue); }
-  .zoomhint { position:absolute; bottom:8px; right:8px; font-size:11px; color:#fff; background:rgba(0,0,0,.55); border-radius:6px; padding:2px 7px; line-height:1.2; }
-  .cardfoot { padding:9px 10px; }
-  .cardname { font-size:14px; font-weight:700; margin-bottom:7px; }
+  .hint { padding:10px 16px; font-size:13px; color:#5b6270; background:#eef1f6; border-bottom:1px solid var(--line); }
+  .layout { display:flex; align-items:flex-start; gap:0; }
+  .stage { flex:1 1 auto; min-width:0; padding:14px; }
+  .mapc { position:relative; width:100%; max-width:1100px; margin:0 auto; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
+  .mapc img { width:100%; display:block; user-select:none; -webkit-user-drag:none; }
+  .piece { position:absolute; box-sizing:border-box; border:2.5px solid var(--red); background:rgba(220,38,38,.42);
+           border-radius:8px; display:flex; align-items:center; justify-content:center; text-align:center;
+           font-size:12px; font-weight:800; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.55);
+           cursor:grab; touch-action:none; user-select:none; overflow:hidden; }
+  .piece.blue { border-color:var(--blue); background:rgba(37,99,235,.42); }
+  .piece.dragging { cursor:grabbing; box-shadow:0 3px 12px rgba(0,0,0,.4); z-index:20; }
+  .piece .rz { position:absolute; right:-1px; bottom:-1px; width:18px; height:18px; background:rgba(0,0,0,.45);
+               border-radius:8px 0 0 0; cursor:nwse-resize; touch-action:none; }
+  .panel { flex:0 0 260px; background:var(--panel); border-left:1px solid var(--line); padding:12px; position:sticky; top:0; align-self:flex-start; max-height:100vh; overflow:auto; }
+  .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; margin:0 0 8px; }
+  .wrow { display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:8px; }
+  .wrow:hover, .wrow.hot { background:#f0f3ff; }
+  .sw { width:12px; height:12px; border-radius:3px; flex:0 0 auto; background:var(--red); }
+  .wrow.blue .sw { background:var(--blue); }
+  .wn { flex:1 1 auto; font-size:13px; min-width:0; }
   .choice { display:flex; }
-  .choice button { flex:1; border-radius:0; background:transparent; color:#6b7280; border:1px solid var(--line); font-size:13px; font-weight:700; padding:6px; }
-  .choice button:first-child { border-radius:7px 0 0 7px; }
-  .choice button:last-child { border-radius:0 7px 7px 0; border-left:0; }
+  .choice button { padding:3px 8px; font-size:12px; border:1px solid var(--line); background:transparent; color:#6b7280; font-weight:700; }
+  .choice button:first-child { border-radius:6px 0 0 6px; }
+  .choice button:last-child { border-radius:0 6px 6px 0; border-left:0; }
   .choice button.on16 { background:var(--red); color:#fff; border-color:var(--red); }
   .choice button.on49 { background:var(--blue); color:#fff; border-color:var(--blue); }
-  /* lightbox */
-  .lb { position:fixed; inset:0; background:rgba(0,0,0,.88); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
-  .lb.open { display:flex; }
-  .lb img { max-width:100%; max-height:88vh; border-radius:6px; }
-  .lb .cap { position:absolute; top:14px; left:0; right:0; text-align:center; color:#fff; font-weight:700; }
-  .lb .x { position:absolute; top:12px; right:16px; color:#fff; font-size:30px; cursor:pointer; line-height:1; }
+  @media (max-width:840px) {
+    .layout { flex-direction:column; }
+    .panel { flex-basis:auto; border-left:0; border-top:1px solid var(--line); max-height:none; position:static; width:100%; }
+  }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#0f1117; --panel:#171a22; --line:#2a2e39; --ink:#e6e8ee; }
-    .context p { color:#9aa0aa; }
+    .hint { background:#1a1e28; color:#9aa0aa; }
     button { background:#2a2f3c; }
     .choice button { color:#9aa0aa; }
+    .wrow:hover, .wrow.hot { background:#1e2233; }
+    .mapc { background:#11131a; }
   }
 </style>
 </head>
 <body>
 <header>
-  <h1>🗺️ YSA 16th ↔ 49th Boundary Planner <span style="font-weight:400;opacity:.7;font-size:13px;">— real ward maps</span></h1>
+  <h1>🗺️ YSA 16th ↔ 49th Boundary Planner</h1>
   <div class="tally">
     <span class="pill red" id="tallyRed">16th: 0</span>
     <span class="pill blue" id="tallyBlue">49th: 0</span>
@@ -68,29 +70,30 @@
       <button class="ghost" onclick="setAll('16')">All → 16th</button>
       <button class="ghost" onclick="setAll('49')">All → 49th</button>
       <button class="ghost" onclick="copyLink()">🔗 Copy Link</button>
-      <button class="ghost" onclick="resetPlan()">↺ Reset</button>
+      <button class="ghost" onclick="resetAll()">↺ Reset</button>
     </span>
   </div>
 </header>
 
-<main>
-  <div class="context">
-    <h2>Current 16th &amp; 49th (context)</h2>
-    <p>The stake overview below shows today's YSA ward boundaries — the <strong>16th</strong> (26–35) and <strong>49th</strong> (26–35) are the two you're rebalancing. Each geographic (family) ward card is currently in the 16th; flip the ones you want in the 49th. Tap any map to enlarge it.</p>
-    <img src="maps/overview.jpg" loading="lazy" alt="Orem YSA 16th &amp; 49th overview" onclick="lightbox('maps/overview.jpg','Orem YSA — 16th &amp; 49th Wards')">
+<div class="hint">
+  <strong>Drag</strong> each ward label onto its spot on the map · drag the <strong>bottom-right corner</strong> to resize it to cover the ward · <strong>tap</strong> a piece (or use the list) to switch it between <span style="color:#dc2626;font-weight:700;">16th</span> and <span style="color:#2563eb;font-weight:700;">49th</span>. Your layout saves automatically.
+</div>
+
+<div class="layout">
+  <div class="stage">
+    <div class="mapc" id="mapc">
+      <img src="maps/overview.jpg" alt="Orem YSA 16th &amp; 49th overview" id="baseimg">
+      <!-- pieces injected here -->
+    </div>
   </div>
-
-  <div class="grid" id="grid"></div>
-</main>
-
-<div class="lb" id="lb" onclick="closeLb(event)">
-  <span class="x" onclick="closeLb(event,true)">×</span>
-  <div class="cap" id="lbCap"></div>
-  <img id="lbImg" src="" alt="">
+  <div class="panel">
+    <h2>Geographic Wards</h2>
+    <div id="wardList"></div>
+  </div>
 </div>
 
 <script>
-  const C16='16', C49='49', STORE='ysaBoundaryMapsPlan_v1';
+  const C16='16', C49='49', STORE='ysaPlacePlan_v2';
   const WARDS = [
     {id:'ch1', name:'Cherry Hill 1st'}, {id:'ch2', name:'Cherry Hill 2nd'},
     {id:'ch3', name:'Cherry Hill 3rd'}, {id:'ch5', name:'Cherry Hill 5th'},
@@ -100,75 +103,128 @@
     {id:'sw3', name:'Stonewood 3rd'}, {id:'sw4', name:'Stonewood 4th'},
     {id:'sw5', name:'Stonewood 5th'}
   ];
-  const imgFor = id => 'maps/' + id + '.jpg';
+  function abbr(n){ const m=n.match(/(\d+)/); const pre=n.replace(/\s*\d.*/,'').split(/\s+/).map(w=>w[0]).join('').toUpperCase(); return pre+' '+(m?m[1]:''); }
 
-  let plan = {};
-  function defaultPlan(){ const p={}; WARDS.forEach(w=>p[w.id]=C16); return p; }
-  function encodePlan(p){ return WARDS.map(w=>p[w.id]===C49?'1':'0').join(''); }
-  function decodePlan(s){ const p=defaultPlan(); WARDS.forEach((w,i)=>p[w.id]= s[i]==='1'?C49:C16); return p; }
-  function loadPlan(){
-    const h=(location.hash||'').replace(/^#/,'');
-    if(/^[01]+$/.test(h) && h.length===WARDS.length) return decodePlan(h);
-    try{ const s=localStorage.getItem(STORE); if(s){ const o=JSON.parse(s); const p=defaultPlan(); WARDS.forEach(w=>{ if(o[w.id])p[w.id]=o[w.id]; }); return p; } }catch(e){}
-    return defaultPlan();
+  // state[id] = { x,y,w,h (percent of map), c:'16'|'49' }
+  let state = {};
+  function defaultState(){
+    const st={};
+    WARDS.forEach((w,i)=>{
+      const col=i%4, row=Math.floor(i/4);
+      st[w.id] = { x: 2+col*15, y: 2+row*8, w: 13, h: 6.5, c:C16 };
+    });
+    return st;
   }
-  function savePlan(){ try{ localStorage.setItem(STORE, JSON.stringify(plan)); }catch(e){} history.replaceState(null,'','#'+encodePlan(plan)); }
+  function loadState(){
+    const h=(location.hash||'').replace(/^#/,'');
+    if(h){ try{ const o=JSON.parse(decodeURIComponent(escape(atob(h)))); if(o && o.ch1) return mergeState(o); }catch(e){} }
+    try{ const s=localStorage.getItem(STORE); if(s) return mergeState(JSON.parse(s)); }catch(e){}
+    return defaultState();
+  }
+  function mergeState(o){ const d=defaultState(); WARDS.forEach(w=>{ if(o[w.id]) d[w.id]=Object.assign(d[w.id], o[w.id]); }); return d; }
+  function save(){
+    try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){}
+  }
 
-  // build cards
-  const grid = document.getElementById('grid');
+  const mapc = document.getElementById('mapc');
+  const pieces = {};
+
   WARDS.forEach(w => {
-    const card = document.createElement('div');
-    card.className='card'; card.id='card-'+w.id;
-    const jsName = w.name.replace(/'/g,"\\'");
-    card.innerHTML =
-      '<div class="cardbar"><span>'+w.name+' Ward</span><span id="bar-'+w.id+'">16TH</span></div>' +
-      '<div class="imgwrap" onclick="lightbox(\''+imgFor(w.id)+'\',\''+jsName+' Ward\')">' +
-        '<img loading="lazy" src="'+imgFor(w.id)+'" alt="'+w.name+' Ward map">' +
-        '<div class="wash"></div>' +
-        '<div class="zoomhint">tap to enlarge ⤢</div>' +
-      '</div>' +
-      '<div class="cardfoot">' +
-        '<div class="choice">' +
-          '<button id="b16-'+w.id+'" onclick="setWard(\''+w.id+'\',\'16\')">16th</button>' +
-          '<button id="b49-'+w.id+'" onclick="setWard(\''+w.id+'\',\'49\')">49th</button>' +
-        '</div>' +
-      '</div>';
-    grid.appendChild(card);
+    const p = document.createElement('div');
+    p.className='piece'; p.id='pc-'+w.id; p.title=w.name+' Ward';
+    p.innerHTML = '<span>'+abbr(w.name)+'</span><div class="rz" data-rz="1"></div>';
+    p.addEventListener('pointerdown', e => startDrag(e, w.id));
+    pieces[w.id]=p; mapc.appendChild(p);
   });
 
-  function syncWard(id){
-    const v=plan[id], blue=v===C49;
-    const card=document.getElementById('card-'+id);
-    card.classList.toggle('blue', blue);
-    document.getElementById('bar-'+id).textContent = blue?'49TH':'16TH';
-    const b16=document.getElementById('b16-'+id), b49=document.getElementById('b49-'+id);
-    b16.className = blue?'':'on16'; b49.className = blue?'on49':'';
+  function applyPiece(id){
+    const s=state[id], p=pieces[id];
+    p.style.left=s.x+'%'; p.style.top=s.y+'%'; p.style.width=s.w+'%'; p.style.height=s.h+'%';
+    p.classList.toggle('blue', s.c===C49);
+  }
+
+  // ---- drag / resize / tap ----
+  let act=null;
+  function startDrag(e, id){
+    e.preventDefault();
+    const isRz = e.target && e.target.dataset && e.target.dataset.rz;
+    const r = mapc.getBoundingClientRect();
+    act = { id, mode: isRz?'resize':'drag', sx:e.clientX, sy:e.clientY, rw:r.width, rh:r.height, orig:Object.assign({},state[id]), moved:false };
+    pieces[id].classList.add('dragging');
+    try{ e.target.setPointerCapture(e.pointerId); }catch(_){}
+  }
+  function onMove(e){
+    if(!act) return;
+    const dxp=(e.clientX-act.sx)/act.rw*100, dyp=(e.clientY-act.sy)/act.rh*100;
+    if(Math.abs(e.clientX-act.sx)+Math.abs(e.clientY-act.sy) > 4) act.moved=true;
+    const s=state[act.id];
+    if(act.mode==='drag'){
+      s.x=clamp(act.orig.x+dxp, 0, 100-s.w);
+      s.y=clamp(act.orig.y+dyp, 0, 100-s.h);
+    } else {
+      s.w=clamp(act.orig.w+dxp, 4, 100-s.x);
+      s.h=clamp(act.orig.h+dyp, 3, 100-s.y);
+    }
+    applyPiece(act.id);
+  }
+  function onUp(){
+    if(!act) return;
+    pieces[act.id].classList.remove('dragging');
+    if(!act.moved && act.mode==='drag'){ toggleWard(act.id); }   // tap = flip color
+    act=null; save();
+  }
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+
+  // ---- ward list panel ----
+  const listEl=document.getElementById('wardList');
+  WARDS.forEach(w=>{
+    const row=document.createElement('div');
+    row.className='wrow'; row.id='row-'+w.id;
+    row.innerHTML='<span class="sw"></span><span class="wn">'+w.name+'</span>'+
+      '<span class="choice"><button id="l16-'+w.id+'" onclick="setWard(\''+w.id+'\',\'16\')">16</button>'+
+      '<button id="l49-'+w.id+'" onclick="setWard(\''+w.id+'\',\'49\')">49</button></span>';
+    row.addEventListener('mouseenter',()=>flashPiece(w.id,true));
+    row.addEventListener('mouseleave',()=>flashPiece(w.id,false));
+    listEl.appendChild(row);
+  });
+  function flashPiece(id,on){
+    pieces[id].style.outline = on ? '3px solid #111' : '';
+    const row=document.getElementById('row-'+id); if(row) row.classList.toggle('hot',on);
+  }
+
+  function syncRow(id){
+    const blue=state[id].c===C49;
+    const row=document.getElementById('row-'+id); row.classList.toggle('blue',blue);
+    document.getElementById('l16-'+id).className = blue?'':'on16';
+    document.getElementById('l49-'+id).className = blue?'on49':'';
   }
   function updateTally(){
-    let a=0,b=0; WARDS.forEach(w=> plan[w.id]===C49 ? b++ : a++);
+    let a=0,b=0; WARDS.forEach(w=> state[w.id].c===C49 ? b++ : a++);
     document.getElementById('tallyRed').textContent='16th: '+a;
     document.getElementById('tallyBlue').textContent='49th: '+b;
     document.getElementById('tallyNote').textContent=a+b+' geographic wards';
   }
-  function setWard(id,v){ plan[id]=v; syncWard(id); updateTally(); savePlan(); }
-  function setAll(v){ WARDS.forEach(w=>plan[w.id]=v); WARDS.forEach(w=>syncWard(w.id)); updateTally(); savePlan(); }
-  function resetPlan(){ if(!confirm('Reset every ward back to 16th?'))return; plan=defaultPlan(); WARDS.forEach(w=>syncWard(w.id)); updateTally(); savePlan(); }
+  function setWard(id,c){ state[id].c=c; applyPiece(id); syncRow(id); updateTally(); save(); }
+  function toggleWard(id){ setWard(id, state[id].c===C16?C49:C16); }
+  function setAll(c){ WARDS.forEach(w=>state[w.id].c=c); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); save(); }
+  function resetAll(){ if(!confirm('Reset piece positions AND colors back to the start?'))return; state=defaultState(); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); save(); }
   function copyLink(){
-    const url=location.origin+location.pathname+'#'+encodePlan(plan);
+    const hash = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+    const url = location.origin+location.pathname+'#'+hash;
     (navigator.clipboard?navigator.clipboard.writeText(url):Promise.reject())
-      .then(()=>flash('Link copied — reproduces this exact plan'))
+      .then(()=>flash('Link copied — reproduces this exact map (positions + colors)'))
       .catch(()=>prompt('Copy this link:',url));
   }
-  function flash(m){ const n=document.getElementById('tallyNote'); const o=n.textContent; n.textContent=m; setTimeout(()=>n.textContent=o,2200); }
+  function flash(m){ const n=document.getElementById('tallyNote'); const o=n.textContent; n.textContent=m; setTimeout(()=>n.textContent=o,2400); }
 
-  // lightbox
-  function lightbox(src,cap){ document.getElementById('lbImg').src=src; document.getElementById('lbCap').textContent=cap; document.getElementById('lb').classList.add('open'); }
-  function closeLb(e,force){ if(force || e.target.id==='lb' || e.target.classList.contains('x')) document.getElementById('lb').classList.remove('open'); }
+  window.setAll=setAll; window.resetAll=resetAll; window.copyLink=copyLink; window.setWard=setWard;
 
-  window.setAll=setAll; window.resetPlan=resetPlan; window.copyLink=copyLink; window.setWard=setWard; window.lightbox=lightbox; window.closeLb=closeLb;
-
-  plan=loadPlan();
-  WARDS.forEach(w=>syncWard(w.id));
+  // ---- init ----
+  state = loadState();
+  WARDS.forEach(w=>{ applyPiece(w.id); syncRow(w.id); });
   updateTally();
 </script>
 </body>
