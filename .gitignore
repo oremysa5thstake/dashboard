@@ -4,4 +4,5 @@
 # Include only GitHub Pages files
 !index.html
 !manifest.json
+!redistricting.html
 !.gitignore
