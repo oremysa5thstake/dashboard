@@ -42,8 +42,18 @@
   .piece.fallback > img.pimg, .piece.fallback .tint { display:none; }
   .piece.fallback .plabel { position:static; background:none; text-shadow:0 1px 2px #000; }
 
-  .panel { flex:0 0 260px; background:var(--panel); border-left:1px solid var(--line); padding:12px; position:sticky; top:0; align-self:flex-start; max-height:100vh; overflow:auto; }
+  .panel { flex:0 0 310px; background:var(--panel); border-left:1px solid var(--line); padding:12px; position:sticky; top:0; align-self:flex-start; max-height:100vh; overflow:auto; }
   .panel h2 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; margin:0 0 8px; }
+  .stt { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .stt th, .stt td { padding:3px 4px; text-align:right; white-space:nowrap; }
+  .stt th:first-child, .stt td:first-child { text-align:left; color:#4b5563; white-space:normal; }
+  .stt th.c16, .stt td.c16 { color:var(--red); font-weight:700; }
+  .stt th.c49, .stt td.c49 { color:var(--blue); font-weight:700; }
+  .stt tr.spacer td { padding:3px; }
+  .stt tr.group td:first-child { font-weight:700; color:var(--ink); padding-top:7px; }
+  .stt tr.tot td { border-top:1px solid var(--line); }
+  .smsg { font-size:12px; color:#5b6270; line-height:1.5; background:#eef1f6; padding:9px 10px; border-radius:8px; }
+  .statnote { font-size:11px; color:#b45309; margin-top:6px; }
   .wrow { display:flex; align-items:center; gap:6px; padding:6px 4px; border-radius:8px; }
   .wrow:hover, .wrow.hot { background:#f0f3ff; }
   .sw { width:12px; height:12px; border-radius:3px; flex:0 0 auto; background:var(--red); }
@@ -98,12 +108,15 @@
     </div>
   </div>
   <div class="panel">
-    <h2>Geographic Wards</h2>
+    <h2>Member Stats</h2>
+    <div id="statsBody"><div class="smsg">Loading…</div></div>
+    <h2 style="margin-top:16px;">Geographic Wards</h2>
     <div id="wardList"></div>
   </div>
 </div>
 
 <script>
+  const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
   const C16='16', C49='49', STORE='ysaPlacePlan_v2';
   const WARDS = [
     {id:'ch1', name:'Cherry Hill 1st'}, {id:'ch2', name:'Cherry Hill 2nd'},
@@ -228,10 +241,70 @@
     document.getElementById('tallyBlue').textContent='49th: '+b;
     document.getElementById('tallyNote').textContent=a+b+' geographic wards';
   }
-  function setWard(id,c){ state[id].c=c; applyPiece(id); syncRow(id); updateTally(); save(); }
+  function setWard(id,c){ state[id].c=c; applyPiece(id); syncRow(id); updateTally(); updateStats(); save(); }
   function toggleWard(id){ setWard(id, state[id].c===C16?C49:C16); }
-  function setAll(c){ WARDS.forEach(w=>state[w.id].c=c); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); save(); }
-  function resetAll(){ if(!confirm('Reset piece positions AND colors back to the start?'))return; state=defaultState(); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); save(); }
+  function setAll(c){ WARDS.forEach(w=>state[w.id].c=c); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); updateStats(); save(); }
+  function resetAll(){ if(!confirm('Reset piece positions AND colors back to the start?'))return; state=defaultState(); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); updateStats(); save(); }
+
+  // ---- member stats (fetched from the Varsity YSAs sheet, rolled up live) ----
+  const STAT_ROWS = [
+    {k:'total', label:'Total Members', group:true},
+    {k:'endowed', label:'Endowed'},
+    {k:'endowedCTR', label:'Endowed w/ CTR'},
+    {k:'callings', label:'With Callings'},
+    {sp:true},
+    {k:'women', label:'Total Women', group:true},
+    {k:'endowedWomen', label:'Endowed Women'},
+    {k:'endowedWomenCTR', label:'Endowed Women w/ CTR'},
+    {sp:true},
+    {k:'men', label:'Men', group:true},
+    {k:'endowedMen', label:'Endowed Men'},
+    {k:'endowedMenCTR', label:'Endowed Men w/ CTR'}
+  ];
+  const STAT_KEYS = STAT_ROWS.filter(r=>r.k).map(r=>r.k);
+  let wardStats = null;
+
+  function buildStatsTable(){
+    let h='<table class="stt"><tr><th></th><th class="c16">16th</th><th class="c49">49th</th></tr>';
+    STAT_ROWS.forEach(r=>{
+      if(r.sp){ h+='<tr class="spacer"><td colspan="3"></td></tr>'; return; }
+      h+='<tr'+(r.group?' class="group"':'')+'><td>'+r.label+'</td>'+
+         '<td class="c16" id="s16-'+r.k+'">0</td><td class="c49" id="s49-'+r.k+'">0</td></tr>';
+    });
+    h+='</table>';
+    document.getElementById('statsBody').innerHTML = h;
+  }
+  function updateStats(){
+    if(!wardStats) return;
+    const s16={}, s49={}; STAT_KEYS.forEach(k=>{s16[k]=0;s49[k]=0;});
+    WARDS.forEach(w=>{ const st=wardStats[w.id]; if(!st) return; const t=state[w.id].c===C49?s49:s16; STAT_KEYS.forEach(k=> t[k]+=(st[k]||0)); });
+    STAT_KEYS.forEach(k=>{
+      const a=document.getElementById('s16-'+k), b=document.getElementById('s49-'+k);
+      if(a) a.textContent=s16[k]; if(b) b.textContent=s49[k];
+    });
+  }
+  function loadStats(){
+    const uid = new URLSearchParams(location.search).get('uid');
+    const box = document.getElementById('statsBody');
+    if(!uid){ box.innerHTML='<div class="smsg">Open this planner from the app’s <b>Admin Tools</b> button so it can load member stats.</div>'; return; }
+    fetch(API_URL+'?action=getVarsityStats&userId='+encodeURIComponent(uid))
+      .then(r=>r.json())
+      .then(d=>{
+        if(!d || d.success===false){ box.innerHTML='<div class="smsg">Stats unavailable: '+((d&&d.error)||'error')+'</div>'; return; }
+        if(!d.geoColumnFound){ box.innerHTML='<div class="smsg">Add a <b>Geographic Ward</b> column to the “Varsity YSAs” sheet (values like <i>Cherry Hill 6th</i>, <i>Stonewood 2nd</i>) and fill it in — then per-ward stats appear here and roll into 16th/49th as you assign wards.</div>'; return; }
+        wardStats = d.wards || {};
+        buildStatsTable(); updateStats();
+        if(d.unmatched>0){
+          const n=document.createElement('div'); n.className='statnote';
+          n.textContent='⚠️ '+d.unmatched+' member(s) had a Geographic Ward that didn’t match one of the 12 — check the spelling in the sheet.';
+          box.appendChild(n);
+        }
+        if((d.matched||0)===0){
+          box.insertAdjacentHTML('beforeend','<div class="smsg" style="margin-top:6px;">No members matched yet — fill in the Geographic Ward column.</div>');
+        }
+      })
+      .catch(()=>{ box.innerHTML='<div class="smsg">Couldn’t reach the stats service.</div>'; });
+  }
   function copyLink(){
     const hash = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
     const url = location.origin+location.pathname+'#'+hash;
@@ -247,6 +320,7 @@
   state = loadState();
   WARDS.forEach(w=>{ applyPiece(w.id); syncRow(w.id); });
   updateTally();
+  loadStats();
 </script>
 </body>
 </html>
