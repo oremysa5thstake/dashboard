@@ -21,9 +21,12 @@
   button:hover { filter:brightness(1.12); }
   .hint { padding:10px 16px; font-size:13px; color:#5b6270; background:#eef1f6; border-bottom:1px solid var(--line); }
   .layout { display:flex; align-items:flex-start; }
-  .stage { flex:1 1 auto; min-width:0; padding:14px; }
-  .mapc { position:relative; width:100%; max-width:1100px; margin:0 auto; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
+  .stage { flex:1 1 auto; min-width:0; padding:14px; overflow:auto; max-height:calc(100vh - 120px); position:relative; }
+  .mapc { position:relative; width:100%; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#fff; }
   .mapc > img.base { width:100%; display:block; user-select:none; -webkit-user-drag:none; }
+  .zoomctl { position:fixed; left:16px; bottom:16px; display:flex; flex-direction:column; gap:5px; z-index:40; }
+  .zoomctl button { width:40px; height:40px; padding:0; font-size:19px; border-radius:10px; background:rgba(26,26,46,.9); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+  .lockbadge { display:inline-block; font-size:11px; font-weight:700; color:#b45309; margin-left:4px; }
 
   .piece { position:absolute; cursor:grab; touch-action:none; user-select:none; }
   .piece.dragging { box-shadow:0 3px 14px rgba(0,0,0,.45); z-index:20; }
@@ -91,6 +94,7 @@
       <button class="ghost" onclick="setAll('16')">All → 16th</button>
       <button class="ghost" onclick="setAll('49')">All → 49th</button>
       <button class="ghost" onclick="copyLink()">🔗 Copy Link</button>
+      <button class="ghost" id="lockBtn" style="display:none;" onclick="toggleLock()">🔒 Lock &amp; Share</button>
       <button class="ghost" onclick="resetAll()">↺ Reset</button>
     </span>
   </div>
@@ -101,11 +105,16 @@
 </div>
 
 <div class="layout">
-  <div class="stage">
+  <div class="stage" id="stage">
     <div class="mapc" id="mapc">
       <img class="base" src="maps/overview.jpg" alt="Orem YSA 16th &amp; 49th overview" id="baseimg">
       <!-- pieces injected here -->
     </div>
+  </div>
+  <div class="zoomctl">
+    <button title="Zoom in" onclick="zoomBy(0.5)">＋</button>
+    <button title="Zoom out" onclick="zoomBy(-0.5)">－</button>
+    <button title="Fit" onclick="zoomFit()" style="font-size:15px;">⤢</button>
   </div>
   <div class="panel">
     <h2>Member Stats</h2>
@@ -176,18 +185,19 @@
   }
 
   // ---- drag / resize / tap ----
-  let act=null;
+  let act=null, locked=false;
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
   function startDrag(e, id){
     e.preventDefault();
     const isRz = e.target && e.target.dataset && e.target.dataset.rz;
     const r = mapc.getBoundingClientRect();
-    act = { id, mode:isRz?'resize':'drag', sx:e.clientX, sy:e.clientY, rw:r.width, rh:r.height, orig:Object.assign({},state[id]), moved:false };
-    pieces[id].classList.add('dragging');
+    // When locked, pieces can't move/resize — a tap still flips the color.
+    act = { id, mode: locked ? 'tap' : (isRz?'resize':'drag'), sx:e.clientX, sy:e.clientY, rw:r.width, rh:r.height, orig:Object.assign({},state[id]), moved:false };
+    if(!locked) pieces[id].classList.add('dragging');
     try{ e.target.setPointerCapture(e.pointerId); }catch(_){}
   }
   function onMove(e){
-    if(!act) return;
+    if(!act || act.mode==='tap') return;
     const dxp=(e.clientX-act.sx)/act.rw*100, dyp=(e.clientY-act.sy)/act.rh*100;
     if(Math.abs(e.clientX-act.sx)+Math.abs(e.clientY-act.sy) > 4) act.moved=true;
     const s=state[act.id], p=pieces[act.id];
@@ -204,7 +214,7 @@
   function onUp(){
     if(!act) return;
     pieces[act.id].classList.remove('dragging');
-    if(!act.moved && act.mode==='drag') toggleWard(act.id);   // tap = flip color
+    if(!act.moved && act.mode!=='resize') toggleWard(act.id);   // tap = flip color (works when locked too)
     act=null; save();
   }
   window.addEventListener('pointermove', onMove);
@@ -263,7 +273,7 @@
     {k:'endowedMenCTR', label:'Endowed Men w/ CTR'}
   ];
   const STAT_KEYS = STAT_ROWS.filter(r=>r.k).map(r=>r.k);
-  let wardStats = null;
+  let wardStats = null, statsBase16 = null, statsBase49 = null;
 
   function buildStatsTable(){
     let h='<table class="stt"><tr><th></th><th class="c16">16th</th><th class="c49">49th</th></tr>';
@@ -277,7 +287,10 @@
   }
   function updateStats(){
     if(!wardStats) return;
-    const s16={}, s49={}; STAT_KEYS.forEach(k=>{s16[k]=0;s49[k]=0;});
+    // Seed with the fixed base (members not in any of the 12 wards: 16th-unit →
+    // 16th, 49th-unit → 49th), then add each geographic ward to its assignment.
+    const s16={}, s49={};
+    STAT_KEYS.forEach(k=>{ s16[k]=(statsBase16&&statsBase16[k])||0; s49[k]=(statsBase49&&statsBase49[k])||0; });
     WARDS.forEach(w=>{ const st=wardStats[w.id]; if(!st) return; const t=state[w.id].c===C49?s49:s16; STAT_KEYS.forEach(k=> t[k]+=(st[k]||0)); });
     STAT_KEYS.forEach(k=>{
       const a=document.getElementById('s16-'+k), b=document.getElementById('s49-'+k);
@@ -295,16 +308,17 @@
         if(!d || d.success===false){ box.innerHTML='<div class="smsg">Stats unavailable: '+((d&&d.error)||'error')+'</div>'; return; }
         if(!d.geoColumnFound){ box.innerHTML='<div class="smsg">Add member <b>addresses</b> to the “Varsity YSAs” sheet (Orem grid format, e.g. <i>1850 S 500 W</i>) — the app reads each address and figures out the ward automatically. (A manual <b>Geographic Ward</b> column also works and overrides detection.)</div>'; return; }
         wardStats = d.wards || {};
+        statsBase16 = d.base16 || {}; statsBase49 = d.base49 || {};
         buildStatsTable(); updateStats();
         detectBtn.style.display = '';
-        if((d.matched||0)===0){
-          box.insertAdjacentHTML('beforeend','<div class="smsg" style="margin-top:6px;">No members matched yet — add addresses (like <i>1850 S 500 W</i>) or a Geographic Ward column.</div>');
+        if((d.matched||0)===0 && (d.base16Count||0)===0 && (d.base49Count||0)===0){
+          box.insertAdjacentHTML('beforeend','<div class="smsg" style="margin-top:6px;">No members counted yet — add addresses (like <i>1850 S 500 W</i>), a Geographic Ward (col K), and a Current Unit (col C).</div>');
         }
-        if(d.unmatched>0){
-          const n=document.createElement('div'); n.className='statnote';
-          n.textContent='⚠️ '+d.unmatched+' member(s) couldn’t be placed from their address (e.g., far-west edge or a named street). Fill their Geographic Ward in the sheet by hand.';
-          box.appendChild(n);
-        }
+        const notes=[];
+        notes.push((d.matched||0)+' placed in a geographic ward · '+((d.base16Count||0))+' fixed in 16th · '+((d.base49Count||0))+' fixed in 49th');
+        if(d.otherUnit>0) notes.push('⚠️ '+d.otherUnit+' member(s) in other units with no geographic-ward match were not counted.');
+        const nn=document.createElement('div'); nn.className='statnote'; nn.style.color='#6b7280'; nn.innerHTML=notes.join('<br>');
+        box.appendChild(nn);
       })
       .catch(()=>{ box.innerHTML='<div class="smsg">Couldn’t reach the stats service.</div>'; });
   }
@@ -333,11 +347,61 @@
 
   window.setAll=setAll; window.resetAll=resetAll; window.copyLink=copyLink; window.setWard=setWard;
 
+  // ---- zoom / pan ----
+  const stage=document.getElementById('stage');
+  let zoom=1, BASE=0;
+  function computeBase(){ BASE = Math.max(220, Math.min(stage.clientWidth-28, 1400)); }
+  function applyZoom(){ mapc.style.width = Math.round(BASE*zoom)+'px'; }
+  function zoomBy(dz){ zoom=Math.max(1, Math.min(5, Math.round((zoom+dz)*10)/10)); applyZoom(); }
+  function zoomFit(){ zoom=1; applyZoom(); stage.scrollTo(0,0); }
+  window.addEventListener('resize', ()=>{ computeBase(); applyZoom(); });
+  window.zoomBy=zoomBy; window.zoomFit=zoomFit;
+
+  // ---- lock & shared layout ----
+  const UID = new URLSearchParams(location.search).get('uid');
+  function setLocked(v){
+    locked=v;
+    const b=document.getElementById('lockBtn');
+    if(UID) b.style.display='';
+    b.textContent = locked ? '🔓 Unlock to edit' : '🔒 Lock & Share';
+    document.querySelectorAll('.piece .rz').forEach(rz=>rz.style.display = locked?'none':'');
+    document.querySelectorAll('.piece').forEach(p=>p.style.cursor = locked?'pointer':'grab');
+  }
+  function toggleLock(){
+    if(!UID){ alert('Open the planner from Admin Tools to lock & share.'); return; }
+    if(locked){ setLocked(false); flash('Unlocked — drag/resize to edit, then Lock & Share again to publish.'); return; }
+    const btn=document.getElementById('lockBtn'); const o=btn.textContent; btn.disabled=true; btn.textContent='Sharing…';
+    fetch(API_URL+'?action=saveBoundaryLayout&userId='+encodeURIComponent(UID)+'&locked=true&layout='+encodeURIComponent(JSON.stringify(state)))
+      .then(r=>r.json()).then(d=>{
+        btn.disabled=false;
+        if(!d || d.success===false){ btn.textContent=o; alert('Failed to share: '+((d&&d.error)||'error')); return; }
+        setLocked(true);
+        flash('Locked & shared — anyone who opens the planner now sees this arrangement.');
+      }).catch(()=>{ btn.disabled=false; btn.textContent=o; alert('Couldn’t reach the service.'); });
+  }
+  window.toggleLock=toggleLock;
+
+  function loadSharedLayout(){
+    if((location.hash||'').replace(/^#/,'')) return;   // a shared #link wins and stays editable
+    fetch(API_URL+'?action=getBoundaryLayout')
+      .then(r=>r.json()).then(d=>{
+        if(d && d.success && d.layout && d.layout.state){
+          state = mergeState(d.layout.state);
+          WARDS.forEach(w=>{ applyPiece(w.id); syncRow(w.id); });
+          updateTally(); updateStats();
+          setLocked(!!d.layout.locked);
+        }
+      }).catch(()=>{});
+  }
+
   // ---- init ----
   state = loadState();
   WARDS.forEach(w=>{ applyPiece(w.id); syncRow(w.id); });
   updateTally();
+  computeBase(); applyZoom();
+  if(UID) document.getElementById('lockBtn').style.display='';
   loadStats();
+  loadSharedLayout();
 </script>
 </body>
 </html>
