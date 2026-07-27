@@ -370,6 +370,7 @@
         statsBase16 = d.base16 || {}; statsBase49 = d.base49 || {};
         buildStatsTable(); updateStats();
         detectBtn.style.display = '';
+        canLock = !!d.isClerk; setLocked(locked);   // reveal Lock & Share for stake clerks only
         if((d.matched||0)===0 && (d.base16Count||0)===0 && (d.base49Count||0)===0){
           box.insertAdjacentHTML('beforeend','<div class="smsg" style="margin-top:6px;">No members counted yet — add addresses (like <i>1850 S 500 W</i>), a Geographic Ward (col K), and a Current Unit (col C).</div>');
         }
@@ -418,11 +419,12 @@
 
   // ---- lock & shared layout ----
   const UID = new URLSearchParams(location.search).get('uid');
+  let canLock = false;   // only stake clerks (set from the stats response)
   function setLocked(v){
     locked=v;
     const b=document.getElementById('lockBtn');
-    if(UID) b.style.display='';
-    b.textContent = locked ? '🔓 Unlock to edit' : '🔒 Lock & Share';
+    b.textContent = locked ? '🔓 Unlock geometry to edit' : '🔒 Lock & Share';
+    b.style.display = (UID && canLock) ? '' : 'none';
     document.querySelectorAll('.piece .rz').forEach(rz=>rz.style.display = locked?'none':'');
     document.querySelectorAll('.piece').forEach(p=>p.style.cursor = locked?'pointer':'grab');
   }
@@ -458,8 +460,7 @@
   renderAll();
   updateTally();
   computeBase(); applyZoom();
-  if(UID) document.getElementById('lockBtn').style.display='';
-  loadStats();
+  loadStats();          // reveals Lock & Share only for stake clerks
   loadSharedLayout();
 </script>
 </body>
