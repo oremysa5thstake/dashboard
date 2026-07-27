@@ -30,6 +30,10 @@
 
   .piece { position:absolute; cursor:grab; touch-action:none; user-select:none; }
   .piece.dragging { box-shadow:0 3px 14px rgba(0,0,0,.45); z-index:20; }
+  .piece.ysa { z-index:5; }
+  .piece.ysa.dragging { z-index:20; }
+  .piece.off { filter:grayscale(100%) brightness(.4); transition:filter .15s; }
+  .choice button.act { background:#374151; color:#fff; border-color:#374151; }
   .piece > img.pimg { width:100%; height:auto; display:block; border-radius:4px; pointer-events:none; -webkit-user-drag:none; }
   .piece .tint { position:absolute; inset:0; background:var(--red); opacity:.5; pointer-events:none;
                  -webkit-mask-size:100% 100%; mask-size:100% 100%; -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat; border-radius:4px; }
@@ -120,7 +124,9 @@
     <h2>Member Stats</h2>
     <div id="statsBody"><div class="smsg">Loading…</div></div>
     <button class="ghost" id="detectBtn" style="margin-top:8px;font-size:12px;display:none;" onclick="detectWards()">🏠 Write detected wards to sheet (to review)</button>
-    <h2 style="margin-top:16px;">Geographic Wards</h2>
+    <h2 style="margin-top:16px;">YSA Wards (existing)</h2>
+    <div id="ysaList"></div>
+    <h2 style="margin-top:14px;">Geographic Wards</h2>
     <div id="wardList"></div>
   </div>
 </div>
@@ -137,6 +143,13 @@
     {id:'sw3', name:'Stonewood 3rd'}, {id:'sw4', name:'Stonewood 4th'},
     {id:'sw5', name:'Stonewood 5th'}
   ];
+  // The existing YSA ward boundary shapes. Fixed color (16=red, 49=blue); On/Off
+  // controls whether that ward's base members (Current Unit rows) count in stats.
+  const YSA = [
+    {id:'y16', name:'16th Ward', img:'maps/16.png', klass:''},
+    {id:'y49', name:'49th Ward', img:'maps/49.png', klass:'blue'}
+  ];
+  const isYsa = id => id==='y16' || id==='y49';
   const pngFor = id => 'maps/' + id + '.png';   // draggable piece image (provided by you)
   const jpgFor = id => 'maps/' + id + '.jpg';   // full ward poster (for the "map" link)
   function abbr(n){ const m=n.match(/(\d+)/); const pre=n.replace(/\s*\d.*/,'').split(/\s+/).map(w=>w[0]).join('').toUpperCase(); return pre+' '+(m?m[1]:''); }
@@ -146,9 +159,11 @@
   function defaultState(){
     const st={};
     WARDS.forEach((w,i)=>{ const col=i%4, row=Math.floor(i/4); st[w.id]={ x:2+col*15, y:2+row*8, w:13, h:6.5, c:C16 }; });
+    st.y16 = { x:36, y:40, w:34, h:22, on:true };
+    st.y49 = { x:4,  y:40, w:24, h:22, on:true };
     return st;
   }
-  function mergeState(o){ const d=defaultState(); WARDS.forEach(w=>{ if(o[w.id]) d[w.id]=Object.assign(d[w.id],o[w.id]); }); return d; }
+  function mergeState(o){ const d=defaultState(); WARDS.concat(YSA).forEach(w=>{ if(o[w.id]) d[w.id]=Object.assign(d[w.id],o[w.id]); }); return d; }
   function loadState(){
     const h=(location.hash||'').replace(/^#/,'');
     if(h){ try{ const o=JSON.parse(decodeURIComponent(escape(atob(h)))); if(o&&o.ch1) return mergeState(o); }catch(e){} }
@@ -177,11 +192,30 @@
     pieces[w.id]=p; mapc.appendChild(p);
   });
 
+  // YSA ward boundary pieces (16th / 49th), fixed color, On/Off instead of 16/49.
+  YSA.forEach(y => {
+    const p = document.createElement('div');
+    p.className = 'piece ysa fallback' + (y.klass ? (' '+y.klass) : '');
+    p.id = 'pc-'+y.id; p.title = y.name;
+    p.innerHTML =
+      '<img class="pimg" alt="'+y.name+'">' +
+      '<div class="tint" style="-webkit-mask-image:url(\''+y.img+'\');mask-image:url(\''+y.img+'\')"></div>' +
+      '<span class="plabel">'+y.name+'</span>' +
+      '<div class="rz" data-rz="1"></div>';
+    const img = p.querySelector('img.pimg');
+    img.addEventListener('load', ()=>{ p.classList.remove('fallback'); applyPiece(y.id); });
+    img.addEventListener('error', ()=>{ p.classList.add('fallback'); applyPiece(y.id); });
+    img.src = y.img;
+    p.addEventListener('pointerdown', e => startDrag(e, y.id));
+    pieces[y.id]=p; mapc.appendChild(p);
+  });
+
   function applyPiece(id){
     const s=state[id], p=pieces[id];
     p.style.left=s.x+'%'; p.style.top=s.y+'%'; p.style.width=s.w+'%';
     p.style.height = p.classList.contains('fallback') ? ((s.h||6.5)+'%') : 'auto';
-    p.classList.toggle('blue', s.c===C49);
+    if(isYsa(id)) p.classList.toggle('off', s.on===false);
+    else p.classList.toggle('blue', s.c===C49);
   }
 
   // ---- drag / resize / tap ----
@@ -214,7 +248,7 @@
   function onUp(){
     if(!act) return;
     pieces[act.id].classList.remove('dragging');
-    if(!act.moved && act.mode!=='resize') toggleWard(act.id);   // tap = flip color (works when locked too)
+    if(!act.moved && act.mode!=='resize'){ if(isYsa(act.id)) toggleYsa(act.id); else toggleWard(act.id); }  // tap = flip color / On-Off
     act=null; save();
   }
   window.addEventListener('pointermove', onMove);
@@ -240,6 +274,29 @@
     const row=document.getElementById('row-'+id); if(row) row.classList.toggle('hot',on);
   }
 
+  // YSA ward On/Off rows
+  const ysaListEl=document.getElementById('ysaList');
+  YSA.forEach(y=>{
+    const row=document.createElement('div'); row.className='wrow'; row.id='row-'+y.id;
+    row.innerHTML='<span class="sw" style="background:'+(y.klass==='blue'?'var(--blue)':'var(--red)')+'"></span>'+
+      '<span class="wn">'+y.name+'</span>'+
+      '<span class="choice"><button id="on-'+y.id+'" onclick="setYsaOn(\''+y.id+'\',true)">On</button>'+
+      '<button id="off-'+y.id+'" onclick="setYsaOn(\''+y.id+'\',false)">Off</button></span>';
+    row.addEventListener('mouseenter',()=>flashPiece(y.id,true));
+    row.addEventListener('mouseleave',()=>flashPiece(y.id,false));
+    ysaListEl.appendChild(row);
+  });
+  function syncYsaRow(id){
+    const on = state[id].on!==false;
+    document.getElementById('on-'+id).className = on?'act':'';
+    document.getElementById('off-'+id).className = on?'':'act';
+  }
+  function setYsaOn(id,on){ state[id].on=on; applyPiece(id); syncYsaRow(id); updateStats(); save(); }
+  function toggleYsa(id){ setYsaOn(id, state[id].on===false); }
+  window.setYsaOn=setYsaOn;
+
+  function renderAll(){ WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); YSA.forEach(y=>{applyPiece(y.id);syncYsaRow(y.id);}); }
+
   function syncRow(id){
     const blue=state[id].c===C49;
     const row=document.getElementById('row-'+id); row.classList.toggle('blue',blue);
@@ -255,7 +312,7 @@
   function setWard(id,c){ state[id].c=c; applyPiece(id); syncRow(id); updateTally(); updateStats(); save(); }
   function toggleWard(id){ setWard(id, state[id].c===C16?C49:C16); }
   function setAll(c){ WARDS.forEach(w=>state[w.id].c=c); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); updateStats(); save(); }
-  function resetAll(){ if(!confirm('Reset piece positions AND colors back to the start?'))return; state=defaultState(); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); updateStats(); save(); }
+  function resetAll(){ if(!confirm('Reset piece positions AND colors back to the start?'))return; state=defaultState(); renderAll(); updateTally(); updateStats(); save(); }
 
   // ---- member stats (fetched from the Varsity YSAs sheet, rolled up live) ----
   const STAT_ROWS = [
@@ -290,7 +347,9 @@
     // Seed with the fixed base (members not in any of the 12 wards: 16th-unit →
     // 16th, 49th-unit → 49th), then add each geographic ward to its assignment.
     const s16={}, s49={};
-    STAT_KEYS.forEach(k=>{ s16[k]=(statsBase16&&statsBase16[k])||0; s49[k]=(statsBase49&&statsBase49[k])||0; });
+    const on16 = !state.y16 || state.y16.on!==false;   // 16.png On → include 16th-unit base
+    const on49 = !state.y49 || state.y49.on!==false;   // 49.png On → include 49th-unit base
+    STAT_KEYS.forEach(k=>{ s16[k]=(on16&&statsBase16&&statsBase16[k])||0; s49[k]=(on49&&statsBase49&&statsBase49[k])||0; });
     WARDS.forEach(w=>{ const st=wardStats[w.id]; if(!st) return; const t=state[w.id].c===C49?s49:s16; STAT_KEYS.forEach(k=> t[k]+=(st[k]||0)); });
     STAT_KEYS.forEach(k=>{
       const a=document.getElementById('s16-'+k), b=document.getElementById('s49-'+k);
@@ -387,7 +446,7 @@
       .then(r=>r.json()).then(d=>{
         if(d && d.success && d.layout && d.layout.state){
           state = mergeState(d.layout.state);
-          WARDS.forEach(w=>{ applyPiece(w.id); syncRow(w.id); });
+          renderAll();
           updateTally(); updateStats();
           setLocked(!!d.layout.locked);
         }
@@ -396,7 +455,7 @@
 
   // ---- init ----
   state = loadState();
-  WARDS.forEach(w=>{ applyPiece(w.id); syncRow(w.id); });
+  renderAll();
   updateTally();
   computeBase(); applyZoom();
   if(UID) document.getElementById('lockBtn').style.display='';
