@@ -28,10 +28,9 @@
   .zoomctl button { width:40px; height:40px; padding:0; font-size:19px; border-radius:10px; background:rgba(26,26,46,.9); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.35); }
   .lockbadge { display:inline-block; font-size:11px; font-weight:700; color:#b45309; margin-left:4px; }
 
-  .piece { position:absolute; cursor:grab; touch-action:none; user-select:none; }
-  .piece.dragging { box-shadow:0 3px 14px rgba(0,0,0,.45); z-index:20; }
-  .piece.ysa { z-index:5; }
-  .piece.ysa.dragging { z-index:20; }
+  .piece { position:absolute; cursor:grab; touch-action:none; user-select:none; z-index:4; }
+  .piece.ysa { z-index:2; }   /* big boundary shapes sit behind the small ward pieces */
+  .piece.dragging { box-shadow:0 3px 14px rgba(0,0,0,.45); z-index:30; }
   .piece.off { filter:grayscale(100%) brightness(.4); transition:filter .15s; }
   .choice button.act { background:#374151; color:#fff; border-color:#374151; }
   .piece > img.pimg { width:100%; height:auto; display:block; border-radius:4px; pointer-events:none; -webkit-user-drag:none; }
@@ -67,6 +66,22 @@
   .wrow.blue .sw { background:var(--blue); }
   .wn { flex:1 1 auto; font-size:13px; min-width:0; }
   .full { font-size:12px; color:#6b7280; text-decoration:none; padding:0 4px; }
+  .mbtn { background:transparent; padding:0 4px; font-size:13px; }
+  .mbtn:hover { filter:none; opacity:.7; }
+  /* members popup */
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:60; display:none; align-items:center; justify-content:center; padding:16px; }
+  .modal.show { display:flex; }
+  .modalbox { background:var(--panel); color:var(--ink); border-radius:12px; width:min(960px,100%); max-height:88vh; display:flex; flex-direction:column; box-shadow:0 12px 40px rgba(0,0,0,.4); }
+  .modalhead { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
+  .modalhead h3 { margin:0; font-size:15px; flex:1 1 auto; }
+  .modalhead .mcount { font-size:12px; color:#6b7280; }
+  .modalhead .x { background:transparent; font-size:22px; line-height:1; padding:2px 8px; color:#6b7280; }
+  .modalbody { overflow:auto; padding:8px 12px 14px; }
+  .mtbl { border-collapse:collapse; font-size:12.5px; width:100%; }
+  .mtbl th, .mtbl td { border:1px solid var(--line); padding:4px 7px; text-align:left; white-space:nowrap; vertical-align:top; }
+  .mtbl th { position:sticky; top:0; background:var(--panel); font-weight:700; }
+  .mtbl tr:nth-child(even) td { background:rgba(127,127,127,.06); }
+  .mempty { color:#6b7280; padding:18px 6px; }
   .choice { display:flex; }
   .choice button { padding:3px 8px; font-size:12px; border:1px solid var(--line); background:transparent; color:#6b7280; font-weight:700; }
   .choice button:first-child { border-radius:6px 0 0 6px; }
@@ -131,6 +146,17 @@
   </div>
 </div>
 
+<div class="modal" id="memModal" onclick="if(event.target===this)closeMembers()">
+  <div class="modalbox">
+    <div class="modalhead">
+      <h3 id="memTitle">Members</h3>
+      <span class="mcount" id="memCount"></span>
+      <button class="x" title="Close" onclick="closeMembers()">×</button>
+    </div>
+    <div class="modalbody" id="memBody"></div>
+  </div>
+</div>
+
 <script>
   const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
   const C16='16', C49='49', STORE='ysaPlacePlan_v2';
@@ -175,6 +201,45 @@
   const mapc = document.getElementById('mapc');
   const pieces = {};
 
+  // --- opaque-pixel hit-testing: sample each PNG's alpha so clicks/drags only
+  //     register where the image actually has color; transparent areas pass
+  //     through to whatever piece is underneath. Degrades to "whole box" if the
+  //     alpha can't be read (e.g. image not yet loaded). ---
+  const ALPHA_N = 96;
+  const alphaGrids = {};   // id -> Uint8ClampedArray(ALPHA_N*ALPHA_N) | null
+  function buildAlpha(id, img){
+    try{
+      const c=document.createElement('canvas'); c.width=ALPHA_N; c.height=ALPHA_N;
+      const cx=c.getContext('2d'); cx.drawImage(img,0,0,ALPHA_N,ALPHA_N);
+      const d=cx.getImageData(0,0,ALPHA_N,ALPHA_N).data;
+      const g=new Uint8ClampedArray(ALPHA_N*ALPHA_N);
+      for(let i=0;i<g.length;i++) g[i]=d[i*4+3];
+      alphaGrids[id]=g;
+    }catch(e){ alphaGrids[id]=null; }   // canvas tainted / unreadable → treat opaque
+  }
+  function opaqueAt(id, u, v){          // u,v in [0,1] within the piece box
+    const g=alphaGrids[id];
+    if(!g) return true;                 // unknown → whole box clickable
+    if(u<0||u>1||v<0||v>1) return false;
+    const x=Math.min(ALPHA_N-1, Math.max(0, Math.floor(u*ALPHA_N)));
+    const y=Math.min(ALPHA_N-1, Math.max(0, Math.floor(v*ALPHA_N)));
+    return g[y*ALPHA_N+x] > 24;
+  }
+  // Topmost piece whose PNG is opaque at this client point (null = empty pixel).
+  function resolvePiece(cx, cy){
+    const els = document.elementsFromPoint(cx, cy);
+    const seen = {};
+    for(const el of els){
+      const pc = el.closest && el.closest('.piece');
+      if(!pc || seen[pc.id]) continue; seen[pc.id]=true;
+      const pid = pc.id.slice(3);       // strip "pc-"
+      if(!pieces[pid]) continue;
+      const r = pc.getBoundingClientRect();
+      if(opaqueAt(pid, (cx-r.left)/r.width, (cy-r.top)/r.height)) return pid;
+    }
+    return null;
+  }
+
   WARDS.forEach(w => {
     const p = document.createElement('div');
     p.className='piece fallback'; p.id='pc-'+w.id; p.title=w.name+' Ward';
@@ -185,7 +250,7 @@
       '<span class="plabel">'+abbr(w.name)+'</span>' +
       '<div class="rz" data-rz="1"></div>';
     const img = p.querySelector('img.pimg');
-    img.addEventListener('load', ()=>{ p.classList.remove('fallback'); applyPiece(w.id); });
+    img.addEventListener('load', ()=>{ p.classList.remove('fallback'); buildAlpha(w.id, img); applyPiece(w.id); });
     img.addEventListener('error', ()=>{ p.classList.add('fallback'); applyPiece(w.id); });
     img.src = url;   // triggers load or error
     p.addEventListener('pointerdown', e => startDrag(e, w.id));
@@ -203,7 +268,7 @@
       '<span class="plabel">'+y.name+'</span>' +
       '<div class="rz" data-rz="1"></div>';
     const img = p.querySelector('img.pimg');
-    img.addEventListener('load', ()=>{ p.classList.remove('fallback'); applyPiece(y.id); });
+    img.addEventListener('load', ()=>{ p.classList.remove('fallback'); buildAlpha(y.id, img); applyPiece(y.id); });
     img.addEventListener('error', ()=>{ p.classList.add('fallback'); applyPiece(y.id); });
     img.src = y.img;
     p.addEventListener('pointerdown', e => startDrag(e, y.id));
@@ -222,8 +287,15 @@
   let act=null, locked=false;
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
   function startDrag(e, id){
-    e.preventDefault();
     const isRz = e.target && e.target.dataset && e.target.dataset.rz;
+    if(!isRz){
+      // Only act if the click landed on a colored pixel; otherwise route to the
+      // piece underneath (or ignore if the spot is fully transparent).
+      const hit = resolvePiece(e.clientX, e.clientY);
+      if(!hit) return;          // transparent everywhere here → let the map pan
+      id = hit;
+    }
+    e.preventDefault();
     const r = mapc.getBoundingClientRect();
     // When locked, pieces can't move/resize — a tap still flips the color.
     act = { id, mode: locked ? 'tap' : (isRz?'resize':'drag'), sx:e.clientX, sy:e.clientY, rw:r.width, rh:r.height, orig:Object.assign({},state[id]), moved:false };
@@ -261,6 +333,7 @@
     const row=document.createElement('div');
     row.className='wrow'; row.id='row-'+w.id;
     row.innerHTML='<span class="sw"></span><span class="wn">'+w.name+'</span>'+
+      '<button class="mbtn" title="Show members inside this boundary" onclick="openMembers(\''+w.id+'\')">👥</button>'+
       '<a class="full" href="'+jpgFor(w.id)+'" target="_blank" title="Open full ward map">🔍</a>'+
       '<span class="choice"><button id="l16-'+w.id+'" onclick="setWard(\''+w.id+'\',\'16\')">16</button>'+
       '<button id="l49-'+w.id+'" onclick="setWard(\''+w.id+'\',\'49\')">49</button></span>';
@@ -313,6 +386,36 @@
   function toggleWard(id){ setWard(id, state[id].c===C16?C49:C16); }
   function setAll(c){ WARDS.forEach(w=>state[w.id].c=c); WARDS.forEach(w=>{applyPiece(w.id);syncRow(w.id);}); updateTally(); updateStats(); save(); }
   function resetAll(){ if(!confirm('Reset piece positions AND colors back to the start?'))return; state=defaultState(); renderAll(); updateTally(); updateStats(); save(); }
+
+  // ---- members-in-boundary popup ----
+  const WARD_NAME = {}; WARDS.forEach(w=>WARD_NAME[w.id]=w.name);
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function closeMembers(){ document.getElementById('memModal').classList.remove('show'); }
+  window.closeMembers = closeMembers;
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeMembers(); });
+  function openMembers(id){
+    const uid = UID;
+    if(!uid){ alert('Open the planner from the app (Admin Tools) to view member details.'); return; }
+    const modal=document.getElementById('memModal');
+    document.getElementById('memTitle').textContent = (WARD_NAME[id]||id)+' — members in this boundary';
+    document.getElementById('memCount').textContent = '';
+    document.getElementById('memBody').innerHTML = '<div class="mempty">Loading…</div>';
+    modal.classList.add('show');
+    fetch(API_URL+'?action=getVarsityMembers&userId='+encodeURIComponent(uid)+'&ward='+encodeURIComponent(id))
+      .then(r=>r.json())
+      .then(d=>{
+        if(!d || !d.success){ document.getElementById('memBody').innerHTML='<div class="mempty">'+esc((d&&d.error)||'Could not load members.')+'</div>'; return; }
+        const hdr=d.headers||[], rows=d.members||[];
+        document.getElementById('memCount').textContent = rows.length+(rows.length===1?' member':' members');
+        if(!rows.length){ document.getElementById('memBody').innerHTML='<div class="mempty">No members fall inside this boundary (by Geographic Ward column or detected address).</div>'; return; }
+        let h='<table class="mtbl"><thead><tr>'+hdr.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr></thead><tbody>';
+        rows.forEach(row=>{ h+='<tr>'+row.map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>'; });
+        h+='</tbody></table>';
+        document.getElementById('memBody').innerHTML=h;
+      })
+      .catch(()=>{ document.getElementById('memBody').innerHTML='<div class="mempty">Network error loading members.</div>'; });
+  }
+  window.openMembers = openMembers;
 
   // ---- member stats (fetched from the Varsity YSAs sheet, rolled up live) ----
   const STAT_ROWS = [
