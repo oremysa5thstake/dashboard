@@ -196,7 +196,19 @@
     try{ const s=localStorage.getItem(STORE); if(s) return mergeState(JSON.parse(s)); }catch(e){}
     return defaultState();
   }
-  function save(){ try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){} }
+  let _srvSaveTimer=null;
+  function save(){
+    try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){}
+    // Persist this user's OWN arrangement server-side (debounced) so their 16th/49th
+    // assignments follow them across sessions/devices. Needs a uid (opened from the app).
+    const uid = new URLSearchParams(location.search).get('uid');
+    if(uid){
+      clearTimeout(_srvSaveTimer);
+      _srvSaveTimer=setTimeout(()=>{
+        fetch(API_URL+'?action=saveUserBoundaryLayout&userId='+encodeURIComponent(uid)+'&layout='+encodeURIComponent(JSON.stringify(state))).catch(()=>{});
+      }, 1000);
+    }
+  }
 
   const mapc = document.getElementById('mapc');
   const pieces = {};
@@ -545,15 +557,17 @@
   }
   window.toggleLock=toggleLock;
 
-  function loadSharedLayout(){
+  function loadServerLayout(){
     if((location.hash||'').replace(/^#/,'')) return;   // a shared #link wins and stays editable
-    fetch(API_URL+'?action=getBoundaryLayout')
+    fetch(API_URL+'?action=getBoundaryLayout'+(UID?('&userId='+encodeURIComponent(UID)):''))
       .then(r=>r.json()).then(d=>{
         if(d && d.success && d.layout && d.layout.state){
           state = mergeState(d.layout.state);
           renderAll();
           updateTally(); updateStats();
-          setLocked(!!d.layout.locked);
+          // A user's own saved copy (scope 'user') is always theirs to edit; only the
+          // shared base (scope 'global') honors its locked flag.
+          setLocked(d.scope!=='user' && !!d.layout.locked);
         }
       }).catch(()=>{});
   }
@@ -564,7 +578,7 @@
   updateTally();
   computeBase(); applyZoom();
   loadStats();          // reveals Lock & Share only for stake clerks
-  loadSharedLayout();
+  loadServerLayout();   // your own saved arrangement, else the shared base
 </script>
 </body>
 </html>

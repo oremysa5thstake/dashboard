@@ -123,6 +123,8 @@
     .stake-links-inner{padding:16px 20px;display:flex;flex-wrap:wrap;gap:10px}
     .stake-link{background:#5865F2;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;transition:background .2s}
     .stake-link:hover{background:#4752c4}
+    .stake-link-planner{flex-basis:100%;background:#0f9d58;display:inline-flex;align-items:center;gap:6px;justify-content:center;padding:11px 16px;font-weight:700}
+    .stake-link-planner:hover{background:#0c7d46}
     .settings-group{margin-bottom:20px}
     .settings-label{font-weight:600;font-size:14px;margin-bottom:8px;color:#333}
     .radio-group{display:flex;gap:8px;flex-wrap:wrap}
@@ -807,6 +809,8 @@
         userId: data.userId || userId,
         canReassign: data.canReassign || false,
         isAdmin: data.isAdmin || false,
+        isPresidency: data.isPresidency || false,
+        isClerk: data.isClerk || false,
         canMemberStatus: data.canMemberStatus || false
       };
 
@@ -835,7 +839,12 @@
       }
 
       // Stake links
-      if (data.stakeLinks && data.stakeLinks.length > 0) {
+      // TEMPORARY: the boundary planner link is shown to the stake presidency (and
+      // clerks who set it up). Remove this block + the .stake-link-planner styles
+      // when the redistricting effort wraps up.
+      const showPlanner = !!(userData && (userData.isPresidency || userData.isClerk));
+      const stakeLinks = (data.stakeLinks || []);
+      if (stakeLinks.length > 0 || showPlanner) {
         const linksExpanded = sectionExpanded['stakeLinks'] === true;
         html += `<div class="stake-links">
           <div class="stake-links-header" onclick="toggleStakeLinks()">
@@ -844,7 +853,10 @@
           </div>
           <div class="stake-links-content${linksExpanded ? ' expanded' : ''}" id="stakeLinksContent">
             <div class="stake-links-inner">`;
-        data.stakeLinks.forEach(link => {
+        if (showPlanner) {
+          html += `<a href="boundary-maps.html?uid=${encodeURIComponent(getActorUserId())}" target="_blank" class="stake-link stake-link-planner">🗺️ 16th ↔ 49th Boundary Planner</a>`;
+        }
+        stakeLinks.forEach(link => {
           html += `<a href="${escapeHtml(link.url)}" target="_blank" class="stake-link">${escapeHtml(link.label)}</a>`;
         });
         html += `</div></div></div>`;
@@ -2053,8 +2065,6 @@
       html += '<button class="btn btn-secondary" onclick="runScript(\'CleanupPendingNotifications\')">🧹 Clean Up Pending Notifications</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'SendClerkSummaryEmails\')">📧 Send Ward-Clerk Summary Emails</button>';
       html += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
-      html += '<button class="btn btn-secondary" onclick="window.open(\'boundary-maps.html?uid=\' + encodeURIComponent(getActorUserId()), \'_blank\')">🗺️ 16th ↔ 49th Boundary Planner (maps)</button>';
-      html += '<button class="btn btn-secondary" onclick="window.open(\'redistricting.html\', \'_blank\')">▦ Boundary Planner (grid)</button>';
       html += '</div></div>';
 
       html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';

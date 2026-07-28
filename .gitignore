@@ -4,7 +4,6 @@
 # Include only GitHub Pages files
 !index.html
 !manifest.json
-!redistricting.html
 !boundary-maps.html
 !maps/
 !maps/*
