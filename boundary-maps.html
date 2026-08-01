@@ -561,14 +561,25 @@
     if((location.hash||'').replace(/^#/,'')) return;   // a shared #link wins and stays editable
     fetch(API_URL+'?action=getBoundaryLayout'+(UID?('&userId='+encodeURIComponent(UID)):''))
       .then(r=>r.json()).then(d=>{
-        if(d && d.success && d.layout && d.layout.state){
-          state = mergeState(d.layout.state);
-          renderAll();
-          updateTally(); updateStats();
-          // A user's own saved copy (scope 'user') is always theirs to edit; only the
-          // shared base (scope 'global') honors its locked flag.
-          setLocked(d.scope!=='user' && !!d.layout.locked);
+        if(!d || !d.success) return;
+        const base = d.base, user = d.user;
+        const src = (user && user.state) ? user.state : (base && base.state ? base.state : null);
+        if(!src) return;
+        state = mergeState(src);
+        // When a stake clerk has LOCKED the layout, freeze geometry for everyone —
+        // force each piece's position/size from the aligned shared base, but keep
+        // this user's own color / on-off assignments. Colors stay tappable; dragging
+        // and resizing are disabled.
+        const globalLocked = !!(base && base.locked);
+        if(globalLocked && base && base.state){
+          WARDS.concat(YSA).forEach(p=>{
+            const b=base.state[p.id], s=state[p.id];
+            if(b && s){ s.x=b.x; s.y=b.y; s.w=b.w; if(typeof b.h!=='undefined') s.h=b.h; }
+          });
         }
+        renderAll();
+        updateTally(); updateStats();
+        setLocked(globalLocked);
       }).catch(()=>{});
   }
 
