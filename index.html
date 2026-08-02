@@ -1483,7 +1483,7 @@
         const prefDateInfo = item.preferredOrdinationDate
           ? `<div class="item-meta" style="color:#5865F2;"><strong>Preferred ordination date:</strong> ${escapeHtmlDisplay(item.preferredOrdinationDate)}</div>` : '';
         const assignedInfo = item.isCC
-          ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd — you may also schedule this interview</div>`
+          ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also schedule this interview</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
 
         html += `<div class="item">
