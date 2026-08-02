@@ -387,6 +387,26 @@
     </div>
   </div>
 
+  <!-- PERF (temporary): performance log viewer -->
+  <div class="modal-overlay" id="perfModal">
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-header">
+        <span class="modal-title">⏱️ Performance Log (this device)</span>
+        <button class="modal-close" onclick="closePerfModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:13px;color:#555;line-height:1.5;margin-bottom:12px;">
+          <strong>Round-trip</strong> = what you wait. <strong>Server</strong> = Apps Script work. <strong>Overhead</strong> = redirect + cold start + network (the fixed Apps Script tax). Full multi-user history accumulates on the <strong>Perf Log</strong> sheet.
+        </div>
+        <div id="perfBody"><div class="ms-empty">No data yet — use the app a bit, then reopen.</div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="clearPerfLog()">Clear (this device)</button>
+        <button class="btn btn-secondary" onclick="closePerfModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Out-of-Unit Member Record Modal -->
   <div class="modal-overlay" id="outOfUnitModal">
     <div class="modal" style="max-width:560px;">
@@ -726,9 +746,11 @@
           setSyncing(true);
           try {
             const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=false`;
+            const _t0 = performance.now();
             const response = await fetch(url, { method: 'GET' });
             if (!response.ok) return;
             const data = await response.json();
+            recordPerf('load(bg)', performance.now() - _t0, data);
             if (!data || data.success === false) return;
             saveDashboardCache(data);
             const changed = JSON.stringify(currentData.counts) !== JSON.stringify(data.counts);
@@ -747,9 +769,11 @@
       setSyncing(true);
       try {
         const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=${forceRefresh}`;
+        const _t0 = performance.now();
         const response = await fetch(url, { method: 'GET' });
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         const data = await response.json();
+        recordPerf(forceRefresh ? 'load(fresh)' : 'load(cold)', performance.now() - _t0, data);
         if (!data.success && data.error) throw new Error(data.error);
         saveDashboardCache(data);
         onDataLoaded(data);
@@ -780,6 +804,7 @@
         }
         const url = `${API_URL}?${urlParams.toString()}`;
 
+        const _t0 = performance.now();
         const response = await fetch(url, {
           method: 'GET'
         });
@@ -789,6 +814,7 @@
         }
 
         const result = await response.json();
+        recordPerf(action, performance.now() - _t0, result);
 
         if (!result.success) {
           throw new Error(result.error || 'Action failed');
@@ -799,6 +825,61 @@
         console.error('Action error:', error);
         throw error;
       }
+    }
+
+    // PERF (temporary): capture round-trip vs. server time for loads + actions.
+    // round-trip = what the user waits; server = Apps Script work; overhead =
+    // redirect + cold start + network (the fixed Apps Script tax). Logs to the
+    // console, a rolling localStorage buffer (Admin Tools → Performance Log), and
+    // fire-and-forget to the server "Perf Log" sheet. Remove after diagnosis.
+    function recordPerf(action, rtMs, data) {
+      try {
+        rtMs = Math.round(rtMs);
+        const sv = (data && typeof data._serverMs === 'number') ? data._serverMs : null;
+        const gap = (sv != null) ? (rtMs - sv) : null;
+        const t = (data && data._timing) || null;
+        const hit = (data && typeof data._cacheHit !== 'undefined') ? data._cacheHit : '';
+        console.log('⏱️ ' + action + ': round-trip ' + rtMs + 'ms'
+          + (sv != null ? (' | server ' + sv + 'ms | overhead ' + gap + 'ms') : '')
+          + (hit !== '' ? (' | cacheHit ' + hit) : '')
+          + (t ? (' | reads ' + t.reads + 'ms build ' + t.build + 'ms') : ''));
+        let buf = [];
+        try { buf = JSON.parse(localStorage.getItem('perfLog_v1') || '[]'); } catch (e) {}
+        buf.push({ ts: Date.now(), act: action, rt: rtMs, sv: sv, gap: gap, hit: hit,
+                   reads: t ? t.reads : '', build: t ? t.build : '' });
+        if (buf.length > 100) buf = buf.slice(-100);
+        try { localStorage.setItem('perfLog_v1', JSON.stringify(buf)); } catch (e) {}
+        const bp = new URLSearchParams({
+          action: 'logPerf', userId: userId, who: userId, act: action,
+          rt: rtMs, sv: (sv == null ? '' : sv), gap: (gap == null ? '' : gap),
+          hit: String(hit), reads: (t ? t.reads : ''), build: (t ? t.build : ''),
+          dev: (navigator.userAgent || '').slice(0, 60)
+        });
+        fetch(API_URL + '?' + bp.toString(), { method: 'GET', keepalive: true }).catch(() => {});
+      } catch (e) {}
+    }
+
+    // PERF (temporary): viewer for the rolling client-side timing buffer.
+    function openPerfModal() { renderPerfLog(); document.getElementById('perfModal').classList.add('show'); }
+    function closePerfModal() { document.getElementById('perfModal').classList.remove('show'); }
+    function clearPerfLog() { try { localStorage.removeItem('perfLog_v1'); } catch (e) {} renderPerfLog(); }
+    function renderPerfLog() {
+      let buf = [];
+      try { buf = JSON.parse(localStorage.getItem('perfLog_v1') || '[]'); } catch (e) {}
+      const body = document.getElementById('perfBody');
+      if (!buf.length) { body.innerHTML = '<div class="ms-empty">No data yet — use the app a bit, then reopen.</div>'; return; }
+      const g = {};
+      buf.forEach(r => { (g[r.act] = g[r.act] || []).push(r); });
+      const avg = (a, k) => { const v = a.map(x => x[k]).filter(x => typeof x === 'number'); return v.length ? Math.round(v.reduce((s, x) => s + x, 0) / v.length) + 'ms' : '—'; };
+      const cell = 'border-bottom:1px solid #f0f0f0;padding:4px 6px;text-align:left;';
+      let h = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr>'
+        + ['Action', 'n', 'Round-trip', 'Server', 'Overhead'].map(x => '<th style="text-align:left;border-bottom:1px solid #ddd;padding:4px 6px;">' + x + '</th>').join('') + '</tr></thead><tbody>';
+      Object.keys(g).sort().forEach(act => {
+        const a = g[act];
+        h += '<tr>' + [escapeHtml(act), a.length, avg(a, 'rt'), avg(a, 'sv'), avg(a, 'gap')].map(x => '<td style="' + cell + '">' + x + '</td>').join('') + '</tr>';
+      });
+      h += '</tbody></table></div><div style="font-size:12px;color:#888;margin-top:8px;">' + buf.length + ' samples on this device.</div>';
+      body.innerHTML = h;
     }
 
     // Data handling
@@ -2065,6 +2146,7 @@
       html += '<button class="btn btn-secondary" onclick="runScript(\'CleanupPendingNotifications\')">🧹 Clean Up Pending Notifications</button>';
       html += '<button class="btn btn-secondary" onclick="runScript(\'SendClerkSummaryEmails\')">📧 Send Ward-Clerk Summary Emails</button>';
       html += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
+      html += '<button class="btn btn-secondary" onclick="openPerfModal()">⏱️ Performance Log</button>';
       html += '</div></div>';
 
       html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';
