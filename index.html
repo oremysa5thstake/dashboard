@@ -1174,7 +1174,7 @@
             <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
               <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}', this)">📅 Appointment Scheduled</button>
             </div>`;
         }
 
@@ -1268,7 +1268,7 @@
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <button class="btn btn-success" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+              <button class="btn btn-success" onclick="scheduleAppointment('${item.actionId}', this)">📅 Appointment Scheduled</button>
             </div>
           </div>
           ${renderCallingControls(item)}
@@ -1915,7 +1915,7 @@
             appointmentControls = `<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
               <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}')">📅 Appointment Scheduled</button>
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${item.actionId}', this)">📅 Appointment Scheduled</button>
             </div>`;
           }
 
@@ -2001,9 +2001,11 @@
         html += '<div class="section ack-section"><div class="section-header expanded" onclick="toggleSection(\'ccCompleted\')"><div class="section-title">✅ Awaiting Acknowledgement</div><div class="section-meta">' + helpBtn('ccCompleted') + '<span class="section-count">' + completedItems.length + '</span><span class="chevron">▼</span></div></div>';
         html += '<div class="section-content expanded" id="section-ccCompleted"><div class="section-inner">';
 
-        // Add "Acknowledge All" button if more than one item
+        // Prominent "Acknowledge All" — one request instead of many. Acking items
+        // one-by-one queues a request each (the server runs a user's requests
+        // sequentially), so a long list gets slow; steer people to the bulk button.
         if (completedItems.length > 1) {
-          html += '<div class="bulk-actions"><button class="btn btn-secondary btn-sm" onclick="acknowledgeAllCC(this)">✓ Acknowledge All</button></div>';
+          html += '<div class="bulk-actions" style="margin-bottom:10px;"><button class="btn btn-primary" onclick="acknowledgeAllCC(this)">✓ Acknowledge All (' + completedItems.length + ')</button> <span style="font-size:12px;color:#888;">— faster than one at a time</span></div>';
         }
 
         completedItems.forEach(item => {
@@ -2536,6 +2538,7 @@
     // Tracks in-flight actions so a double-tap can't fire the same one twice.
     // (Priesthood-Sustain double-taps caused duplicate Stake-Business rows before.)
     const _handleActionInFlight = new Set();
+    const _scheduleApptInFlight = new Set();
 
     async function handleAction(actionId, action, btn) {
       const inFlightKey = action + '|' + actionId;
@@ -2601,7 +2604,7 @@
       }
     }
 
-    async function scheduleAppointment(itemId) {
+    async function scheduleAppointment(itemId, btn) {
       const dateInput = document.getElementById('apptDate_' + itemId);
       const timeInput = document.getElementById('apptTime_' + itemId);
 
@@ -2618,6 +2621,14 @@
         return;
       }
 
+      // Guard against repeat taps: without this, an unresponsive-feeling 2s server
+      // round-trip led users to mash the button, queuing 20+ requests (GAS runs a
+      // user's requests one at a time, so round-trips laddered to 60s).
+      if (_scheduleApptInFlight.has(itemId)) return;
+      _scheduleApptInFlight.add(itemId);
+      const origText = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
       setSyncing(true);
       try {
         await performAction('scheduleAppointment', {
@@ -2629,7 +2640,9 @@
         scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error scheduling appointment: ' + error.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = origText || '📅 Appointment Scheduled'; }
       } finally {
+        _scheduleApptInFlight.delete(itemId);
         setSyncing(false);
       }
     }
