@@ -954,10 +954,14 @@
       const ordinationCount = counts.pendingOrdinations || 0;
       const extendCount = (counts.extendCallings || 0) + (counts.extendReleases || 0);
       const taskCount = counts.myTasks || 0;
-      const ccCount = counts.ccItems || 0;
+      // Split CC into open (actionable) vs. Awaiting Acknowledgement (completed),
+      // so each gets its own count card. The ccItems array carries both, tagged by status.
+      const ccList = data.ccItems || [];
+      const ccOpenCount = ccList.filter(i => (i.status || 'Open') !== 'Completed').length;
+      const ccAckCount = ccList.filter(i => i.status === 'Completed').length;
 
       // Summary bar
-      if (approvalCount + ordinationCount + extendCount + taskCount + ccCount > 0) {
+      if (approvalCount + ordinationCount + extendCount + taskCount + ccOpenCount + ccAckCount > 0) {
         html += '<div class="summary-bar">';
 
         if (approvalCount > 0) {
@@ -988,10 +992,17 @@
           </div>`;
         }
 
-        if (ccCount > 0) {
+        if (ccOpenCount > 0) {
           html += `<div class="summary-card" onclick="scrollToSection('ccOpen')">
-            <div class="number">${ccCount}</div>
+            <div class="number">${ccOpenCount}</div>
             <div class="label">CC Items</div>
+          </div>`;
+        }
+
+        if (ccAckCount > 0) {
+          html += `<div class="summary-card" onclick="scrollToSection('ccCompleted')">
+            <div class="number">${ccAckCount}</div>
+            <div class="label">Awaiting Ack</div>
           </div>`;
         }
 
