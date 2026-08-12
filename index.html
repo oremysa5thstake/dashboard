@@ -892,6 +892,7 @@
         isAdmin: data.isAdmin || false,
         isPresidency: data.isPresidency || false,
         isClerk: data.isClerk || false,
+        isExecSec: data.isExecSec || false,
         canMemberStatus: data.canMemberStatus || false
       };
 
@@ -2030,6 +2031,9 @@
       // Group by phase for quick scanning. Each row gets a progress bar (approved / total approvers)
       // and a one-line "Waiting on:" list for the named approvers who still need to vote.
       // Defaults to COLLAPSED — this is reference info, not an action item.
+      // Clerks/secretaries additionally get a per-approver "Record" button to log an
+      // approval/sustaining they received verbally from an SP member or high councilor.
+      const canRecordVotes = !!(userData && (userData.isClerk || userData.isExecSec));
       let html = '<div class="section info-section"><div class="section-header" onclick="toggleSection(\'approvalStatus\')"><div class="section-title">📊 Approval / Sustaining Status</div><div class="section-meta">' + helpBtn('approvalStatus') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content" id="section-approvalStatus"><div class="section-inner">';
 
@@ -2056,6 +2060,25 @@
         const approvedNames = (item.approvedBy || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
         const waitingNames = (item.waitingOn || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
         const opposedNames = (item.opposed || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
+        const recordVerb = item.type === 'ordination' ? 'sustaining' : 'approval';
+
+        // Waiting-on block: for clerks/secretaries, each pending approver gets a
+        // "Record" button; otherwise it's the plain comma list.
+        let waitingBlock = '';
+        const waiting = item.waitingOn || [];
+        if (waiting.length) {
+          if (canRecordVotes) {
+            waitingBlock = '<div class="item-meta" style="color:#856404;">⏳ Waiting on:</div>';
+            waiting.forEach(a => {
+              waitingBlock += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid #f2f2f2;">
+                <span style="font-size:13px;">${escapeHtmlDisplay(a.name)}</span>
+                <button class="btn btn-secondary btn-sm" onclick="recordVoteFor(${item.rowIndex}, ${a.column}, '${item.type}', '${escapeHtml(a.name)}', '${recordVerb}', this)">✓ Record ${recordVerb}</button>
+              </div>`;
+            });
+          } else {
+            waitingBlock = `<div class="item-meta" style="color:#856404;">⏳ Waiting on: ${waitingNames}</div>`;
+          }
+        }
 
         html += `<div class="item">
           <div class="item-header">
@@ -2065,13 +2088,32 @@
           <div class="item-meta">Phase: ${escapeHtmlDisplay(item.phase || '—')}</div>
           ${progressBar}
           ${approvedNames ? `<div class="item-meta" style="color:#28a745;">✓ Approved: ${approvedNames}</div>` : ''}
-          ${waitingNames ? `<div class="item-meta" style="color:#856404;">⏳ Waiting on: ${waitingNames}</div>` : ''}
+          ${waitingBlock}
           ${opposedNames ? `<div class="item-meta" style="color:#dc3545;">⚠️ Opposed: ${opposedNames}</div>` : ''}
         </div>`;
       });
 
       html += '</div></div></div>';
       return html;
+    }
+
+    // Clerk/secretary records an approval/sustaining they received verbally from a
+    // specific SP member or high councilor, straight from the status section.
+    async function recordVoteFor(rowIndex, column, type, name, verb, btn) {
+      if (!confirm('Record ' + verb + ' from ' + name + '?\n\nOnly do this if they have actually given it.')) return;
+      const origText = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('recordVote', { rowIndex: rowIndex, column: column, type: type });
+        showToast(res && res.message ? res.message : (name + ' — ' + verb + ' recorded'), 'success');
+        scheduleSilentRefresh(500);
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = origText || ('✓ Record ' + verb); }
+      } finally {
+        setSyncing(false);
+      }
     }
 
     // ============================================================
