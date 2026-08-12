@@ -2062,21 +2062,28 @@
         const opposedNames = (item.opposed || []).map(a => escapeHtmlDisplay(a.name)).join(', ');
         const recordVerb = item.type === 'ordination' ? 'sustaining' : 'approval';
 
-        // Waiting-on block: for clerks/secretaries, each pending approver gets a
-        // "Record" button; otherwise it's the plain comma list.
+        // Waiting-on block: the plain "Waiting on: …" summary is always shown. For
+        // clerks/secretaries, the per-person "Record" buttons live in a collapsed
+        // expander below it (so the section stays scannable by default).
         let waitingBlock = '';
         const waiting = item.waitingOn || [];
         if (waiting.length) {
+          waitingBlock = `<div class="item-meta" style="color:#856404;">⏳ Waiting on: ${waitingNames}</div>`;
           if (canRecordVotes) {
-            waitingBlock = '<div class="item-meta" style="color:#856404;">⏳ Waiting on:</div>';
+            const rid = item.type + '-' + item.rowIndex;
+            let rows = '';
             waiting.forEach(a => {
-              waitingBlock += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid #f2f2f2;">
+              rows += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid #f2f2f2;">
                 <span style="font-size:13px;">${escapeHtmlDisplay(a.name)}</span>
                 <button class="btn btn-secondary btn-sm" onclick="recordVoteFor(${item.rowIndex}, ${a.column}, '${item.type}', '${escapeHtml(a.name)}', '${recordVerb}', this)">✓ Record ${recordVerb}</button>
               </div>`;
             });
-          } else {
-            waitingBlock = `<div class="item-meta" style="color:#856404;">⏳ Waiting on: ${waitingNames}</div>`;
+            waitingBlock += `<div style="margin-top:6px;">
+              <div onclick="toggleRecordBlock('${rid}')" style="cursor:pointer;color:#5865F2;font-size:13px;font-weight:600;user-select:none;">
+                <span id="record-chevron-${rid}">▸</span> ✎ Record a verbal ${recordVerb}
+              </div>
+              <div id="record-body-${rid}" style="display:none;margin-top:4px;">${rows}</div>
+            </div>`;
           }
         }
 
@@ -2095,6 +2102,16 @@
 
       html += '</div></div></div>';
       return html;
+    }
+
+    // Expand/collapse an item's per-approver "Record" buttons (collapsed by default).
+    function toggleRecordBlock(id) {
+      const body = document.getElementById('record-body-' + id);
+      const chev = document.getElementById('record-chevron-' + id);
+      if (!body) return;
+      const opening = body.style.display === 'none';
+      body.style.display = opening ? '' : 'none';
+      if (chev) chev.textContent = opening ? '▾' : '▸';
     }
 
     // Clerk/secretary records an approval/sustaining they received verbally from a
