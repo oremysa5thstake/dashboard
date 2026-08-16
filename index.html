@@ -1065,6 +1065,10 @@
         html += renderOrdinationInterviewSchedulesSection(data.ordinationInterviewSchedules, data.stakePresidency || []);
       }
 
+      if (data.extendAssignItems && data.extendAssignItems.length > 0) {
+        html += renderExtendAssignSection(data.extendAssignItems, data.stakePresidency || []);
+      }
+
       if (data.ordinationInterviews && data.ordinationInterviews.length > 0) {
         html += renderOrdinationInterviewsSection(data.ordinationInterviews);
       }
@@ -1554,6 +1558,68 @@
           itemEl.style.opacity = '1';
           itemEl.style.pointerEvents = '';
         }
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    // SPB "Schedule & Assign" — secretaries/clerks pick which SP member extends the
+    // call AND set the appointment, in one step (mirrors ordination interview scheduling).
+    function renderExtendAssignSection(items, stakePresidency) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendAssign\')"><div class="section-title">🗂️ Callings to Schedule &amp; Assign</div><div class="section-meta">' + helpBtn('extendAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-extendAssign"><div class="section-inner">';
+
+      const spOptions = stakePresidency.map(sp =>
+        `<option value="${escapeHtml(sp.id)}">${escapeHtml(sp.name)}</option>`
+      ).join('');
+
+      items.forEach(item => {
+        const assignedInfo = item.isCC
+          ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
+          : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${assignedInfo}
+          <div class="item-actions">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <select id="extAssignSp_${item.actionId}" class="form-input" style="font-size:13px;padding:6px;">
+                <option value="">Select SP member...</option>
+                ${spOptions}
+              </select>
+              <input type="date" id="extAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="extAssignTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-success" onclick="assignExtendCall('${item.actionId}', this)">Assign &amp; Schedule</button>
+            </div>
+          </div>
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function assignExtendCall(actionId, btn) {
+      const select = document.getElementById('extAssignSp_' + actionId);
+      const spMemberId = select ? select.value : '';
+      if (!spMemberId) { showToast('Please select a stake presidency member', 'error'); return; }
+      const dateInput = document.getElementById('extAssignDate_' + actionId);
+      const timeInput = document.getElementById('extAssignTime_' + actionId);
+      const dateVal = dateInput ? dateInput.value : '';
+      const timeVal = timeInput ? timeInput.value : '';
+      const appointmentDateTime = (dateVal && timeVal) ? dateVal + 'T' + timeVal : '';
+      if (!appointmentDateTime && !confirm('No appointment date/time set. Assign the SP member without an appointment for now?')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('assignExtendCall', { itemId: actionId, spMemberId: spMemberId, appointmentDateTime: appointmentDateTime });
+        if (itemEl) itemEl.remove();
+        showToast('Assigned & scheduled', 'success');
+        scheduleSilentRefresh();
+      } catch (error) {
+        showToast('Error: ' + error.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
       } finally {
         setSyncing(false);
       }
@@ -2330,6 +2396,13 @@
         body: '<p>Ordination-related interviews that still need to be scheduled with a member of the stake presidency.</p>' +
           '<ul>' +
           '<li><b>📅 Schedule:</b> Pick the SP member and date/time for the interview.</li>' +
+          '</ul>'
+      },
+      extendAssign: {
+        title: 'Callings to Schedule & Assign',
+        body: '<p>Callings flagged for the Stake Presidency Bin (SPB) that still need a presidency member assigned to extend them.</p>' +
+          '<ul>' +
+          '<li><b>Assign &amp; Schedule:</b> Pick which SP member will extend the call and set the appointment date/time. The extend task then goes to that member with the appointment on it.</li>' +
           '</ul>'
       },
       ordInterviews: {
