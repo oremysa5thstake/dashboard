@@ -4,6 +4,7 @@
 # Include only GitHub Pages files
 !index.html
 !manifest.json
+!form.html
 !boundary-maps.html
 !maps/
 !maps/*

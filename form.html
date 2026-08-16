@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Century Gothic', CenturyGothic, AppleGothic, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); min-height: 100vh; }
+    .container { background: white; border-radius: 12px; padding: 30px; max-width: 600px; margin: 0 auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    h1 { color: #1e3a5f; text-align: center; margin-bottom: 10px; font-size: 24px; }
+    .subtitle { text-align: center; color: #666; margin-bottom: 30px; }
+    .progress-bar { display: flex; justify-content: center; margin-bottom: 30px; gap: 8px; }
+    .progress-dot { width: 12px; height: 12px; border-radius: 50%; background: #ddd; transition: background 0.3s; }
+    .progress-dot.active { background: #2d5a87; }
+    .progress-dot.completed { background: #28a745; }
+    .page { display: none; animation: fadeIn 0.4s ease-out; }
+    .page.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .page-title { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #eee; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 6px; color: #333; font-weight: 500; }
+    .required::after { content: ' *'; color: #c00; }
+    .help-text { font-size: 13px; color: #666; margin-top: 4px; }
+    input[type="text"], input[type="date"], select { width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; transition: border-color 0.3s; }
+    input:focus, select:focus { outline: none; border-color: #2d5a87; }
+    .radio-group { display: flex; flex-direction: column; gap: 10px; }
+    .radio-option { display: flex; align-items: center; padding: 15px; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .radio-option:hover { border-color: #2d5a87; background: #f8f9fa; }
+    .radio-option.selected { border-color: #2d5a87; background: #e8f0f8; }
+    .radio-option input[type="radio"] { width: 20px; height: 20px; margin-right: 12px; flex-shrink: 0; }
+    .radio-option label { margin: 0; cursor: pointer; flex-grow: 1; }
+    .checkbox-group { display: flex; flex-direction: column; gap: 12px; }
+    .checkbox-item { display: flex; align-items: flex-start; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 2px solid #e9ecef; }
+    .checkbox-item input[type="checkbox"] { width: 22px; height: 22px; margin-right: 12px; margin-top: 2px; flex-shrink: 0; }
+    .checkbox-item label { margin: 0; line-height: 1.4; }
+    .requirement-question { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 15px; border: 2px solid #e9ecef; }
+    .requirement-label { display: block; margin-bottom: 12px; font-weight: 500; color: #333; }
+    .requirement-options { display: flex; gap: 20px; flex-wrap: wrap; }
+    .requirement-option { display: flex; align-items: center; cursor: pointer; font-weight: normal; margin: 0; }
+    .requirement-option input[type="radio"] { width: 18px; height: 18px; margin-right: 6px; }
+    .info-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px; }
+    .info-box.blue { background: #e8f0f8; border-color: #2d5a87; }
+    .info-box.green { background: #d4edda; border-color: #28a745; }
+    .info-box.red { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+    .button-row { display: flex; gap: 10px; margin-top: 25px; }
+    button { flex: 1; padding: 14px; font-size: 16px; font-weight: 600; color: white; background: #2d5a87; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #1e3a5f; }
+    button:disabled { background: #999; cursor: not-allowed; }
+    button.secondary { background: #6c757d; }
+    button.secondary:hover { background: #5a6268; }
+    button.success { background: #28a745; }
+    button.success:hover { background: #218838; }
+    .success-message { text-align: center; padding: 30px 20px; }
+    .success-message h2 { color: #28a745; margin-bottom: 15px; }
+    .success-message .checkmark { font-size: 60px; margin-bottom: 20px; }
+    .error { background: #f8d7da; color: #721c24; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
+    .loading { text-align: center; padding: 40px; }
+    .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #2d5a87; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .review-section { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+    .review-section h4 { margin: 0 0 10px 0; color: #2d5a87; font-size: 14px; text-transform: uppercase; }
+    .review-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e9ecef; }
+    .review-item:last-child { border-bottom: none; }
+    .review-label { color: #666; font-size: 14px; }
+    .review-value { font-weight: 500; color: #333; text-align: right; }
+    @media (max-width: 600px) { body { padding: 10px; } .container { padding: 20px; } .review-item { flex-direction: column; } .review-value { text-align: left; margin-top: 4px; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Stake Approval/Sustaining Form</h1>
+    <p class="subtitle">Submit names for stake approval or sustaining</p>
+    <div class="progress-bar" id="progressBar"></div>
+
+    <!-- Page 1: Choose Type -->
+    <div class="page active" id="page1">
+      <div class="page-title">What are you submitting?</div>
+      <div class="radio-group">
+        <div class="radio-option" onclick="selectType('calling')">
+          <input type="radio" name="submissionType" value="calling" id="typeCalling">
+          <label for="typeCalling">Calling Recommendation for Stake Approval</label>
+        </div>
+        <div class="radio-option" onclick="selectType('ordination')">
+          <input type="radio" name="submissionType" value="ordination" id="typeOrdination">
+          <label for="typeOrdination">Melchizedek Priesthood Ordination</label>
+        </div>
+        <div class="radio-option" onclick="selectType('release')">
+          <input type="radio" name="submissionType" value="release" id="typeRelease">
+          <label for="typeRelease">Release from a Stake Calling (no replacement)</label>
+        </div>
+      </div>
+      <p class="help-text" style="margin-top: 15px; font-size: 13px; color: #666;">
+        <strong>Callings requiring stake approval include:</strong> Ward clerks &amp; assistant clerks, ward executive secretaries, elders quorum presidencies, stake clerks &amp; assistant clerks, stake executive secretaries, high councilors, stake Relief Society presidency &amp; secretary, stake auditors, stake institute teachers, and stake welfare/self-reliance specialists.
+      </p>
+      <p class="help-text" style="margin-top: 10px; font-size: 13px; color: #666;">
+        <strong>Release from a Stake Calling</strong> should be used only when the person is <em>not</em> being replaced by someone else and is <em>not</em> being released so they can take on another calling. If a replacement or new calling is involved, use the Calling Recommendation form instead.
+      </p>
+      <div id="page1Error" class="error" style="display:none;"></div>
+      <div class="button-row"><button onclick="nextPage(1)">Continue</button></div>
+    </div>
+
+    <!-- Page 15: Release pre-flight (only shown if release was chosen) -->
+    <div class="page" id="page15">
+      <div class="page-title">Quick Check</div>
+      <p style="margin-bottom: 16px;">Before we continue with the release form: will this person be replaced by someone else, OR are they being released so they can take on another stake calling?</p>
+      <div class="radio-group">
+        <div class="radio-option" onclick="selectReleasePreflight('no')">
+          <input type="radio" name="releasePreflight" value="no" id="releasePreflightNo">
+          <label for="releasePreflightNo">No — they are simply being released, with no replacement and no new calling.</label>
+        </div>
+        <div class="radio-option" onclick="selectReleasePreflight('yes')">
+          <input type="radio" name="releasePreflight" value="yes" id="releasePreflightYes">
+          <label for="releasePreflightYes">Yes — please switch me to the Calling Recommendation form.</label>
+        </div>
+      </div>
+      <div id="page15Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(15)">Back</button>
+        <button onclick="nextPage(15)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 2: Your Information -->
+    <div class="page" id="page2">
+      <div class="page-title">Your Information</div>
+      <div class="form-group">
+        <label class="required" for="submitterName">Your Name</label>
+        <input type="text" id="submitterName" placeholder="Enter your full name" oninput="onSubmitterNameInput()">
+      </div>
+      <div class="form-group">
+        <label class="required" for="submitterCalling">Your Calling</label>
+        <select id="submitterCalling" onchange="onSubmitterCallingChange()"><option value="">Select your calling...</option></select>
+        <p class="help-text" id="submitterCallingHelp"></p>
+        <p class="help-text" id="submitterApprovalNote" style="display:none; color: #1e3a5f; font-weight: 500;">&#10003; Your approval will be automatically recorded for submissions you make.</p>
+      </div>
+      <div id="page2Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(2)">Back</button>
+        <button onclick="nextPage(2)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 3: On Behalf Of (Callings only, conditional) -->
+    <div class="page" id="page3">
+      <div class="page-title">Submitting on Behalf Of</div>
+      <div class="info-box blue" id="onBehalfInfoBox"></div>
+      <div class="form-group">
+        <label for="onBehalfName" id="onBehalfNameLabel">Name of person you're submitting for</label>
+        <input type="text" id="onBehalfName" placeholder="Enter their full name" oninput="onOnBehalfNameInput()">
+      </div>
+      <div class="form-group">
+        <label for="onBehalfCalling" id="onBehalfCallingLabel">Their Calling</label>
+        <select id="onBehalfCalling" onchange="onOnBehalfCallingChange()">
+          <option value="">Select calling...</option>
+          <option value="Bishop">Bishop</option>
+          <option value="Elders Quorum President">Elders Quorum President</option>
+          <option value="Stake Presidency">Stake Presidency</option>
+          <option value="Stake Organization President">Stake Organization President</option>
+        </select>
+        <p class="help-text" id="onBehalfApprovalNote" style="display:none; color: #1e3a5f; font-weight: 500;">&#10003; Their approval will be automatically recorded for this submission.</p>
+      </div>
+      <div id="page3Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(3)">Back</button>
+        <button onclick="nextPage(3)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 4: Member Information -->
+    <div class="page" id="page4">
+      <div class="page-title" id="page4Title">Member Information</div>
+      <div class="form-group">
+        <label class="required" for="memberName" id="memberNameLabel">Name of Member</label>
+        <small class="help-text" id="memberNameSubtext" style="display:none;">As it should be stated for their sustaining.</small>
+        <input type="text" id="memberName" placeholder="Enter member's full name">
+      </div>
+      <div class="form-group">
+        <label class="required" for="ward">Ward</label>
+        <select id="ward" onchange="onWardChange()"><option value="">Select ward...</option></select>
+        <div id="otherWardContainer" style="display:none; margin-top: 10px;">
+          <input type="text" id="otherWard" placeholder="Enter ward or unit name">
+        </div>
+      </div>
+      <div id="callingFields" style="display:none;">
+        <div class="form-group">
+          <label class="required" for="callingSelection">Calling</label>
+          <select id="callingSelection" onchange="onCallingChange()"><option value="">Select calling...</option></select>
+        </div>
+        <div class="form-group" id="sustaineeGenderGroup" style="display:none;">
+          <label class="required" id="sustaineeGenderLabel">Gender</label>
+          <div class="radio-group" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <label class="radio-option"><input type="radio" name="sustaineeGender" value="Male" onchange="onSustaineeGenderChange()"> Male</label>
+            <label class="radio-option"><input type="radio" name="sustaineeGender" value="Female" onchange="onSustaineeGenderChange()"> Female</label>
+          </div>
+        </div>
+      </div>
+      <div id="ordinationFields" style="display:none;">
+        <div class="form-group">
+          <label class="required" for="ordinationOffice">Priesthood Office to be Ordained To</label>
+          <select id="ordinationOffice">
+            <option value="">Select priesthood office...</option>
+            <option value="Elder">Elder</option>
+            <option value="High Priest">High Priest</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="bishopInterviewDate">Bishop Interview Date</label>
+          <input type="date" id="bishopInterviewDate">
+          <small class="help-text">Only enter if the bishop interview has been completed and the member was found worthy.</small>
+        </div>
+        <div class="form-group">
+          <label for="bishopSubmissionDate">Bishop Submission Date</label>
+          <input type="date" id="bishopSubmissionDate">
+          <small class="help-text">Only enter if the bishop has already submitted this recommendation.</small>
+        </div>
+        <div class="form-group">
+          <label for="preferredOrdinationDate">Preferred Ordination Date (optional)</label>
+          <input type="date" id="preferredOrdinationDate">
+          <small class="help-text">If the member has a date in mind to be ordained, enter it here.</small>
+        </div>
+      </div>
+      <div id="page4Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(4)">Back</button>
+        <button onclick="nextPage(4)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 45: Consultation Check (Callings only, conditional) -->
+    <div class="page" id="page45">
+      <div class="page-title">Consultation Required</div>
+      <div class="info-box blue" id="consultationInfoBox"></div>
+      <div class="form-group">
+        <label class="required">Has this consultation taken place?</label>
+        <div class="radio-group">
+          <div class="radio-option" onclick="selectConsultation('yes')">
+            <input type="radio" name="consultationCheck" value="yes" id="consultationYes">
+            <label for="consultationYes">Yes</label>
+          </div>
+          <div class="radio-option" onclick="selectConsultation('no')">
+            <input type="radio" name="consultationCheck" value="no" id="consultationNo">
+            <label for="consultationNo">No</label>
+          </div>
+        </div>
+      </div>
+      <div id="consultationBlockMessage" class="info-box red" style="display:none;">
+        <strong>This name cannot be submitted yet.</strong>
+        <p style="margin: 10px 0 0 0;" id="consultationBlockText">Please consult with the required leader before submitting this recommendation.</p>
+      </div>
+      <div id="page45Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(45)">Back</button>
+        <button id="page45ContinueBtn" onclick="nextPage(45)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 5: Requirements (Callings only, conditional) -->
+    <div class="page" id="page5">
+      <div class="page-title">Requirements Confirmation</div>
+      <div class="info-box blue"><strong>Please confirm the following requirements for this calling:</strong></div>
+      <div class="checkbox-group" id="requirementsCheckboxes"></div>
+      <div id="page5Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(5)">Back</button>
+        <button onclick="nextPage(5)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 6: Interview Status (Callings only, conditional) -->
+    <div class="page" id="page6">
+      <div class="page-title">Interview Status</div>
+      <div class="info-box"><strong id="interviewMessage">This calling requires an interview.</strong></div>
+      <div class="form-group">
+        <label class="required">Interview Status</label>
+        <div class="radio-group">
+          <div class="radio-option" onclick="selectInterview('needs')">
+            <input type="radio" name="interviewStatus" value="needs" id="interviewNeeds">
+            <label for="interviewNeeds" id="interviewNeedsLabel">An interview needs to be scheduled</label>
+          </div>
+          <div class="radio-option" onclick="selectInterview('complete')">
+            <input type="radio" name="interviewStatus" value="complete" id="interviewComplete">
+            <label for="interviewComplete" id="interviewCompleteLabel">This member has already had their interview and is ready to proceed</label>
+          </div>
+          <div class="radio-option" onclick="selectInterview('unsure')">
+            <input type="radio" name="interviewStatus" value="unsure" id="interviewUnsure">
+            <label for="interviewUnsure">Unsure</label>
+          </div>
+        </div>
+      </div>
+      <div id="page6Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(6)">Back</button>
+        <button onclick="nextPage(6)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 6.5: Release, Notes & Comments (Callings only) -->
+    <div class="page" id="page65">
+      <div class="page-title">Additional Information</div>
+      <div class="form-group">
+        <label for="releaseeName">Member to be released in conjunction with this calling (if applicable). Leave blank if not applicable.</label>
+        <input type="text" id="releaseeName" placeholder="Enter name of member to be released, or leave blank" oninput="onReleaseNameChange()">
+      </div>
+      <div class="form-group" id="releaseeGenderGroup" style="display:none;">
+        <label class="required" id="releaseeGenderLabel">Gender of member being released</label>
+        <div class="radio-group" style="display:flex; gap:10px; flex-wrap:wrap;">
+          <label class="radio-option"><input type="radio" name="releaseeGender" value="Male"> Male</label>
+          <label class="radio-option"><input type="radio" name="releaseeGender" value="Female"> Female</label>
+        </div>
+      </div>
+      <div class="form-group" id="releaseWardGroup" style="display:none;">
+        <label for="releaseWard">Ward of member being released</label>
+        <select id="releaseWard">
+          <option value="">Select ward...</option>
+          <option value="16th Ward">16th Ward</option><option value="19th Ward">19th Ward</option>
+          <option value="24th Ward">24th Ward</option><option value="25th Ward">25th Ward</option>
+          <option value="27th Ward">27th Ward</option><option value="32nd Ward">32nd Ward</option>
+          <option value="33rd Ward">33rd Ward</option><option value="49th Ward">49th Ward</option>
+        </select>
+        <small class="help-text">For stake callings, specify which ward the person being released is in.</small>
+      </div>
+      <div id="callingNotesSection" class="info-box" style="display:none;">
+        <strong>Note for this calling:</strong>
+        <p id="callingNotesText" style="margin: 10px 0 0 0;"></p>
+      </div>
+      <div class="form-group" id="secondaryReleaseGroup">
+        <label id="secondaryReleaseLabel">Is this member also being released from a <em>different</em> calling at the same time?</label>
+        <div class="radio-group" style="display:flex; gap:10px; flex-wrap:wrap;">
+          <label class="radio-option"><input type="radio" name="hasSecondaryRelease" value="no" onchange="onSecondaryReleaseChange()" checked> No</label>
+          <label class="radio-option"><input type="radio" name="hasSecondaryRelease" value="yes" onchange="onSecondaryReleaseChange()"> Yes</label>
+        </div>
+        <div id="secondaryReleaseFields" style="display:none; margin-top:12px; padding:12px; border:1px solid #ddd; border-radius:8px; background:#fafafa;">
+          <div class="form-group">
+            <label class="required" for="secondaryReleaseCalling">Calling they are being released from</label>
+            <select id="secondaryReleaseCalling">
+              <option value="">Select calling...</option>
+            </select>
+            <small class="help-text">This is in addition to any release of the same calling above.</small>
+          </div>
+          <div class="form-group" id="secondaryReleaseWardGroup" style="display:none;">
+            <label class="required" for="secondaryReleaseWard">Ward of the calling they are being released from</label>
+            <select id="secondaryReleaseWard">
+              <option value="">Select ward...</option>
+              <option value="16th Ward">16th Ward</option><option value="19th Ward">19th Ward</option>
+              <option value="24th Ward">24th Ward</option><option value="25th Ward">25th Ward</option>
+              <option value="27th Ward">27th Ward</option><option value="32nd Ward">32nd Ward</option>
+              <option value="33rd Ward">33rd Ward</option><option value="49th Ward">49th Ward</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="comments">Comments (optional)</label>
+        <textarea id="comments" rows="5" placeholder="Enter any additional comments or information here..." style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; font-family: inherit; resize: vertical;"></textarea>
+      </div>
+      <div id="page65Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(65)">Back</button>
+        <button onclick="nextPage(65)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 66: Verbal Stake Presidency Approval (SP/Clerk submitters only; always shown for release-only) -->
+    <div class="page" id="page66">
+      <div class="page-title" id="page66Title">Stake Presidency Options</div>
+      <div class="info-box blue" id="page66InfoBox">
+        <p style="margin: 0;" id="page66InfoText">Since you are submitting on behalf of the Stake Presidency or as a Stake Clerk, you have additional options for this submission.</p>
+      </div>
+      <div class="form-group" id="spRadioGroup" style="margin-top: 20px;">
+        <label class="required" id="page66Message">Has the Stake Presidency already given their verbal approval?</label>
+        <div class="radio-group">
+          <div class="radio-option" onclick="selectVerbalApproval('no')">
+            <input type="radio" name="verbalSPApproval" value="no" id="verbalNo" checked>
+            <label for="verbalNo">No - Poll the Stake Presidency first, then High Council</label>
+          </div>
+          <div class="radio-option" onclick="selectVerbalApproval('yes')">
+            <input type="radio" name="verbalSPApproval" value="yes" id="verbalYes">
+            <label for="verbalYes">Yes - Skip Stake Presidency and poll High Council immediately</label>
+          </div>
+        </div>
+      </div>
+      <p class="help-text" id="page66HelperText" style="margin-top: 15px; font-size: 13px; color: #666;">If the Stake Presidency has already discussed and approved this calling/ordination in a Stake Presidency meeting, select "Yes" to skip polling them and go directly to the High Council.</p>
+      <!-- Per-member SP approval (callings): check each member who has already approved. -->
+      <div class="form-group" id="spCheckGroup" style="margin-top: 20px; display:none;">
+        <label>Which stake presidency members have already given verbal approval?</label>
+        <p class="help-text" style="margin: 4px 0 12px; font-size: 13px; color: #666;">Check each member who has <em>already</em> approved (e.g. in a presidency meeting). Anyone left unchecked is polled normally — leave all unchecked to poll everyone.</p>
+        <div id="spCheckList"></div>
+      </div>
+      <div class="form-group" style="margin-top: 25px;">
+        <label class="required">Is this an urgent calling?</label>
+        <div class="radio-group">
+          <div class="radio-option" onclick="selectUrgency('standard')">
+            <input type="radio" name="urgency" value="standard" id="urgencyStandard" checked>
+            <label for="urgencyStandard">Standard - Notifications follow each approver's preferences</label>
+          </div>
+          <div class="radio-option" onclick="selectUrgency('urgent')">
+            <input type="radio" name="urgency" value="urgent" id="urgencyUrgent">
+            <label for="urgencyUrgent">Urgent - Send immediate notifications to all approvers</label>
+          </div>
+        </div>
+      </div>
+      <p class="help-text" style="margin-top: 15px; font-size: 13px; color: #666;">Mark as urgent only if this calling needs to be filled immediately and cannot wait for normal notification timing.</p>
+      <div id="page66Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(66)">Back</button>
+        <button onclick="nextPage(66)">Continue</button>
+      </div>
+    </div>
+
+    <!-- Page 7: Review & Submit -->
+    <div class="page" id="page7">
+      <div class="page-title">Review & Submit</div>
+      <div id="reviewContent"></div>
+      <div id="page7Error" class="error" style="display:none;"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="prevPage(7)">Back</button>
+        <button class="success" onclick="submitForm()">Submit</button>
+      </div>
+    </div>
+
+    <!-- Success Page -->
+    <div class="page" id="successPage">
+      <div class="success-message">
+        <div class="checkmark">&#10003;</div>
+        <h2>Submitted Successfully!</h2>
+        <p id="successMessage">Your submission has been recorded.</p>
+        <p style="color:#28a745; font-weight:600; margin-top:10px;">You may now close this page.</p>
+        <div class="button-row"><button onclick="resetForm()">Submit Another</button></div>
+      </div>
+    </div>
+
+    <!-- Loading Page -->
+    <div class="page" id="loadingPage">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Processing...</p>
+        <p style="color:#b45309; font-weight:600; margin-top:10px;">Please don't close this page until your submission is confirmed.</p>
+      </div>
+    </div>
+  </div>
+  <script>
+    // GitHub Pages calling/approval form. Talks to the Apps Script backend through the
+    // JSON router (same URL the PWA uses), so it works on devices where the old embedded
+    // Apps Script form wouldn't load. Backend calls go through apiCall() below instead of
+    // google.script.run.
+    var API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
+
+    // GET to the router (matches the PWA's proven cross-origin pattern — no CORS preflight).
+    // Resolves with the parsed JSON. `params` is a flat object of string values.
+    function apiCall(action, params) {
+      var qs = new URLSearchParams();
+      qs.set('action', action);
+      if (params) { for (var k in params) { if (params.hasOwnProperty(k)) qs.set(k, params[k] == null ? '' : params[k]); } }
+      return fetch(API_URL + '?' + qs.toString(), { method: 'GET' }).then(function (r) { return r.json(); });
+    }
+
+    var formData = {
+      type: '', submitterName: '', submitterCalling: '',
+      onBehalfOf: '', onBehalfName: '', onBehalfCalling: '',
+      memberName: '', ward: '', calling: '', sustainingBody: '',
+      ordinationOffice: '', bishopInterviewDate: '', bishopSubmissionDate: '', preferredOrdinationDate: '',
+      requirements: { templeRecommend: '', priesthood: '' },
+      interviewStatus: '', interviewWith: '',
+      releaseeName: '', releaseWard: '', comments: '',
+      sustaineeGender: '', releaseeGender: '',
+      verbalSPApproval: 'no', urgency: 'standard',
+      spApprovedIds: '', spApprovedNames: '',
+      consultationConfirmed: '',
+      releasePreflightAnswer: '',
+      secondaryReleaseCalling: '', secondaryReleaseWard: ''
+    };
+
+    var currentPage = 1;
+    var pageFlow = [1, 2, 4, 7];
+    var submitOptions = null;
+    var callingRequirements = null;
+    var callingsChartData = null;
+    var isLoadingCallingsChart = false;
+    var isLoadingSubmitOptions = false;
+
+    var callingSubmitterOptions = ['Bishop','Ward Clerk/Secretary','Elders Quorum President','High Councilor','Stake Presidency','Stake Organization President','Stake Clerk/Secretary'];
+    var ordinationSubmitterOptions = ['Bishop','Ward Clerk/Secretary','High Councilor','Stake Presidency','Stake Clerk/Secretary'];
+
+    window.onload = function() { loadWards(); updateProgressBar(); loadStakeCallingsRosterIfNeeded(); };
+
+    function loadWards() {
+      apiCall('getWards').then(function(d) {
+        var wards = (d && d.wards) || [];
+        var s = document.getElementById('ward');
+        wards.forEach(function(w) { s.add(new Option(w, w)); });
+      }).catch(function(){});
+    }
+
+    function onWardChange() {
+      var s = document.getElementById('ward');
+      var c = document.getElementById('otherWardContainer');
+      if (s.value === 'Other') { c.style.display = 'block'; document.getElementById('otherWard').focus(); }
+      else { c.style.display = 'none'; document.getElementById('otherWard').value = ''; }
+    }
+
+    function updateProgressBar() {
+      var bar = document.getElementById('progressBar');
+      bar.innerHTML = '';
+      var ci = pageFlow.indexOf(currentPage);
+      pageFlow.forEach(function(p, i) {
+        var d = document.createElement('div');
+        d.className = 'progress-dot';
+        if (i < ci) d.classList.add('completed');
+        else if (i === ci) d.classList.add('active');
+        bar.appendChild(d);
+      });
+    }
+
+    function showPage(pn) {
+      document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('page' + pn).classList.add('active');
+      currentPage = pn;
+      updateProgressBar();
+      window.scrollTo(0, 0);
+    }
+
+    function selectType(type) {
+      formData.type = type;
+      document.querySelectorAll('#page1 .radio-option').forEach(function(o) { o.classList.remove('selected'); });
+      if (type === 'calling') {
+        document.getElementById('typeCalling').checked = true;
+        document.getElementById('typeCalling').parentElement.classList.add('selected');
+        loadCallingsChartIfNeeded();
+      } else if (type === 'release') {
+        document.getElementById('typeRelease').checked = true;
+        document.getElementById('typeRelease').parentElement.classList.add('selected');
+        // Release-only submissions still need the callings chart for the calling dropdown
+        loadCallingsChartIfNeeded();
+      } else {
+        document.getElementById('typeOrdination').checked = true;
+        document.getElementById('typeOrdination').parentElement.classList.add('selected');
+      }
+    }
+
+    function loadCallingsChartIfNeeded() {
+      if (!callingsChartData && !isLoadingCallingsChart) {
+        isLoadingCallingsChart = true;
+        apiCall('getCallingsChartData')
+          .then(function(d) { callingsChartData = (d && d.data) || d; isLoadingCallingsChart = false; })
+          .catch(function(e) { isLoadingCallingsChart = false; });
+      }
+      // Also kick off the Stake Callings roster fetch so the submitter / on-behalf calling
+      // dropdowns can pre-populate by name match.
+      loadStakeCallingsRosterIfNeeded();
+    }
+
+    var stakeCallingsRoster = null;
+    var isLoadingRoster = false;
+
+    function loadStakeCallingsRosterIfNeeded() {
+      if (stakeCallingsRoster || isLoadingRoster) return;
+      isLoadingRoster = true;
+      apiCall('getStakeCallingsRoster')
+        .then(function(d) { stakeCallingsRoster = (d && d.roster) || []; isLoadingRoster = false; tryInferAllSubmitterCallings(); })
+        .catch(function() { isLoadingRoster = false; });
+    }
+
+    /**
+     * Map a Stake Callings col A value (e.g. "High Councilor 4", "Stake Presidency First Counselor",
+     * "Stake Assistant Clerk--Membership", "Stake Relief Society President") to the matching
+     * option in the form's submitter-calling dropdown. Returns '' if no rule matches.
+     */
+    function _mapStakeCallingToFormOption(callingFromSheet) {
+      var c = String(callingFromSheet || '').toLowerCase();
+      if (!c) return '';
+      if (c.indexOf('high councilor') !== -1) return 'High Councilor';
+      if (c.indexOf('stake presiden') !== -1) return 'Stake Presidency'; // covers President + counselors
+      if (c.indexOf('stake relief society president') !== -1) return 'Stake Organization President';
+      if (c.indexOf('clerk') !== -1 || c.indexOf('secretary') !== -1) return 'Stake Clerk/Secretary';
+      return '';
+    }
+
+    /**
+     * Infer the form calling option for a typed name.
+     * - If "Bishop" appears anywhere in the name → "Bishop".
+     * - Else look up the name in Stake Callings col B (Name) or C (Nickname) and map col A
+     *   through _mapStakeCallingToFormOption().
+     * Returns '' when nothing matches.
+     */
+    function inferSubmitterCallingFromName(enteredName) {
+      var n = String(enteredName || '').trim();
+      if (!n) return '';
+      if (n.toLowerCase().indexOf('bishop') !== -1) return 'Bishop';
+      if (!stakeCallingsRoster || stakeCallingsRoster.length === 0) return '';
+      var nLower = n.toLowerCase();
+      for (var i = 0; i < stakeCallingsRoster.length; i++) {
+        var e = stakeCallingsRoster[i];
+        var fullName = String(e.name || '').toLowerCase();
+        var nick = String(e.nickname || '').toLowerCase();
+        // Match if typed string contains either the full name or the nickname, OR vice versa
+        // (handles "Tom Glad" vs "Thomas Glad" type lookups when only the first name is typed).
+        var hit = (fullName && (nLower === fullName || nLower.indexOf(fullName) !== -1 || fullName.indexOf(nLower) !== -1)) ||
+                  (nick && (nLower === nick || nLower.indexOf(nick) !== -1 || nick.indexOf(nLower) !== -1));
+        if (!hit) continue;
+        var mapped = _mapStakeCallingToFormOption(e.calling);
+        if (mapped) return mapped;
+      }
+      return '';
+    }
+
+    // Track the calling we last auto-filled. If the user manually picks something different
+    // afterward, that value will no longer equal _lastAuto*, so we'll stop touching the dropdown.
+    var _lastAutoSubmitterCalling = '';
+    var _lastAutoOnBehalfCalling = '';
+
+    function _trySetCallingDropdown(selectId, value, onChangeFn, lastAutoVal) {
+      var sel = document.getElementById(selectId);
+      if (!sel || !value) return null;
+      var current = sel.value;
+      // Allow auto-update only if the dropdown is empty OR still holds what we last auto-set.
+      if (current && current !== lastAutoVal) return null;
+      // Confirm the option exists in this dropdown.
+      var found = false;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === value) { found = true; break; }
+      }
+      if (!found) return null;
+      if (current === value) return value; // already set; no-op (avoids re-triggering onChange repeatedly)
+      sel.value = value;
+      if (typeof onChangeFn === 'function') onChangeFn();
+      return value;
+    }
+
+    function onSubmitterNameInput() {
+      var name = document.getElementById('submitterName').value;
+      var inferred = inferSubmitterCallingFromName(name);
+      if (!inferred) return;
+      var applied = _trySetCallingDropdown('submitterCalling', inferred, onSubmitterCallingChange, _lastAutoSubmitterCalling);
+      if (applied) _lastAutoSubmitterCalling = applied;
+    }
+
+    function onOnBehalfNameInput() {
+      var name = document.getElementById('onBehalfName').value;
+      var inferred = inferSubmitterCallingFromName(name);
+      if (!inferred) return;
+      var applied = _trySetCallingDropdown('onBehalfCalling', inferred, onOnBehalfCallingChange, _lastAutoOnBehalfCalling);
+      if (applied) _lastAutoOnBehalfCalling = applied;
+    }
+
+    /**
+     * Re-run inference for whatever's already typed in the name fields when the roster
+     * finishes loading (the user may have typed before the async fetch returned).
+     */
+    function escapeHtmlInline(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function tryInferAllSubmitterCallings() {
+      var sn = document.getElementById('submitterName');
+      var ohn = document.getElementById('onBehalfName');
+      if (sn && sn.value) onSubmitterNameInput();
+      if (ohn && ohn.value) onOnBehalfNameInput();
+    }
+
+    function selectReleasePreflight(answer) {
+      formData.releasePreflightAnswer = answer;
+      document.querySelectorAll('#page15 .radio-option').forEach(function(o) { o.classList.remove('selected'); });
+      var el = answer === 'yes' ? 'releasePreflightYes' : 'releasePreflightNo';
+      document.getElementById(el).checked = true;
+      document.getElementById(el).parentElement.classList.add('selected');
+    }
+
+    function updateSubmitterCallingDropdown() {
+      var s = document.getElementById('submitterCalling');
+      s.innerHTML = '<option value="">Select your calling...</option>';
+      var opts = formData.type === 'calling' ? callingSubmitterOptions : ordinationSubmitterOptions;
+      opts.forEach(function(o) { s.add(new Option(o, o)); });
+    }
+
+    function getSubmitterCapabilitiesLocal(sc) {
+      if (!callingsChartData) return { canSubmitDirectly: false, canSubmitOnBehalf: false };
+      var sl = sc.toLowerCase(), csd = false, csob = false;
+      for (var i = 0; i < callingsChartData.length; i++) {
+        if (callingsChartData[i].canBeSubmittedBy.toLowerCase().indexOf(sl) !== -1) csd = true;
+        if (callingsChartData[i].canSubmitOnBehalf.toLowerCase().indexOf(sl) !== -1) csob = true;
+        if (csd && csob) break;
+      }
+      return { canSubmitDirectly: csd, canSubmitOnBehalf: csob };
+    }
+
+    function getCallingsForRoleLocal(role) {
+      if (!callingsChartData) return [];
+      var rl = role.toLowerCase(), arr = [];
+      callingsChartData.forEach(function(r) {
+        if (r.canBeSubmittedBy.toLowerCase().indexOf(rl) !== -1) {
+          arr.push({ calling: r.calling, sustainingBody: r.sustainingBody,
+            templeRecommend: r.templeRecommend === 'Yes', aaronicPriesthood: r.aaronicPriesthood === 'Yes',
+            elder: r.elder === 'Yes', highPriest: r.highPriest === 'Yes',
+            stakeInterview: r.stakeInterview, notes: r.notes });
+        }
+      });
+      return arr;
+    }
+
+    function getCallingRequirementsLocal(cn) {
+      if (!callingsChartData) return null;
+      for (var i = 0; i < callingsChartData.length; i++) {
+        if (callingsChartData[i].calling === cn) {
+          var r = callingsChartData[i];
+          return { sustainingBody: r.sustainingBody, templeRecommend: r.templeRecommend === 'Yes',
+            aaronicPriesthood: r.aaronicPriesthood === 'Yes', elder: r.elder === 'Yes',
+            highPriest: r.highPriest === 'Yes', stakeInterview: r.stakeInterview, notes: r.notes };
+        }
+      }
+      return null;
+    }
+
+    // === NEW: Consultation check functions ===
+
+    function getConsultationRequirement(callingName) {
+      if (!callingsChartData || !callingName) return '';
+      for (var i = 0; i < callingsChartData.length; i++) {
+        if (callingsChartData[i].calling === callingName) {
+          return callingsChartData[i].checkForConsultation || '';
+        }
+      }
+      return '';
+    }
+
+    function isSubmitterTheConsultationRole(consultRole) {
+      if (!consultRole) return false;
+      var cl = consultRole.toLowerCase();
+      var sl = (formData.submitterCalling || '').toLowerCase();
+      if (sl && (cl.indexOf(sl) !== -1 || sl.indexOf(cl) !== -1)) return true;
+      var ol = (formData.onBehalfCalling || '').toLowerCase();
+      if (ol && (cl.indexOf(ol) !== -1 || ol.indexOf(cl) !== -1)) return true;
+      return false;
+    }
+
+    function selectConsultation(value) {
+      formData.consultationConfirmed = value;
+      document.querySelectorAll('#page45 .radio-option').forEach(function(o) { o.classList.remove('selected'); });
+      if (value === 'yes') {
+        document.getElementById('consultationYes').checked = true;
+        document.getElementById('consultationYes').parentElement.classList.add('selected');
+        document.getElementById('consultationBlockMessage').style.display = 'none';
+        document.getElementById('page45ContinueBtn').disabled = false;
+      } else {
+        document.getElementById('consultationNo').checked = true;
+        document.getElementById('consultationNo').parentElement.classList.add('selected');
+        var cr = getConsultationRequirement(formData.calling);
+        document.getElementById('consultationBlockText').textContent = 'Please consult with the ' + cr + ' before submitting this recommendation.';
+        document.getElementById('consultationBlockMessage').style.display = 'block';
+        document.getElementById('page45ContinueBtn').disabled = true;
+      }
+    }
+
+    // === End consultation functions ===
+
+    function onSubmitterCallingChange() {
+      formData.submitterCalling = document.getElementById('submitterCalling').value;
+      // Release-only flow uses the same submitter capabilities (on-behalf-of, available callings)
+      // as the regular calling flow, so we kick off the same loader for both types.
+      if ((formData.type === 'calling' || formData.type === 'release') && formData.submitterCalling) {
+        if (isLoadingCallingsChart || !callingsChartData) {
+          isLoadingSubmitOptions = true;
+          var btn = document.querySelector('#page2 .button-row button:last-child');
+          if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+          var iv = setInterval(function() {
+            if (!isLoadingCallingsChart && callingsChartData) { clearInterval(iv); processSubmitterCapabilities(); }
+          }, 100);
+        } else { processSubmitterCapabilities(); }
+      } else { submitOptions = null; }
+    }
+
+    function processSubmitterCapabilities() {
+      var btn = document.querySelector('#page2 .button-row button:last-child');
+      submitOptions = getSubmitterCapabilitiesLocal(formData.submitterCalling);
+      isLoadingSubmitOptions = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Continue'; }
+      var ht = document.getElementById('submitterCallingHelp');
+      if (submitOptions.canSubmitOnBehalf && submitOptions.canSubmitDirectly) ht.textContent = 'You can submit for yourself or on behalf of others.';
+      else if (submitOptions.canSubmitOnBehalf) ht.textContent = 'You will need to specify who you are submitting on behalf of.';
+      else if (submitOptions.canSubmitDirectly) ht.textContent = '';
+      else ht.textContent = 'Note: Your calling may have limited submission options.';
+      var an = document.getElementById('submitterApprovalNote');
+      an.style.display = (formData.submitterCalling === 'Stake Presidency' || formData.submitterCalling === 'High Councilor') ? 'block' : 'none';
+    }
+
+    function onOnBehalfCallingChange() {
+      var an = document.getElementById('onBehalfApprovalNote');
+      an.style.display = document.getElementById('onBehalfCalling').value === 'Stake Presidency' ? 'block' : 'none';
+    }
+
+    function onSecondaryReleaseChange() {
+      var sel = document.querySelector('input[name="hasSecondaryRelease"]:checked');
+      var v = sel ? sel.value : 'no';
+      var box = document.getElementById('secondaryReleaseFields');
+      if (v === 'yes') {
+        populateAllStakeCallingsDropdown();
+        box.style.display = 'block';
+      } else {
+        box.style.display = 'none';
+        document.getElementById('secondaryReleaseCalling').value = '';
+        document.getElementById('secondaryReleaseWard').value = '';
+        document.getElementById('secondaryReleaseWardGroup').style.display = 'none';
+        formData.secondaryReleaseCalling = '';
+        formData.secondaryReleaseWard = '';
+      }
+    }
+
+    function populateAllStakeCallingsDropdown() {
+      var sel = document.getElementById('secondaryReleaseCalling');
+      // Only populate once
+      if (sel.options.length > 1) return;
+      if (!callingsChartData || callingsChartData.length === 0) {
+        // Chart not loaded yet — retry shortly. Should always be loaded by this point in the flow,
+        // but be defensive.
+        setTimeout(populateAllStakeCallingsDropdown, 300);
+        return;
+      }
+      // Show every calling in the chart except those with Sustaining Body = "None".
+      // The Callings Chart only contains stake-approved callings, so this is the full
+      // list the user wants for the secondary-release picker.
+      callingsChartData
+        .filter(function(c) {
+          if (!c.calling) return false;
+          var sb = String(c.sustainingBody || '').toLowerCase();
+          return sb !== 'none';
+        })
+        .forEach(function(c) { sel.add(new Option(c.calling, c.calling)); });
+      sel.addEventListener('change', function() {
+        // Show a ward picker for callings that are ward-based (the calling name doesn't
+        // contain "Stake" / "High Council" / "Patriarch" — those are stake-wide roles).
+        var c = sel.value.toLowerCase();
+        var needsWard = c && c.indexOf('stake') === -1 && c.indexOf('high council') === -1 && c.indexOf('patriarch') === -1;
+        document.getElementById('secondaryReleaseWardGroup').style.display = needsWard ? 'block' : 'none';
+        if (!needsWard) document.getElementById('secondaryReleaseWard').value = '';
+      });
+    }
+
+    function onReleaseNameChange() {
+      var rn = document.getElementById('releaseeName').value.trim();
+      var rg = document.getElementById('releaseWardGroup');
+      var isSS = formData.sustainingBody && formData.sustainingBody.toLowerCase().indexOf('stake') !== -1;
+      if (rn !== '' && isSS) { rg.style.display = 'block'; }
+      else { rg.style.display = 'none'; document.getElementById('releaseWard').value = ''; }
+      // Show releasee gender only when sustainee gender is being asked AND a release name was entered
+      var rgg = document.getElementById('releaseeGenderGroup');
+      if (rn !== '' && shouldAskGender()) {
+        rgg.style.display = 'block';
+        var label = document.getElementById('releaseeGenderLabel');
+        if (label) label.textContent = 'Gender of ' + (rn || 'member being released');
+      } else {
+        rgg.style.display = 'none';
+        // Clear any prior selection so stale data doesn't get submitted
+        document.querySelectorAll('input[name="releaseeGender"]').forEach(function(r){ r.checked = false; });
+        formData.releaseeGender = '';
+      }
+    }
+
+    /**
+     * Returns true when the form should ask the user for the member's gender.
+     * Skipped when the calling has a priesthood requirement (gender is implied
+     * Male) or when the calling title contains "Relief Society" (implied Female).
+     */
+    function shouldAskGender() {
+      if (!callingRequirements) return false;
+      var hasPriesthoodReq = callingRequirements.aaronicPriesthood || callingRequirements.elder || callingRequirements.highPriest;
+      if (hasPriesthoodReq) return false;
+      var c = (formData.calling || '').toLowerCase();
+      if (c.indexOf('relief society') !== -1) return false;
+      return true;
+    }
+
+    function onSustaineeGenderChange() {
+      var sel = document.querySelector('input[name="sustaineeGender"]:checked');
+      formData.sustaineeGender = sel ? sel.value : '';
+    }
+
+    function refreshSustaineeGenderField() {
+      var g = document.getElementById('sustaineeGenderGroup');
+      var label = document.getElementById('sustaineeGenderLabel');
+      if (shouldAskGender()) {
+        g.style.display = 'block';
+        var mn = (formData.memberName || document.getElementById('memberName').value || '').trim();
+        if (label) label.textContent = 'Gender of ' + (mn || 'the member being recommended');
+      } else {
+        g.style.display = 'none';
+        document.querySelectorAll('input[name="sustaineeGender"]').forEach(function(r){ r.checked = false; });
+        formData.sustaineeGender = '';
+      }
+    }
+
+    function loadAvailableCallings() {
+      var obn = document.getElementById('onBehalfName').value.trim();
+      var obc = document.getElementById('onBehalfCalling').value;
+      var role = (obn && obc) ? obc : formData.submitterCalling;
+      var callings = getCallingsForRoleLocal(role);
+      var s = document.getElementById('callingSelection');
+      s.innerHTML = '<option value="">Select calling...</option>';
+      callings.forEach(function(c) { s.add(new Option(c.calling, c.calling)); });
+    }
+
+    function onCallingChange() {
+      formData.calling = document.getElementById('callingSelection').value;
+      var isSC = formData.calling && (formData.calling.toLowerCase().includes('stake') || formData.calling === 'High Councilor');
+      var ws = document.getElementById('ward');
+      var oo = ws.querySelector('option[value="Other"]');
+      if (isSC) { if (!oo) ws.add(new Option('Other', 'Other')); }
+      else { if (oo) { oo.remove(); if (ws.value === 'Other' || ws.value === '') ws.selectedIndex = 0; document.getElementById('otherWardContainer').style.display = 'none'; document.getElementById('otherWard').value = ''; } }
+      if (formData.calling) {
+        callingRequirements = getCallingRequirementsLocal(formData.calling);
+        if (callingRequirements) formData.sustainingBody = callingRequirements.sustainingBody || '';
+        updatePageFlow();
+      } else { callingRequirements = null; formData.sustainingBody = ''; }
+      refreshSustaineeGenderField();
+    }
+
+    function updatePageFlow() {
+      if (formData.type === 'ordination') {
+        pageFlow = [1, 2, 4, 7];
+      } else if (formData.type === 'release') {
+        // Release-only flow: pre-flight (15) → submitter info → on-behalf-of (if applicable)
+        //   → member & calling info → additional info (gender/comments) → SP-already-approved? → review.
+        // No requirements, no interview, no consultation.
+        pageFlow = [1, 15, 2];
+        if (submitOptions && submitOptions.canSubmitOnBehalf) pageFlow.push(3);
+        pageFlow.push(4);
+        pageFlow.push(65);
+        pageFlow.push(66); // SP approval question always shown for release-only
+        pageFlow.push(7);
+      } else {
+        pageFlow = [1, 2];
+        if (submitOptions && submitOptions.canSubmitOnBehalf) pageFlow.push(3);
+        pageFlow.push(4);
+
+        // NEW: Consultation check - add page 45 if calling has column H value
+        // and submitter/on-behalf is NOT the consultation role
+        if (formData.calling) {
+          var consultRole = getConsultationRequirement(formData.calling);
+          if (consultRole && !isSubmitterTheConsultationRole(consultRole)) {
+            pageFlow.push(45);
+          }
+        }
+
+        if (callingRequirements && (callingRequirements.templeRecommend || callingRequirements.aaronicPriesthood || callingRequirements.elder || callingRequirements.highPriest)) pageFlow.push(5);
+        if (callingRequirements && callingRequirements.stakeInterview) pageFlow.push(6);
+        pageFlow.push(65);
+        if (isStakeLeaderSubmitter()) pageFlow.push(66);
+        pageFlow.push(7);
+      }
+      updateProgressBar();
+    }
+
+    function selectInterview(status) {
+      formData.interviewStatus = status === 'needs' ? 'Needs to be scheduled' : (status === 'complete' ? 'Complete' : 'Unsure');
+      document.querySelectorAll('#page6 .radio-option').forEach(function(o) { o.classList.remove('selected'); });
+      var el = status === 'needs' ? 'interviewNeeds' : (status === 'complete' ? 'interviewComplete' : 'interviewUnsure');
+      document.getElementById(el).checked = true;
+      document.getElementById(el).parentElement.classList.add('selected');
+    }
+
+    function selectVerbalApproval(value) {
+      formData.verbalSPApproval = value;
+      document.querySelectorAll('input[name="verbalSPApproval"]').forEach(function(r) { r.parentElement.classList.remove('selected'); });
+      var el = value === 'yes' ? 'verbalYes' : 'verbalNo';
+      document.getElementById(el).checked = true;
+      document.getElementById(el).parentElement.classList.add('selected');
+    }
+
+    function selectUrgency(value) {
+      formData.urgency = value;
+      document.querySelectorAll('input[name="urgency"]').forEach(function(r) { r.parentElement.classList.remove('selected'); });
+      var el = value === 'urgent' ? 'urgencyUrgent' : 'urgencyStandard';
+      document.getElementById(el).checked = true;
+      document.getElementById(el).parentElement.classList.add('selected');
+    }
+
+    // The 3 stake presidency members from the roster (President first, then counselors),
+    // each with their Slack ID so the backend can mark their exact approval column.
+    function getStakePresidencyMembers() {
+      if (!stakeCallingsRoster || !stakeCallingsRoster.length) return [];
+      var mem = [];
+      stakeCallingsRoster.forEach(function(e) {
+        var c = String(e.calling || '').toLowerCase();
+        if (c.indexOf('stake presiden') !== -1 && e.id) {
+          var rank = c.indexOf('counselor') === -1 ? 0 : (c.indexOf('first') !== -1 ? 1 : (c.indexOf('second') !== -1 ? 2 : 3));
+          mem.push({ id: e.id, name: e.name || e.nickname || e.id, calling: e.calling, rank: rank });
+        }
+      });
+      mem.sort(function(a, b) { return a.rank - b.rank; });
+      return mem;
+    }
+
+    // Populate the per-member SP checkbox list. Returns false (→ fall back to Yes/No) if
+    // no presidency members could be resolved from the roster.
+    function buildSPCheckboxes() {
+      var list = document.getElementById('spCheckList');
+      var members = getStakePresidencyMembers();
+      if (!members.length) { if (list) list.innerHTML = ''; return false; }
+      var html = '';
+      members.forEach(function(m) {
+        html += '<label class="radio-option" style="display:flex;align-items:center;gap:10px;cursor:pointer;">' +
+          '<input type="checkbox" class="sp-check" value="' + escapeHtmlInline(m.id) + '" data-name="' + escapeHtmlInline(m.name) + '" onchange="onSPCheckChange()">' +
+          '<span>' + escapeHtmlInline(m.name) + ' <span style="color:#888;font-size:12px;">(' + escapeHtmlInline(m.calling) + ')</span></span></label>';
+      });
+      list.innerHTML = html;
+      formData.spApprovedIds = ''; formData.spApprovedNames = '';
+      return true;
+    }
+
+    function onSPCheckChange() {
+      var checks = document.querySelectorAll('#spCheckList .sp-check');
+      var ids = [], names = [];
+      checks.forEach(function(c) { if (c.checked) { ids.push(c.value); names.push(c.getAttribute('data-name')); } });
+      formData.spApprovedIds = ids.join(',');
+      formData.spApprovedNames = names.join(', ');
+      // 'yes' only when EVERY presidency member is checked — mirrors the old "skip SP" case
+      // (used for the review summary + secondary-release inheritance).
+      formData.verbalSPApproval = (ids.length > 0 && ids.length === checks.length) ? 'yes' : 'no';
+    }
+
+    function isStakeLeaderSubmitter() {
+      var c = formData.submitterCalling.toLowerCase();
+      return c.indexOf('stake president') !== -1 || c.indexOf('stake presidency') !== -1 || c.indexOf('stake clerk') !== -1 || c.indexOf('stake executive secretary') !== -1;
+    }
+
+    function showError(pn, msg) { var e = document.getElementById('page' + pn + 'Error'); e.textContent = msg; e.style.display = 'block'; }
+    function hideError(pn) { var e = document.getElementById('page' + pn + 'Error'); if (e) e.style.display = 'none'; }
+
+    function nextPage(fp) {
+      hideError(fp);
+      if (!validatePage(fp)) return;
+      savePageData(fp);
+      var ci = pageFlow.indexOf(fp);
+      if (ci < pageFlow.length - 1) { var np = pageFlow[ci + 1]; preparePageForDisplay(np); showPage(np); }
+    }
+
+    function prevPage(fp) { hideError(fp); var ci = pageFlow.indexOf(fp); if (ci > 0) showPage(pageFlow[ci - 1]); }
+
+    function validatePage(pn) {
+      switch(pn) {
+        case 1:
+          if (!formData.type) { showError(1, 'Please select what you are submitting.'); return false; }
+          updateSubmitterCallingDropdown();
+          if (formData.type === 'ordination') {
+            pageFlow = [1, 2, 4, 7];
+          } else if (formData.type === 'release') {
+            // Force pre-flight on the next click; updatePageFlow() will rebuild the full release flow.
+            pageFlow = [1, 15];
+          } else {
+            pageFlow = [1, 2, 4, 7];
+          }
+          updateProgressBar();
+          return true;
+        case 15:
+          if (!formData.releasePreflightAnswer) { showError(15, 'Please choose Yes or No.'); return false; }
+          if (formData.releasePreflightAnswer === 'yes') {
+            // Switch to calling flow and skip page 15 going forward.
+            formData.type = 'calling';
+            selectType('calling');
+            // Rebuild flow as if user had picked Calling from the start.
+            pageFlow = [1, 2, 4, 7];
+            updateSubmitterCallingDropdown();
+            updateProgressBar();
+            // Jump directly to page 2 — no point sitting on the pre-flight page anymore.
+            preparePageForDisplay(2);
+            showPage(2);
+            return false; // Prevent the default nextPage() advance — we've already navigated.
+          }
+          updatePageFlow();
+          return true;
+        case 2:
+          if (!document.getElementById('submitterName').value.trim()) { showError(2, 'Please enter your name.'); return false; }
+          if (!document.getElementById('submitterCalling').value) { showError(2, 'Please select your calling.'); return false; }
+          if (formData.type === 'calling' || formData.type === 'release') {
+            if (isLoadingSubmitOptions) return false;
+            if (submitOptions && submitOptions.canSubmitOnBehalf) {
+              if (!pageFlow.includes(3)) {
+                // Insert page 3 (on-behalf-of) into the flow, preserving the rest.
+                if (formData.type === 'release') { updatePageFlow(); }
+                else { pageFlow = [1, 2, 3, 4, 7]; }
+                updateProgressBar();
+              }
+            } else {
+              formData.onBehalfOf = 'myself';
+              if (formData.type === 'release') { updatePageFlow(); }
+              else { pageFlow = [1, 2, 4, 7]; }
+              updateProgressBar();
+              loadAvailableCallings();
+            }
+          }
+          return true;
+        case 3:
+          var obn = document.getElementById('onBehalfName').value.trim();
+          var obc = document.getElementById('onBehalfCalling').value;
+          var req = submitOptions && !submitOptions.canSubmitDirectly;
+          if (req) { if (!obn) { showError(3, 'Please enter the name of the person you are submitting for.'); return false; } if (!obc) { showError(3, 'Please select the calling of the person you are submitting for.'); return false; } }
+          else { if (obn && !obc) { showError(3, 'Please select the calling of the person you are submitting for.'); return false; } if (!obn && obc) { showError(3, 'Please enter the name of the person you are submitting for.'); return false; } }
+          formData.onBehalfOf = (obn && obc) ? obc : 'myself';
+          loadAvailableCallings();
+          return true;
+        case 4:
+          if (!document.getElementById('memberName').value.trim()) { showError(4, "Please enter the member's name."); return false; }
+          if (!document.getElementById('ward').value) { showError(4, 'Please select a ward.'); return false; }
+          if (document.getElementById('ward').value === 'Other' && !document.getElementById('otherWard').value.trim()) { showError(4, 'Please enter the ward or unit name.'); return false; }
+          if (formData.type === 'calling' || formData.type === 'release') {
+            if (!document.getElementById('callingSelection').value) { showError(4, formData.type === 'release' ? 'Please select the calling this member is being released from.' : 'Please select a calling.'); return false; }
+            updatePageFlow();
+          }
+          else { if (!document.getElementById('ordinationOffice').value) { showError(4, 'Please select the priesthood office.'); return false; } updatePageFlow(); }
+          // Gender required when sustainee gender question is shown
+          if ((formData.type === 'calling' || formData.type === 'release') && document.getElementById('sustaineeGenderGroup').style.display !== 'none') {
+            var sg = document.querySelector('input[name="sustaineeGender"]:checked');
+            if (!sg) { showError(4, "Please indicate the member's gender."); return false; }
+          }
+          return true;
+        case 45:
+          if (!formData.consultationConfirmed) { showError(45, 'Please indicate whether the required consultation has taken place.'); return false; }
+          if (formData.consultationConfirmed === 'no') return false;
+          return true;
+        case 5:
+          if (callingRequirements) {
+            if (callingRequirements.templeRecommend && !document.querySelector('input[name="reqTemple"]:checked')) { showError(5, 'Please answer the temple recommend question.'); return false; }
+            if ((callingRequirements.aaronicPriesthood || callingRequirements.elder || callingRequirements.highPriest) && !document.querySelector('input[name="reqPriesthood"]:checked')) { showError(5, 'Please answer the priesthood question.'); return false; }
+          }
+          return true;
+        case 6:
+          if (!formData.interviewStatus) { showError(6, 'Please select the interview status.'); return false; }
+          return true;
+        case 65:
+          // Releasee gender required when the gender field is visible (release name entered + gender-neutral calling)
+          if (document.getElementById('releaseeGenderGroup').style.display !== 'none') {
+            var rgSel = document.querySelector('input[name="releaseeGender"]:checked');
+            if (!rgSel) { showError(65, "Please indicate the gender of the member being released."); return false; }
+          }
+          // Secondary release: if user said yes, the calling is required, and ward is required when shown.
+          if (formData.type === 'calling') {
+            var srSel = document.querySelector('input[name="hasSecondaryRelease"]:checked');
+            if (srSel && srSel.value === 'yes') {
+              if (!document.getElementById('secondaryReleaseCalling').value) { showError(65, 'Please select the other stake calling this member is being released from.'); return false; }
+              if (document.getElementById('secondaryReleaseWardGroup').style.display !== 'none' && !document.getElementById('secondaryReleaseWard').value) {
+                showError(65, 'Please select the ward for the additional release.');
+                return false;
+              }
+            }
+          }
+          return true;
+        default: return true;
+      }
+    }
+
+    function savePageData(pn) {
+      switch(pn) {
+        case 2: formData.submitterName = document.getElementById('submitterName').value.trim(); formData.submitterCalling = document.getElementById('submitterCalling').value; break;
+        case 3:
+          if (formData.onBehalfOf !== 'myself') { formData.onBehalfName = document.getElementById('onBehalfName').value.trim(); formData.onBehalfCalling = document.getElementById('onBehalfCalling').value; }
+          else { formData.onBehalfName = ''; formData.onBehalfCalling = ''; }
+          break;
+        case 4:
+          formData.memberName = document.getElementById('memberName').value.trim();
+          var wv = document.getElementById('ward').value;
+          formData.ward = wv === 'Other' ? document.getElementById('otherWard').value.trim() : wv;
+          if (formData.type === 'calling' || formData.type === 'release') {
+            formData.calling = document.getElementById('callingSelection').value;
+            var sgSaved = document.querySelector('input[name="sustaineeGender"]:checked');
+            formData.sustaineeGender = sgSaved ? sgSaved.value : '';
+          }
+          else { formData.ordinationOffice = document.getElementById('ordinationOffice').value; formData.bishopInterviewDate = document.getElementById('bishopInterviewDate').value; formData.bishopSubmissionDate = document.getElementById('bishopSubmissionDate').value; formData.preferredOrdinationDate = document.getElementById('preferredOrdinationDate').value; }
+          break;
+        case 5:
+          var gv = function(n) { var s = document.querySelector('input[name="'+n+'"]:checked'); return s ? s.value : ''; };
+          formData.requirements.templeRecommend = gv('reqTemple');
+          formData.requirements.priesthood = gv('reqPriesthood');
+          break;
+        case 6: if (callingRequirements) formData.interviewWith = callingRequirements.stakeInterview; break;
+        case 65:
+          formData.releaseeName = document.getElementById('releaseeName').value.trim();
+          formData.releaseWard = document.getElementById('releaseWard').value;
+          formData.comments = document.getElementById('comments').value.trim();
+          var rgSaved = document.querySelector('input[name="releaseeGender"]:checked');
+          formData.releaseeGender = (rgSaved && document.getElementById('releaseeGenderGroup').style.display !== 'none') ? rgSaved.value : '';
+          // Secondary release (calling form only)
+          if (formData.type === 'calling') {
+            var sr = document.querySelector('input[name="hasSecondaryRelease"]:checked');
+            if (sr && sr.value === 'yes') {
+              formData.secondaryReleaseCalling = document.getElementById('secondaryReleaseCalling').value || '';
+              formData.secondaryReleaseWard = document.getElementById('secondaryReleaseWard').value || '';
+            } else {
+              formData.secondaryReleaseCalling = '';
+              formData.secondaryReleaseWard = '';
+            }
+          } else {
+            formData.secondaryReleaseCalling = '';
+            formData.secondaryReleaseWard = '';
+          }
+          break;
+      }
+    }
+
+    function preparePageForDisplay(pn) {
+      switch(pn) {
+        case 3:
+          var ib = document.getElementById('onBehalfInfoBox');
+          var nl = document.getElementById('onBehalfNameLabel');
+          var cl = document.getElementById('onBehalfCallingLabel');
+          if (submitOptions && submitOptions.canSubmitDirectly) {
+            ib.innerHTML = "Your calling allows you to submit recommendations on behalf of others. If you are submitting for someone else, please enter their information below. Otherwise, leave blank and continue.";
+            nl.innerHTML = "Name of person you're submitting for (optional)"; nl.classList.remove('required'); cl.classList.remove('required');
+            document.getElementById('onBehalfName').placeholder = 'Leave blank if submitting for yourself';
+          } else {
+            ib.innerHTML = "Your calling requires you to submit recommendations on behalf of the person making the recommendation. Please enter their information below.";
+            nl.innerHTML = "Name of person you're submitting for"; nl.classList.add('required'); cl.classList.add('required');
+            document.getElementById('onBehalfName').placeholder = 'Enter their full name';
+          }
+          break;
+        case 4:
+          if (formData.type === 'calling') {
+            document.getElementById('page4Title').textContent = 'Member & Calling Information';
+            document.getElementById('memberNameLabel').textContent = 'Full Name of Member Being Recommended';
+            document.getElementById('memberNameSubtext').style.display = 'block';
+            document.getElementById('callingFields').style.display = 'block'; document.getElementById('ordinationFields').style.display = 'none';
+            refreshSustaineeGenderField();
+          } else if (formData.type === 'release') {
+            document.getElementById('page4Title').textContent = 'Release Information';
+            document.getElementById('memberNameLabel').textContent = 'Full Name of Member Being Released';
+            document.getElementById('memberNameSubtext').style.display = 'block';
+            document.getElementById('callingFields').style.display = 'block'; document.getElementById('ordinationFields').style.display = 'none';
+            refreshSustaineeGenderField();
+          } else {
+            document.getElementById('page4Title').textContent = 'Ordination Information';
+            document.getElementById('memberNameLabel').textContent = 'Full Name of Member to be Ordained';
+            document.getElementById('memberNameSubtext').style.display = 'block';
+            document.getElementById('callingFields').style.display = 'none'; document.getElementById('ordinationFields').style.display = 'block';
+            document.getElementById('sustaineeGenderGroup').style.display = 'none';
+          }
+          break;
+        case 45:
+          var cr = getConsultationRequirement(formData.calling);
+          var mn = formData.memberName || 'the member being submitted';
+          document.getElementById('consultationInfoBox').innerHTML = 'Names for this calling need to be submitted in consultation with the <strong>' + cr + '</strong>. Has the <strong>' + cr + '</strong> been consulted regarding <strong>' + mn + '</strong>?';
+          formData.consultationConfirmed = '';
+          document.querySelectorAll('#page45 .radio-option').forEach(function(o) { o.classList.remove('selected'); });
+          document.querySelectorAll('input[name="consultationCheck"]').forEach(function(r) { r.checked = false; });
+          document.getElementById('consultationBlockMessage').style.display = 'none';
+          document.getElementById('page45ContinueBtn').disabled = false;
+          break;
+        case 5: buildRequirementsCheckboxes(); break;
+        case 6:
+          if (callingRequirements && callingRequirements.stakeInterview) {
+            var iw = callingRequirements.stakeInterview;
+            var mn = formData.memberName || 'This member';
+            if (iw === 'President') { document.getElementById('interviewMessage').textContent = 'This calling requires an interview with the Stake President.'; document.getElementById('interviewNeedsLabel').textContent = 'An interview with the Stake President needs to be scheduled for ' + mn; }
+            else { document.getElementById('interviewMessage').textContent = 'This calling requires an interview with a counselor in the Stake Presidency.'; document.getElementById('interviewNeedsLabel').textContent = 'An interview with a Stake Presidency counselor needs to be scheduled for ' + mn; }
+            document.getElementById('interviewCompleteLabel').textContent = mn + ' has already had their interview and is ready to proceed';
+          }
+          break;
+        case 65:
+          var ns = document.getElementById('callingNotesSection');
+          if (callingRequirements && callingRequirements.notes) { document.getElementById('callingNotesText').textContent = callingRequirements.notes; ns.style.display = 'block'; }
+          else { ns.style.display = 'none'; }
+          // Release-only submissions hide all "release in conjunction with this calling" fields —
+          // for them, the calling itself IS the release.
+          var p65Releasee = document.getElementById('releaseeName').parentElement;
+          var p65ReleaseeGender = document.getElementById('releaseeGenderGroup');
+          var p65ReleaseWard = document.getElementById('releaseWardGroup');
+          var p65SecondaryRelease = document.getElementById('secondaryReleaseGroup');
+          if (formData.type === 'release') {
+            if (p65Releasee) p65Releasee.style.display = 'none';
+            if (p65ReleaseeGender) p65ReleaseeGender.style.display = 'none';
+            if (p65ReleaseWard) p65ReleaseWard.style.display = 'none';
+            if (p65SecondaryRelease) p65SecondaryRelease.style.display = 'none';
+            document.querySelector('#page65 .page-title').textContent = 'Additional Information';
+          } else {
+            if (p65Releasee) p65Releasee.style.display = 'block';
+            // releaseeGender and releaseWard are toggled by onReleaseNameChange()
+            if (p65SecondaryRelease) p65SecondaryRelease.style.display = '';
+            document.querySelector('#page65 .page-title').textContent = 'Additional Information';
+            // Personalize the secondary-release question with the actual member's name
+            // (collected on page 4) so it doesn't read "this member" right after the
+            // separate "member to be released" question.
+            var secLabel = document.getElementById('secondaryReleaseLabel');
+            if (secLabel) {
+              var mn = (formData.memberName || '').trim();
+              secLabel.innerHTML = mn
+                ? 'Is ' + escapeHtmlInline(mn) + ' also being released from a <em>different</em> stake calling at the same time?'
+                : 'Is this member also being released from a <em>different</em> stake calling at the same time?';
+            }
+            onReleaseNameChange();
+          }
+          break;
+        case 66:
+          formData.verbalSPApproval = 'no';
+          formData.spApprovedIds = ''; formData.spApprovedNames = '';
+          document.getElementById('verbalNo').checked = true;
+          document.querySelectorAll('#page66 .radio-option').forEach(function(o) { o.classList.remove('selected'); });
+          document.getElementById('verbalNo').parentElement.classList.add('selected');
+          formData.urgency = 'standard';
+          document.getElementById('urgencyStandard').checked = true;
+          document.getElementById('urgencyUrgent').checked = false;
+          document.getElementById('urgencyStandard').parentElement.classList.add('selected');
+
+          // Callings: per-member SP checkboxes (record which presidency members already
+          // approved). Ordinations/releases: keep the Yes/No radios. Fall back to the
+          // radios if the roster couldn't produce the SP members.
+          var useSPChecks = (formData.type === 'calling') && buildSPCheckboxes();
+          document.getElementById('spCheckGroup').style.display = useSPChecks ? '' : 'none';
+          document.getElementById('spRadioGroup').style.display = useSPChecks ? 'none' : '';
+          document.getElementById('page66HelperText').style.display = useSPChecks ? 'none' : '';
+          if (useSPChecks) document.getElementById('page66Title').textContent = 'Stake Presidency Options';
+
+          // Adjust copy for release-only submissions — the question is about the release,
+          // not about an upcoming Stake Presidency meeting on a calling.
+          var p66Title = document.getElementById('page66Title');
+          var p66InfoText = document.getElementById('page66InfoText');
+          var p66Msg = document.getElementById('page66Message');
+          var p66Helper = document.getElementById('page66HelperText');
+          var p66Yes = document.getElementById('verbalYes');
+          var p66No = document.getElementById('verbalNo');
+          if (formData.type === 'release') {
+            if (p66Title) p66Title.textContent = 'Stake President Approval';
+            if (p66InfoText) p66InfoText.textContent = 'Releases don’t go through the full approval poll — only the Stake President’s approval is recorded.';
+            if (p66Msg) p66Msg.textContent = 'Has the Stake President already approved this release?';
+            if (p66Helper) p66Helper.textContent = 'If yes, his approval will be auto-recorded and the release will move directly to the extend-release stage. If no, only the Stake President will be polled.';
+            if (p66Yes && p66Yes.parentElement) p66Yes.parentElement.querySelector('label').textContent = 'Yes — record his approval and skip polling';
+            if (p66No && p66No.parentElement) p66No.parentElement.querySelector('label').textContent = 'No — poll the Stake President for approval';
+          } else {
+            if (p66Title) p66Title.textContent = 'Stake Presidency Options';
+            if (p66InfoText) p66InfoText.textContent = 'Since you are submitting on behalf of the Stake Presidency or as a Stake Clerk, you have additional options for this submission.';
+            if (p66Msg) p66Msg.textContent = 'Has the Stake Presidency already given their verbal approval?';
+            if (p66Helper) p66Helper.textContent = 'If the Stake Presidency has already discussed and approved this calling/ordination in a Stake Presidency meeting, select "Yes" to skip polling them and go directly to the High Council.';
+            if (p66Yes && p66Yes.parentElement) p66Yes.parentElement.querySelector('label').textContent = 'Yes - Skip Stake Presidency and poll High Council immediately';
+            if (p66No && p66No.parentElement) p66No.parentElement.querySelector('label').textContent = 'No - Poll the Stake Presidency first, then High Council';
+          }
+          break;
+        case 7: buildReviewPage(); break;
+      }
+    }
+
+    function buildRequirementsCheckboxes() {
+      var c = document.getElementById('requirementsCheckboxes'); c.innerHTML = '';
+      if (!callingRequirements) return;
+      var mn = formData.memberName || 'this member';
+      if (callingRequirements.templeRecommend) c.innerHTML += createRequirementQuestion('reqTemple', 'Does ' + mn + ' hold a current temple recommend?');
+      if (callingRequirements.aaronicPriesthood || callingRequirements.elder || callingRequirements.highPriest) c.innerHTML += createPriesthoodQuestion(mn);
+    }
+
+    function createPriesthoodQuestion(mn) {
+      return '<div class="requirement-question"><label class="requirement-label required">What is ' + mn + "\'s current office in the priesthood?</label>" +
+        '<div class="requirement-options" style="flex-direction: column; gap: 10px;">' +
+        '<label class="requirement-option"><input type="radio" name="reqPriesthood" value="aaronic"> Aaronic Priesthood</label>' +
+        '<label class="requirement-option"><input type="radio" name="reqPriesthood" value="elder"> Office of Elder in the Melchizedek Priesthood</label>' +
+        '<label class="requirement-option"><input type="radio" name="reqPriesthood" value="highpriest"> Office of High Priest in the Melchizedek Priesthood</label>' +
+        '<label class="requirement-option"><input type="radio" name="reqPriesthood" value="unsure"> Unsure</label></div></div>';
+    }
+
+    function createRequirementQuestion(id, q) {
+      return '<div class="requirement-question"><label class="requirement-label required">' + q + '</label><div class="requirement-options">' +
+        '<label class="requirement-option"><input type="radio" name="' + id + '" value="yes"> Yes</label>' +
+        '<label class="requirement-option"><input type="radio" name="' + id + '" value="no"> No</label>' +
+        '<label class="requirement-option"><input type="radio" name="' + id + '" value="unsure"> Unsure</label></div></div>';
+    }
+
+    function buildReviewPage() {
+      var c = document.getElementById('reviewContent'), h = '';
+      h += '<div class="review-section"><h4>Submission Type</h4>' + ri('Type', formData.type === 'calling' ? 'Calling Recommendation for Stake Approval' : formData.type === 'release' ? 'Release from a Stake Calling (no replacement)' : 'Melchizedek Priesthood Ordination') + '</div>';
+      h += '<div class="review-section"><h4>Submitted By</h4>' + ri('Name', formData.submitterName) + ri('Calling', formData.submitterCalling);
+      if ((formData.type === 'calling' || formData.type === 'release') && formData.onBehalfOf && formData.onBehalfOf !== 'myself') h += ri('On Behalf Of', formData.onBehalfOf) + ri('Their Name', formData.onBehalfName) + ri('Their Calling', formData.onBehalfCalling);
+      h += '</div>';
+      if (formData.type === 'release') {
+        h += '<div class="review-section"><h4>Release Information</h4>' + ri('Member Being Released', formData.memberName) + ri('Ward', formData.ward) + ri('Calling They Are Released From', formData.calling);
+        if (formData.sustaineeGender) h += ri('Gender', formData.sustaineeGender);
+        h += '</div>';
+        if (formData.comments) { h += '<div class="review-section"><h4>Comments</h4><p style="margin: 0; white-space: pre-wrap;">' + formData.comments + '</p></div>'; }
+        h += '<div class="review-section"><h4>Stake President Approval</h4>' + ri('Already Approved?', formData.verbalSPApproval === 'yes' ? 'Yes — auto-record approval' : 'No — poll him') + ri('Priority', formData.urgency === 'urgent' ? '🔴 Urgent' : 'Standard') + '</div>';
+        c.innerHTML = h;
+        return;
+      }
+      h += '<div class="review-section"><h4>Member Information</h4>' + ri('Name', formData.memberName) + ri('Ward', formData.ward);
+      if (formData.type === 'calling') { h += ri('Calling', formData.calling); if (formData.sustaineeGender) h += ri('Gender', formData.sustaineeGender); }
+      else { h += ri('Priesthood Office', formData.ordinationOffice); if (formData.bishopInterviewDate) h += ri('Bishop Interview Date', formData.bishopInterviewDate); if (formData.bishopSubmissionDate) h += ri('Bishop Submission Date', formData.bishopSubmissionDate); if (formData.preferredOrdinationDate) h += ri('Preferred Ordination Date', formData.preferredOrdinationDate); }
+      h += '</div>';
+      if (formData.type === 'calling' && callingRequirements) {
+        var hr = callingRequirements.templeRecommend || callingRequirements.aaronicPriesthood || callingRequirements.elder || callingRequirements.highPriest;
+        if (hr) {
+          h += '<div class="review-section"><h4>Requirements</h4>';
+          var ft = function(v) { return v === 'yes' ? '\u2713 Yes' : v === 'no' ? '\u2717 No' : v === 'unsure' ? '? Unsure' : '-'; };
+          var fp = function(v) { return v === 'aaronic' ? 'Aaronic Priesthood' : v === 'elder' ? 'Elder' : v === 'highpriest' ? 'High Priest' : v === 'unsure' ? 'Unsure' : '-'; };
+          if (callingRequirements.templeRecommend) h += ri('Temple Recommend', ft(formData.requirements.templeRecommend));
+          if (callingRequirements.aaronicPriesthood || callingRequirements.elder || callingRequirements.highPriest) h += ri('Priesthood Office', fp(formData.requirements.priesthood));
+          h += '</div>';
+        }
+        if (callingRequirements.stakeInterview) {
+          h += '<div class="review-section"><h4>Interview</h4>' + ri('Required With', callingRequirements.stakeInterview === 'President' ? 'Stake President' : 'Stake Presidency Counselor') + ri('Status', formData.interviewStatus) + '</div>';
+        }
+        if (formData.releaseeName) { h += '<div class="review-section"><h4>Release</h4>' + ri('Member to be Released', formData.releaseeName); if (formData.releaseeGender) h += ri('Gender', formData.releaseeGender); if (formData.releaseWard) h += ri('Release Ward', formData.releaseWard); h += '</div>'; }
+        if (formData.comments) { h += '<div class="review-section"><h4>Comments</h4><p style="margin: 0; white-space: pre-wrap;">' + formData.comments + '</p></div>'; }
+      }
+      if (formData.type === 'calling' && isStakeLeaderSubmitter()) {
+        var spReviewVal = (formData.type === 'calling')
+          ? (formData.spApprovedNames ? formData.spApprovedNames + ' \u2014 already approved' : 'None yet \u2014 poll all three')
+          : (formData.verbalSPApproval === 'yes' ? 'Yes - Skip SP polling' : 'No - Poll SP first');
+        h += '<div class="review-section"><h4>Stake Presidency Options</h4>' + ri('SP verbal approval', spReviewVal) + ri('Priority', formData.urgency === 'urgent' ? '\ud83d\udd34 Urgent - Immediate notifications' : 'Standard') + '</div>';
+      }
+      c.innerHTML = h;
+    }
+
+    function ri(l, v) { return '<div class="review-item"><span class="review-label">' + l + '</span><span class="review-value">' + (v || '-') + '</span></div>'; }
+
+    function submitForm() {
+      hideError(7);
+      document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('loadingPage').classList.add('active');
+      document.getElementById('progressBar').style.display = 'none';
+      if (formData.type === 'ordination') {
+        apiCall('submitPriesthoodOrdination', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, memberName: formData.memberName, ward: formData.ward, ordinationOffice: formData.ordinationOffice, bishopInterviewDate: formData.bishopInterviewDate, bishopSubmissionDate: formData.bishopSubmissionDate, preferredOrdinationDate: formData.preferredOrdinationDate })
+          .then(handleSubmitSuccess).catch(handleSubmitError);
+      } else if (formData.type === 'release') {
+        apiCall('submitReleaseOnly', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', comments: formData.comments, sustaineeGender: formData.sustaineeGender, verbalSPApproval: formData.verbalSPApproval, urgency: formData.urgency })
+          .then(handleSubmitSuccess).catch(handleSubmitError);
+      } else {
+        apiCall('submitCallingRecommendation', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard })
+          .then(handleSubmitSuccess).catch(handleSubmitError);
+      }
+    }
+
+    function handleSubmitSuccess(r) { r = r || {}; if (r.success) { document.getElementById('successMessage').textContent = r.message || 'Your submission has been recorded.'; document.getElementById('loadingPage').classList.remove('active'); document.getElementById('successPage').classList.add('active'); } else { handleSubmitError(r.message || r.error || 'Submission failed'); } }
+    function handleSubmitError(e) { document.getElementById('loadingPage').classList.remove('active'); document.getElementById('page7').classList.add('active'); document.getElementById('progressBar').style.display = 'flex'; showError(7, 'Error: ' + (e.message || e)); }
+
+    function resetForm() {
+      formData = { type: '', submitterName: '', submitterCalling: '', onBehalfOf: '', onBehalfName: '', onBehalfCalling: '', memberName: '', ward: '', calling: '', sustainingBody: '', ordinationOffice: '', bishopInterviewDate: '', bishopSubmissionDate: '', preferredOrdinationDate: '', requirements: { templeRecommend: '', priesthood: '' }, interviewStatus: '', interviewWith: '', releaseeName: '', releaseWard: '', comments: '', sustaineeGender: '', releaseeGender: '', verbalSPApproval: 'no', urgency: 'standard', spApprovedIds: '', spApprovedNames: '', consultationConfirmed: '', releasePreflightAnswer: '', secondaryReleaseCalling: '', secondaryReleaseWard: '' };
+      submitOptions = null; callingRequirements = null; isLoadingSubmitOptions = false;
+      pageFlow = [1, 2, 4, 7]; currentPage = 1;
+      document.querySelectorAll('input[type="text"], input[type="date"]').forEach(function(i) { i.value = ''; });
+      document.querySelectorAll('select').forEach(function(s) { s.selectedIndex = 0; });
+      document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(function(i) { i.checked = false; });
+      document.querySelectorAll('.radio-option').forEach(function(o) { o.classList.remove('selected'); });
+      document.querySelectorAll('textarea').forEach(function(t) { t.value = ''; });
+      document.getElementById('submitterCallingHelp').textContent = '';
+      document.getElementById('callingSelection').innerHTML = '<option value="">Select calling...</option>';
+      document.getElementById('otherWardContainer').style.display = 'none';
+      document.getElementById('progressBar').style.display = 'flex';
+      document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+      document.getElementById('page1').classList.add('active');
+      updateProgressBar();
+    }
+  </script>
+</body>
+</html>
