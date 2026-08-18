@@ -3787,6 +3787,7 @@
       if (modalId === 'newTaskModal') {
         clearTaskForm();
       }
+      if (_modalDraftRegistry[modalId]) clearModalDraft();
     }
 
     function addTaskAssignee() {
@@ -4214,6 +4215,16 @@
       ordinationReportModal: {
         open: function (ctx) { openOrdinationReportModal(ctx); },
         getCtx: function () { return currentOrdinationReportItemId; }
+      },
+      outOfUnitModal: {
+        open: function (ctx) { ctx = ctx || []; openOutOfUnitModal(ctx[0], ctx[1], ctx[2]); },
+        getCtx: function () { return [currentOOUItemId, (document.getElementById('oouName') || {}).value || '', currentOOUWard]; }
+      },
+      newTaskModal: {
+        // Static fields (description/notes/due + first assignee/CC) restore; extra
+        // dynamically-added assignee rows aren't recreated — the typed content is what matters.
+        open: function () { openNewTaskModal(); },
+        getCtx: function () { return null; }
       }
     };
     const _MODAL_DRAFT_KEY = 'dashModalDraft_v1';
@@ -4402,6 +4413,7 @@
     function closeOutOfUnitModal() {
       document.getElementById('outOfUnitModal').classList.remove('show');
       currentOOUItemId = null;
+      clearModalDraft();
     }
 
     async function submitOutOfUnitRecord() {
