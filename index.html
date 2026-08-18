@@ -900,6 +900,7 @@
       var msBtn = document.getElementById('memberStatusBtn');
       if (msBtn) msBtn.style.display = userData.canMemberStatus ? '' : 'none';
       renderDashboard(data);
+      restoreModalDraft();   // reopen an in-progress modal if the tab was reloaded (runs once)
     }
 
     function showErrorPage(title, message) {
@@ -4205,6 +4206,64 @@
     // ORDINATION REPORT
     // ============================================================
 
+    // ---- Modal draft persistence (survives mobile tab reloads) ----
+    // A backgrounded tab can be reloaded by the browser, closing an open "record"-style
+    // modal and losing what was typed. We save the open modal's context + fields and
+    // reopen it on the next load. Register record-style modals here (id → reopen + context).
+    const _modalDraftRegistry = {
+      ordinationReportModal: {
+        open: function (ctx) { openOrdinationReportModal(ctx); },
+        getCtx: function () { return currentOrdinationReportItemId; }
+      }
+    };
+    const _MODAL_DRAFT_KEY = 'dashModalDraft_v1';
+    let _modalDraftTimer = null, _modalDraftRestored = false;
+
+    function _shownRegisteredModal() {
+      const el = document.querySelector('.modal-overlay.show');
+      return (el && el.id && _modalDraftRegistry[el.id]) ? el : null;
+    }
+    function saveModalDraft() {
+      try {
+        const el = _shownRegisteredModal(); if (!el) return;
+        const fields = {};
+        el.querySelectorAll('input[id], select[id], textarea[id]').forEach(function (f) {
+          if (f.type === 'checkbox' || f.type === 'radio') fields[f.id] = { c: f.checked };
+          else fields[f.id] = { v: f.value };
+        });
+        localStorage.setItem(_MODAL_DRAFT_KEY, JSON.stringify({
+          ts: Date.now(), modalId: el.id, ctx: _modalDraftRegistry[el.id].getCtx(), fields: fields
+        }));
+      } catch (e) {}
+    }
+    function saveModalDraftSoon() { clearTimeout(_modalDraftTimer); _modalDraftTimer = setTimeout(saveModalDraft, 400); }
+    function clearModalDraft() { try { localStorage.removeItem(_MODAL_DRAFT_KEY); } catch (e) {} }
+    document.addEventListener('input', function (e) { if (e.target && e.target.closest && e.target.closest('.modal-overlay.show')) saveModalDraftSoon(); }, true);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') saveModalDraft(); });
+    window.addEventListener('pagehide', saveModalDraft);
+
+    // Called once after the first dashboard render — reopens an in-progress modal if one
+    // was left open when the tab got reloaded.
+    function restoreModalDraft() {
+      if (_modalDraftRestored) return;
+      _modalDraftRestored = true;
+      try {
+        if (typeof DEMO_MODE !== 'undefined' && DEMO_MODE) return;
+        if (document.querySelector('.modal-overlay.show')) return;   // a modal is already open
+        const raw = localStorage.getItem(_MODAL_DRAFT_KEY); if (!raw) return;
+        const d = JSON.parse(raw); if (!d || !d.ts) return;
+        if (Date.now() - d.ts > 12 * 60 * 60 * 1000) { clearModalDraft(); return; }
+        const reg = _modalDraftRegistry[d.modalId]; if (!reg) return;
+        reg.open(d.ctx);   // reopens with context (also resets its fields)
+        Object.keys(d.fields || {}).forEach(function (id) {
+          const el = document.getElementById(id); if (!el) return;
+          const s = d.fields[id];
+          if (typeof s.c !== 'undefined') el.checked = s.c;
+          else if (typeof s.v !== 'undefined') el.value = s.v;
+        });
+      } catch (e) {}
+    }
+
     let currentOrdinationReportItemId = null;
 
     function openOrdinationReportModal(itemId) {
@@ -4222,6 +4281,7 @@
     function closeOrdinationReportModal() {
       document.getElementById('ordinationReportModal').classList.remove('show');
       currentOrdinationReportItemId = null;
+      clearModalDraft();
     }
 
     async function submitOrdinationReport() {
