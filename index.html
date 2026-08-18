@@ -1019,6 +1019,10 @@
         html += renderSustainingReportSection(data.sustainingReports);
       }
 
+      if (data.unconfirmedSustainings && data.unconfirmedSustainings.length > 0) {
+        html += renderUnconfirmedSustainingsSection(data.unconfirmedSustainings);
+      }
+
       if (data.approvals && data.approvals.length > 0) {
         html += renderApprovalsSection(data.approvals);
       }
@@ -2502,6 +2506,14 @@
           '<li><b>✓ Yes, I\'ll Be There:</b> Confirms your attendance.</li>' +
           '<li><b>✗ Need Replacement:</b> Marks you as unavailable. Stake clerks are CC\'d on every assignment, so they already see it on their dashboard.</li>' +
           '<li><b>↻ Request Replacement:</b> Pass the assignment to another High Councilor; they\'ll get a Slack DM and the task on their dashboard. They can confirm or pass it on themselves.</li>' +
+          '</ul>'
+      },
+      unconfirmedSustainings: {
+        title: 'Unconfirmed Sustainings/Releasings',
+        body: '<p>Monday review for the stake clerks. Any sustaining/releasing scheduled for last Sunday that was never confirmed (nobody marked it sustained/released) shows up here.</p>' +
+          '<ul>' +
+          '<li><b>📅 Add to Next Sunday:</b> moves that item\'s Stake Business row to next Sunday so it comes up again.</li>' +
+          '<li><b>✓ Not Needed:</b> dismisses it (it was actually handled, or no longer applies).</li>' +
           '</ul>'
       },
       sustainingReports: {
@@ -4002,6 +4014,54 @@
       items.forEach(item => { html += renderSustainingReportItem(item, { isCC: false, canReassign: canReassign }); });
       html += '</div></div></div>';
       return html;
+    }
+
+    // Monday review: sustainings/releasings that weren't confirmed last Sunday. Each item
+    // gets "Add to Next Sunday" (moves its Stake Business row to next Sunday) or "Not Needed".
+    function renderUnconfirmedSustainingsSection(items) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'unconfirmedSustainings\')"><div class="section-title">⚠️ Unconfirmed Sustainings/Releasings</div><div class="section-meta">' + helpBtn('unconfirmedSustainings') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-unconfirmedSustainings"><div class="section-inner">';
+      items.forEach(item => {
+        const list = item.unconfirmedItems || [];
+        const pending = list.filter(it => !it.r);
+        html += `<div class="item" id="item-${item.actionId}">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'Unconfirmed sustainings/releasings')}</div></div>
+          <div class="item-meta">Not confirmed on ${escapeHtmlDisplay(item.unconfirmedDate || 'last Sunday')}. For each, add it to next Sunday's Stake Business or mark it not needed.</div>
+          <div class="item-meta">Remaining: ${pending.length} of ${list.length}</div>`;
+        list.forEach((it, idx) => {
+          const isRelease = String(it.a || '').toLowerCase().indexOf('release') !== -1;
+          const stakeBadge = String(it.where || '').toLowerCase() === 'stake' ? ' <span class="badge badge-info">Stake</span>' : '';
+          const releaseBadge = isRelease ? ' <span class="badge badge-warning" style="color:#333;">Release</span>' : '';
+          const label = it.r === 'reschedule' ? '<span style="color:#28a745;font-weight:600;">📅 Added to next Sunday</span>'
+                      : (it.r === 'dismiss' ? '<span style="color:#888;font-weight:600;">✓ Not needed</span>' : '');
+          html += `<div style="border-top:1px solid #eee;padding:8px 0;">
+            <div><strong>${escapeHtmlDisplay(it.m || '')}</strong> — ${escapeHtmlDisplay(it.c || '')} (${escapeHtmlDisplay(it.w || '')})${releaseBadge}${stakeBadge}</div>
+            ${it.r ? `<div style="margin-top:4px;">${label}</div>` : `<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+              <button class="btn btn-success btn-sm" onclick="handleUnconfirmed('${item.actionId}', ${idx}, 'reschedule', this)">📅 Add to Next Sunday</button>
+              <button class="btn btn-secondary btn-sm" onclick="handleUnconfirmed('${item.actionId}', ${idx}, 'dismiss', this)">✓ Not Needed</button>
+            </div>`}
+          </div>`;
+        });
+        html += `</div>`;
+      });
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function handleUnconfirmed(actionId, idx, action, btn) {
+      const sibs = btn ? Array.from(btn.parentElement.querySelectorAll('button')) : [];
+      sibs.forEach(b => b.disabled = true);
+      setSyncing(true);
+      try {
+        await performAction(action === 'reschedule' ? 'unconfirmedReschedule' : 'unconfirmedDismiss', { itemId: actionId, idx: idx });
+        showToast(action === 'reschedule' ? 'Added to next Sunday' : 'Marked not needed', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        sibs.forEach(b => b.disabled = false);
+      } finally {
+        setSyncing(false);
+      }
     }
 
     // Tracks in-flight sustaining marks (per-item AND per-task-bulk) so a fast
