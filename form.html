@@ -67,6 +67,13 @@
   </style>
 </head>
 <body>
+  <div id="resumeBar" style="display:none;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;background:#fff8e1;color:#5b4a00;border:1px solid #ffe082;border-radius:10px;max-width:600px;margin:0 auto 14px;padding:12px 16px;font-size:14px;">
+    <span>You have an unfinished submission on this device.</span>
+    <span style="display:flex;gap:8px;">
+      <button onclick="resumeDraft()" style="background:#2d5a87;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:600;cursor:pointer;">Resume</button>
+      <button onclick="dismissDraft()" style="background:transparent;color:#5b4a00;border:1px solid #ffe082;border-radius:8px;padding:8px 16px;cursor:pointer;">Start fresh</button>
+    </span>
+  </div>
   <div class="container">
     <h1>Stake Approval/Sustaining Form</h1>
     <p class="subtitle">Submit names for stake approval or sustaining</p>
@@ -481,7 +488,94 @@
     var callingSubmitterOptions = ['Bishop','Ward Clerk/Secretary','Elders Quorum President','High Councilor','Stake Presidency','Stake Organization President','Stake Clerk/Secretary'];
     var ordinationSubmitterOptions = ['Bishop','Ward Clerk/Secretary','High Councilor','Stake Presidency','Stake Clerk/Secretary'];
 
-    window.onload = function() { loadWards(); updateProgressBar(); loadStakeCallingsRosterIfNeeded(); };
+    // ---- Draft autosave/restore ----
+    // Mobile browsers (esp. iOS Safari) reload a backgrounded tab, wiping the form when
+    // someone switches apps to look something up. We continuously save the in-progress
+    // entry to the device and offer to restore it on reload. formData drives the actual
+    // submission, so restoring it makes the submit correct even if a dropdown's async
+    // options haven't reloaded; the DOM snapshot just makes fields look right (a temp
+    // <option> forces a saved select value to show without waiting on async loads).
+    var DRAFT_KEY = 'callingFormDraft_v1';
+    var _draftTimer = null;
+
+    function _domSnapshot() {
+      var out = {};
+      try {
+        document.querySelectorAll('input[id], select[id], textarea[id]').forEach(function (el) {
+          if (el.type === 'radio' || el.type === 'checkbox') out[el.id] = { c: !!el.checked };
+          else out[el.id] = { v: el.value };
+        });
+      } catch (e) {}
+      return out;
+    }
+    function saveDraft() {
+      try {
+        var sp = document.getElementById('successPage');
+        if (sp && sp.classList.contains('active')) return;   // don't save a finished submission
+        try { savePageData(currentPage); } catch (e) {}       // capture what's typed on the current page
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          ts: Date.now(), formData: formData, currentPage: currentPage, pageFlow: pageFlow,
+          callingRequirements: callingRequirements, submitOptions: submitOptions, dom: _domSnapshot()
+        }));
+      } catch (e) {}
+    }
+    function saveDraftSoon() { clearTimeout(_draftTimer); _draftTimer = setTimeout(saveDraft, 400); }
+    function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+    document.addEventListener('input', saveDraftSoon, true);
+    document.addEventListener('change', saveDraftSoon, true);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') saveDraft(); });
+    window.addEventListener('pagehide', saveDraft);
+
+    function _applyDomSnapshot(dom) {
+      if (!dom) return;
+      Object.keys(dom).forEach(function (id) {
+        try {
+          var el = document.getElementById(id); if (!el) return;
+          var s = dom[id];
+          if (typeof s.c !== 'undefined') {
+            el.checked = s.c;
+            if (el.checked && el.parentElement && el.parentElement.classList) el.parentElement.classList.add('selected');
+          } else if (typeof s.v !== 'undefined') {
+            el.value = s.v;
+            if (el.tagName === 'SELECT' && el.value !== s.v && s.v !== '') { el.add(new Option(s.v, s.v)); el.value = s.v; }
+          }
+        } catch (e) {}
+      });
+    }
+    function maybeOfferResume() {
+      try {
+        var raw = localStorage.getItem(DRAFT_KEY); if (!raw) return;
+        var draft = JSON.parse(raw); if (!draft || !draft.ts) return;
+        if (Date.now() - draft.ts > 12 * 60 * 60 * 1000) { clearDraft(); return; }   // stale >12h
+        var meaningful = (draft.formData && draft.formData.type) || (draft.currentPage && draft.currentPage !== 1);
+        if (!meaningful) return;
+        var bar = document.getElementById('resumeBar'); if (bar) bar.style.display = 'flex';
+      } catch (e) {}
+    }
+    function resumeDraft() {
+      try {
+        var draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+        if (draft) {
+          if (draft.formData) formData = draft.formData;
+          if (draft.pageFlow) pageFlow = draft.pageFlow;
+          callingRequirements = draft.callingRequirements || null;
+          if (draft.submitOptions) submitOptions = draft.submitOptions;
+          if (formData.type === 'calling' || formData.type === 'release') { try { loadCallingsChartIfNeeded(); } catch (e) {} }
+          try { loadStakeCallingsRosterIfNeeded(); } catch (e) {}
+          var target = draft.currentPage || 1;
+          try { updateSubmitterCallingDropdown(); } catch (e) {}
+          try { preparePageForDisplay(target); } catch (e) {}
+          _applyDomSnapshot(draft.dom);
+          showPage(target);
+          updateProgressBar();
+        }
+      } catch (e) { /* leave the fresh form as-is */ }
+      hideResumeBar();
+    }
+    function hideResumeBar() { var b = document.getElementById('resumeBar'); if (b) b.style.display = 'none'; }
+    function dismissDraft() { clearDraft(); hideResumeBar(); }
+
+    window.onload = function () { loadWards(); updateProgressBar(); loadStakeCallingsRosterIfNeeded(); maybeOfferResume(); };
 
     function loadWards() {
       apiCall('getWards').then(function(d) {
@@ -1425,10 +1519,11 @@
       }
     }
 
-    function handleSubmitSuccess(r) { r = r || {}; if (r.success) { document.getElementById('successMessage').textContent = r.message || 'Your submission has been recorded.'; document.getElementById('loadingPage').classList.remove('active'); document.getElementById('successPage').classList.add('active'); } else { handleSubmitError(r.message || r.error || 'Submission failed'); } }
+    function handleSubmitSuccess(r) { r = r || {}; if (r.success) { clearDraft(); document.getElementById('successMessage').textContent = r.message || 'Your submission has been recorded.'; document.getElementById('loadingPage').classList.remove('active'); document.getElementById('successPage').classList.add('active'); } else { handleSubmitError(r.message || r.error || 'Submission failed'); } }
     function handleSubmitError(e) { document.getElementById('loadingPage').classList.remove('active'); document.getElementById('page7').classList.add('active'); document.getElementById('progressBar').style.display = 'flex'; showError(7, 'Error: ' + (e.message || e)); }
 
     function resetForm() {
+      clearDraft();
       formData = { type: '', submitterName: '', submitterCalling: '', onBehalfOf: '', onBehalfName: '', onBehalfCalling: '', memberName: '', ward: '', calling: '', sustainingBody: '', ordinationOffice: '', bishopInterviewDate: '', bishopSubmissionDate: '', preferredOrdinationDate: '', requirements: { templeRecommend: '', priesthood: '' }, interviewStatus: '', interviewWith: '', releaseeName: '', releaseWard: '', comments: '', sustaineeGender: '', releaseeGender: '', verbalSPApproval: 'no', urgency: 'standard', spApprovedIds: '', spApprovedNames: '', consultationConfirmed: '', releasePreflightAnswer: '', secondaryReleaseCalling: '', secondaryReleaseWard: '' };
       submitOptions = null; callingRequirements = null; isLoadingSubmitOptions = false;
       pageFlow = [1, 2, 4, 7]; currentPage = 1;
