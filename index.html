@@ -1684,29 +1684,50 @@
       // Default collapsed — clerks open it when they want to manage paused/canceled
       // callings. Each row shows ward + status + a Resume button. Paused rows
       // additionally offer "Cancel Permanently" since that's a common follow-up.
-      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'pausedCanceled\')"><div class="section-title">⏸️ Paused &amp; Canceled Callings</div><div class="section-meta">' + helpBtn('pausedCanceled') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header" onclick="toggleSection(\'pausedCanceled\')"><div class="section-title">⏸️ Paused / Held / Canceled Callings</div><div class="section-meta">' + helpBtn('pausedCanceled') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content" id="section-pausedCanceled"><div class="section-inner">';
 
       items.forEach(item => {
         const s = String(item.status || '').toLowerCase();
         const isPaused = s === 'paused';
-        const statusIcon = isPaused ? '⏸️' : '❌';
-        const statusLabel = isPaused ? 'Paused' : 'Canceled';
+        const isHeld = s === 'held';
+        const statusIcon = isPaused ? '⏸️' : (isHeld ? '🔒' : '❌');
+        const statusLabel = isPaused ? 'Paused' : (isHeld ? 'Held for Stake Business' : 'Canceled');
         const wardActionLine = [item.ward, item.action].filter(Boolean).map(escapeHtmlDisplay).join(' — ');
         const ts = String(item.timestamp || '').replace(/'/g, "\\'");
         const displayMember = item.memberName || (item.action === 'Released' ? item.releasedMember : '') || '(no member)';
+        // Held callings proceed through approvals/extending normally; they're just kept out of
+        // Stake Business (col AM = HOLD). "Release Hold" clears it so it schedules when ready.
+        const actions = isHeld
+          ? `<button class="btn btn-success" onclick="handleReleaseHold('${ts}', this)">▶️ Release Hold</button>`
+          : `<button class="btn btn-success" onclick="setCallingStatus('${ts}', '', this)">▶️ Resume</button>`
+            + (isPaused ? `<button class="btn btn-danger" onclick="setCallingStatus('${ts}', 'canceled', this)">❌ Cancel Permanently</button>` : '');
         html += `<div class="item" id="paused-${escapeHtmlDisplay(item.timestamp)}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(displayMember)} — ${escapeHtmlDisplay(item.calling || '(no calling)')}</div></div>
           ${wardActionLine ? '<div class="item-meta">' + wardActionLine + ' &bull; <span class="status-badge ' + s + '">' + statusIcon + ' ' + statusLabel + '</span></div>' : ''}
-          <div class="item-actions">
-            <button class="btn btn-success" onclick="setCallingStatus('${ts}', '', this)">▶️ Resume</button>
-            ${isPaused ? `<button class="btn btn-danger" onclick="setCallingStatus('${ts}', 'canceled', this)">❌ Cancel Permanently</button>` : ''}
-          </div>
+          ${isHeld ? '<div class="item-meta" style="color:#8a6d00;">Approvals and extending proceed as normal — this is only held out of Stake Business. Release the hold, or set a date in column AM.</div>' : ''}
+          <div class="item-actions">${actions}</div>
         </div>`;
       });
 
       html += '</div></div></div>';
       return html;
+    }
+
+    async function handleReleaseHold(timestamp, btn) {
+      const itemEl = btn ? btn.closest('.item') : null;
+      const orig = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        await performAction('releaseHold', { timestamp: timestamp, actorUserId: getActorUserId() });
+        if (itemEl) itemEl.remove();
+        showToast('Hold released — it will be scheduled for Stake Business when ready', 'success');
+        scheduleSilentRefresh(1000);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = orig || '▶️ Release Hold'; }
+      } finally { setSyncing(false); }
     }
 
     function renderNameTagsSection(items) {
@@ -2441,12 +2462,12 @@
           '</ul>'
       },
       pausedCanceled: {
-        title: 'Paused & Canceled Callings',
-        body: '<p>Every Calling Approvals row currently in <b>Paused</b> or <b>Canceled</b> state (Col S of the sheet). Visible to stake clerks, executive secretaries, and Stake Presidency. Collapsed by default.</p>' +
+        title: 'Paused / Held / Canceled Callings',
+        body: '<p>Calling Approvals rows that are <b>Paused</b> or <b>Canceled</b> (Col S), or <b>Held</b> for Stake Business (Col AM = HOLD). Visible to stake clerks, executive secretaries, and Stake Presidency. Collapsed by default.</p>' +
           '<ul>' +
-          '<li><b>▶️ Resume:</b> Sets the row back to <b>Standard</b>. Downstream processing (extending, sustaining, setting apart, etc.) picks back up.</li>' +
+          '<li><b>▶️ Resume:</b> Sets a paused/canceled row back to <b>Standard</b>. Downstream processing picks back up.</li>' +
           '<li><b>❌ Cancel Permanently:</b> Only shown on paused rows. Moves the row from Paused to Canceled.</li>' +
-          '<li>This is the same column you set with the Pause / Cancel controls on individual action items. Coming here is just the centralized view.</li>' +
+          '<li><b>🔒 Held:</b> Put <b>HOLD</b> in Col AM to keep a calling OUT of Stake Business while approvals and extending proceed as normal. <b>▶️ Release Hold</b> clears it (or set a date in Col AM) so it schedules when ready.</li>' +
           '</ul>'
       },
       nameTags: {
