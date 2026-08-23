@@ -1071,7 +1071,7 @@
       }
 
       if (data.extendAssignItems && data.extendAssignItems.length > 0) {
-        html += renderExtendAssignSection(data.extendAssignItems, data.stakePresidency || []);
+        html += renderExtendAssignSection(data.extendAssignItems, data.stakePresidency || [], data.highCouncilors || []);
       }
 
       if (data.ordinationInterviews && data.ordinationInterviews.length > 0) {
@@ -1200,6 +1200,7 @@
                 `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>`
               }
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+              ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${item.actionId}', this)">🗂️ Send to Bin</button>` : ''}
               ${item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
                 `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}', '${escapeHtml(item.appointmentStatus || '')}')">📅 Reschedule</button>` : ''}
             </div>
@@ -1211,6 +1212,25 @@
 
       html += '</div></div></div>';
       return html;
+    }
+
+    // Move an incomplete extend-calling / extend-release task back to the "Callings to
+    // Schedule/Assign" bin so a secretary/clerk can (re)assign who extends it.
+    async function sendExtendToBin(itemId, btn) {
+      if (!confirm('Send this to the Schedule/Assign bin? The current assignment is cleared and it becomes an unassigned item for a secretary/clerk to assign (SP member, or a high councilor for ward-level callings).')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      const sibs = btn ? Array.from(btn.parentElement.querySelectorAll('button')) : [];
+      sibs.forEach(b => b.disabled = true);
+      setSyncing(true);
+      try {
+        await performAction('sendExtendToBin', { itemId: itemId });
+        if (itemEl) itemEl.remove();
+        showToast('Moved to Schedule/Assign bin', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        sibs.forEach(b => b.disabled = false);
+      } finally { setSyncing(false); }
     }
 
     function renderOrdinationsSection(items) {
@@ -1279,6 +1299,7 @@
               <input type="date" id="apptDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <input type="time" id="apptTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <button class="btn btn-success" onclick="scheduleAppointment('${item.actionId}', this)">📅 Appointment Scheduled</button>
+              <button class="btn btn-secondary btn-sm" onclick="dismissAppointment('${item.actionId}', this)">✕ Dismiss</button>
             </div>
           </div>
           ${renderCallingControls(item)}
@@ -1287,6 +1308,23 @@
 
       html += '</div></div></div>';
       return html;
+    }
+
+    async function dismissAppointment(itemId, btn) {
+      if (!confirm('Dismiss this appointment-scheduling task? It won\'t need to be scheduled. (If the calling is later resumed or re-extended, a new one will be created.)')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      const sibs = btn ? Array.from(btn.parentElement.querySelectorAll('button')) : [];
+      sibs.forEach(b => b.disabled = true);
+      setSyncing(true);
+      try {
+        await performAction('dismissAppointment', { itemId: itemId });
+        if (itemEl) itemEl.remove();
+        showToast('Appointment task dismissed', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        sibs.forEach(b => b.disabled = false);
+      } finally { setSyncing(false); }
     }
 
     function renderCoordinateOrdinationsSection(items) {
@@ -1570,12 +1608,16 @@
 
     // SPB "Schedule & Assign" — secretaries/clerks pick which SP member extends the
     // call AND set the appointment, in one step (mirrors ordination interview scheduling).
-    function renderExtendAssignSection(items, stakePresidency) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendAssign\')"><div class="section-title">🗂️ Callings to Schedule &amp; Assign</div><div class="section-meta">' + helpBtn('extendAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+    function renderExtendAssignSection(items, stakePresidency, highCouncilors) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendAssign\')"><div class="section-title">🗂️ Callings to Schedule/Assign</div><div class="section-meta">' + helpBtn('extendAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-extendAssign"><div class="section-inner">';
 
-      const spOptions = stakePresidency.map(sp =>
+      const spOptions = (stakePresidency || []).map(sp =>
         `<option value="${escapeHtml(sp.id)}">${escapeHtml(sp.name)}</option>`
+      ).join('');
+      // Ward-level callings can also be extended by a high councilor.
+      const hcOptions = (highCouncilors || []).map(hc =>
+        `<option value="${escapeHtml(hc.id)}">${escapeHtml(hc.name)}</option>`
       ).join('');
 
       items.forEach(item => {
@@ -1583,20 +1625,30 @@
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
 
+        // Ward-level callings (CA col M = "Ward") offer high councilors in addition to SP.
+        const assigneeOptions = item.wardLevel
+          ? `<optgroup label="Stake Presidency">${spOptions}</optgroup><optgroup label="High Council">${hcOptions}</optgroup>`
+          : spOptions;
+        const selectPrompt = item.wardLevel ? 'Select SP member or HC...' : 'Select SP member...';
+
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
           ${assignedInfo}
           <div class="item-actions">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <select id="extAssignSp_${item.actionId}" class="form-input" style="font-size:13px;padding:6px;">
-                <option value="">Select SP member...</option>
-                ${spOptions}
+                <option value="">${selectPrompt}</option>
+                ${assigneeOptions}
               </select>
+              <button class="btn btn-success" onclick="assignExtendCall('${item.actionId}', this, false)">Assign</button>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
               <input type="date" id="extAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <input type="time" id="extAssignTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <button class="btn btn-success" onclick="assignExtendCall('${item.actionId}', this)">Assign &amp; Schedule</button>
+              <button class="btn btn-primary" onclick="assignExtendCall('${item.actionId}', this, true)">Schedule &amp; Assign</button>
             </div>
           </div>
+          ${renderCallingControls(item)}
         </div>`;
       });
 
@@ -1604,23 +1656,28 @@
       return html;
     }
 
-    async function assignExtendCall(actionId, btn) {
+    // withSchedule=false → "Assign" (no appointment); withSchedule=true → "Schedule & Assign"
+    // (requires a date + time). Both create the extend task for the picked SP member / HC.
+    async function assignExtendCall(actionId, btn, withSchedule) {
       const select = document.getElementById('extAssignSp_' + actionId);
       const spMemberId = select ? select.value : '';
-      if (!spMemberId) { showToast('Please select a stake presidency member', 'error'); return; }
-      const dateInput = document.getElementById('extAssignDate_' + actionId);
-      const timeInput = document.getElementById('extAssignTime_' + actionId);
-      const dateVal = dateInput ? dateInput.value : '';
-      const timeVal = timeInput ? timeInput.value : '';
-      const appointmentDateTime = (dateVal && timeVal) ? dateVal + 'T' + timeVal : '';
-      if (!appointmentDateTime && !confirm('No appointment date/time set. Assign the SP member without an appointment for now?')) return;
+      if (!spMemberId) { showToast('Please select someone to assign', 'error'); return; }
+      let appointmentDateTime = '';
+      if (withSchedule) {
+        const dateInput = document.getElementById('extAssignDate_' + actionId);
+        const timeInput = document.getElementById('extAssignTime_' + actionId);
+        const dateVal = dateInput ? dateInput.value : '';
+        const timeVal = timeInput ? timeInput.value : '';
+        if (!dateVal || !timeVal) { showToast('Pick a date and time, or use “Assign” to assign without an appointment', 'error'); return; }
+        appointmentDateTime = dateVal + 'T' + timeVal;
+      }
       const itemEl = btn ? btn.closest('.item') : null;
       if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
       setSyncing(true);
       try {
         await performAction('assignExtendCall', { itemId: actionId, spMemberId: spMemberId, appointmentDateTime: appointmentDateTime });
         if (itemEl) itemEl.remove();
-        showToast('Assigned & scheduled', 'success');
+        showToast(withSchedule ? 'Assigned & scheduled' : 'Assigned', 'success');
         scheduleSilentRefresh();
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
@@ -2077,6 +2134,7 @@
                   renderPrimaryActionForCCItem(item)
                 }
                 ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
+                ${canReassign && isExtend ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${item.actionId}', this)">🗂️ Send to Bin</button>` : ''}
                 ${isExtend && item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
                   `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}', '${escapeHtml(item.appointmentStatus || '')}')">📅 Reschedule</button>` : ''}
               </div>
@@ -2425,10 +2483,12 @@
           '</ul>'
       },
       extendAssign: {
-        title: 'Callings to Schedule & Assign',
-        body: '<p>Callings flagged for the Stake Presidency Bin (SPB) that still need a presidency member assigned to extend them.</p>' +
+        title: 'Callings to Schedule/Assign',
+        body: '<p>Callings that still need someone assigned to extend them — either flagged for the Stake Presidency Bin (SPB) at approval, or sent here from the Extend section.</p>' +
           '<ul>' +
-          '<li><b>Assign &amp; Schedule:</b> Pick which SP member will extend the call and set the appointment date/time. The extend task then goes to that member with the appointment on it.</li>' +
+          '<li><b>Assign:</b> Pick who will extend the call and assign them <i>without</i> scheduling an appointment.</li>' +
+          '<li><b>Schedule &amp; Assign:</b> Pick who will extend the call, set the appointment date/time, and assign them with the appointment on the task.</li>' +
+          '<li><b>Ward-level callings</b> (sustained in the ward) can be assigned to a <b>high councilor</b> as well as the Stake Presidency.</li>' +
           '</ul>'
       },
       ordInterviews: {
@@ -3620,7 +3680,9 @@
     function renderCallingControls(item) {
       if (!actorCanReassign()) return '';
       if (item == null || item.callingStatus === undefined || item.callingStatus === null) return '';
-      const ts = String(item.referenceId || '');
+      // callingRefId is the Calling Approvals timestamp (appointment items' referenceId is the
+      // extend baseId, so prefer callingRefId when present).
+      const ts = String(item.callingRefId || item.referenceId || '');
       if (!ts) return '';
       const s = String(item.callingStatus || '').toLowerCase();
       const safeTs = ts.replace(/'/g, "\\'");
