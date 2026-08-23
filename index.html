@@ -1634,7 +1634,7 @@
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
           ${assignedInfo}
-          <div class="item-actions">
+          <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <select id="extAssignSp_${item.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
                 <option value="">${selectPrompt}</option>
