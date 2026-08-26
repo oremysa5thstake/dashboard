@@ -360,6 +360,17 @@
         <label for="comments">Comments (optional)</label>
         <textarea id="comments" rows="5" placeholder="Enter any additional comments or information here..." style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; font-family: inherit; resize: vertical;"></textarea>
       </div>
+      <!-- Stake clerk / secretary / presidency submitters only: their own comment doesn't
+           normally need a clerk review, so polling starts right away unless they ask to hold. -->
+      <div class="form-group" id="holdCommentGroup" style="display:none; margin-top: -6px;">
+        <div class="radio-option" onclick="toggleHoldComment()" style="display:flex; align-items:flex-start; gap:10px;">
+          <input type="checkbox" id="holdForCommentReview" onclick="event.stopPropagation(); toggleHoldComment(true);" style="margin-top:3px;">
+          <label for="holdForCommentReview" style="cursor:pointer;">
+            Hold polling until a clerk reviews this comment
+            <span style="display:block; font-weight:400; font-size:13px; color:#666; margin-top:3px;">Leave unchecked to start polling right away. Check this only if the comment needs a clerk to act before the high council and stake presidency are polled.</span>
+          </label>
+        </div>
+      </div>
       <div id="page65Error" class="error" style="display:none;"></div>
       <div class="button-row">
         <button class="secondary" onclick="prevPage(65)">Back</button>
@@ -393,7 +404,7 @@
         <p class="help-text" style="margin: 4px 0 12px; font-size: 13px; color: #666;">Check each member who has <em>already</em> approved (e.g. in a presidency meeting). Anyone left unchecked is polled normally — leave all unchecked to poll everyone.</p>
         <div id="spCheckList"></div>
       </div>
-      <div class="form-group" style="margin-top: 25px;">
+      <div class="form-group" id="urgencyGroup" style="margin-top: 25px;">
         <label class="required">Is this an urgent calling?</label>
         <div class="radio-group">
           <div class="radio-option" onclick="selectUrgency('standard')">
@@ -406,7 +417,7 @@
           </div>
         </div>
       </div>
-      <p class="help-text" style="margin-top: 15px; font-size: 13px; color: #666;">Mark as urgent only if this calling needs to be filled immediately and cannot wait for normal notification timing.</p>
+      <p class="help-text" id="urgencyHelperText" style="margin-top: 15px; font-size: 13px; color: #666;">Mark as urgent only if this calling needs to be filled immediately and cannot wait for normal notification timing.</p>
       <div id="page66Error" class="error" style="display:none;"></div>
       <div class="button-row">
         <button class="secondary" onclick="prevPage(66)">Back</button>
@@ -470,7 +481,7 @@
       interviewStatus: '', interviewWith: '',
       releaseeName: '', releaseWard: '', comments: '',
       sustaineeGender: '', releaseeGender: '',
-      verbalSPApproval: 'no', urgency: 'standard',
+      verbalSPApproval: 'no', urgency: 'standard', holdForCommentReview: false,
       spApprovedIds: '', spApprovedNames: '',
       consultationConfirmed: '',
       releasePreflightAnswer: '',
@@ -1061,14 +1072,43 @@
       var el = value === 'yes' ? 'verbalYes' : 'verbalNo';
       document.getElementById(el).checked = true;
       document.getElementById(el).parentElement.classList.add('selected');
+      updateUrgencyVisibility();
     }
 
-    function selectUrgency(value) {
+    // On a release-only submission where the Stake President has ALREADY approved, nobody is
+    // polled — so the Standard/Urgent notification question is meaningless. Hide it and force
+    // 'standard' so no stray "Urgent" priority is recorded.
+    function updateUrgencyVisibility() {
+      var grp = document.getElementById('urgencyGroup');
+      var help = document.getElementById('urgencyHelperText');
+      if (!grp) return;
+      var hide = (formData.type === 'release' && formData.verbalSPApproval === 'yes');
+      grp.style.display = hide ? 'none' : '';
+      if (help) help.style.display = hide ? 'none' : '';
+      if (hide) selectUrgencyValue('standard');
+    }
+
+    // Set urgency without re-triggering visibility (avoids recursion with updateUrgencyVisibility).
+    function selectUrgencyValue(value) {
       formData.urgency = value;
       document.querySelectorAll('input[name="urgency"]').forEach(function(r) { r.parentElement.classList.remove('selected'); });
       var el = value === 'urgent' ? 'urgencyUrgent' : 'urgencyStandard';
       document.getElementById(el).checked = true;
       document.getElementById(el).parentElement.classList.add('selected');
+    }
+
+    // Checkbox row behaves like the other .radio-option rows (click anywhere to toggle).
+    // fromCheckbox=true means the native checkbox already flipped its own state.
+    function toggleHoldComment(fromCheckbox) {
+      var cb = document.getElementById('holdForCommentReview');
+      if (!cb) return;
+      if (!fromCheckbox) cb.checked = !cb.checked;
+      formData.holdForCommentReview = cb.checked;
+      cb.parentElement.classList.toggle('selected', cb.checked);
+    }
+
+    function selectUrgency(value) {
+      selectUrgencyValue(value);
     }
 
     // The 3 stake presidency members from the roster (President first, then counselors),
@@ -1273,6 +1313,9 @@
           formData.releaseeName = document.getElementById('releaseeName').value.trim();
           formData.releaseWard = document.getElementById('releaseWard').value;
           formData.comments = document.getElementById('comments').value.trim();
+          var holdCb = document.getElementById('holdForCommentReview');
+          formData.holdForCommentReview = !!(formData.comments && holdCb && holdCb.checked &&
+                                             document.getElementById('holdCommentGroup').style.display !== 'none');
           var rgSaved = document.querySelector('input[name="releaseeGender"]:checked');
           formData.releaseeGender = (rgSaved && document.getElementById('releaseeGenderGroup').style.display !== 'none') ? rgSaved.value : '';
           // Secondary release (calling form only)
@@ -1351,6 +1394,17 @@
           }
           break;
         case 65:
+          // The "hold polling for clerk review" checkbox only applies to stake
+          // clerk/secretary/presidency submitters — they ARE the reviewer, so their own
+          // comment shouldn't auto-create a review task for themselves.
+          var holdGroup = document.getElementById('holdCommentGroup');
+          if (holdGroup) {
+            holdGroup.style.display = isStakeLeaderSubmitter() ? '' : 'none';
+            if (!isStakeLeaderSubmitter()) {
+              formData.holdForCommentReview = false;
+              document.getElementById('holdForCommentReview').checked = false;
+            }
+          }
           var ns = document.getElementById('callingNotesSection');
           if (callingRequirements && callingRequirements.notes) { document.getElementById('callingNotesText').textContent = callingRequirements.notes; ns.style.display = 'block'; }
           else { ns.style.display = 'none'; }
@@ -1427,6 +1481,7 @@
             if (p66Yes && p66Yes.parentElement) p66Yes.parentElement.querySelector('label').textContent = 'Yes - Skip Stake Presidency and poll High Council immediately';
             if (p66No && p66No.parentElement) p66No.parentElement.querySelector('label').textContent = 'No - Poll the Stake Presidency first, then High Council';
           }
+          updateUrgencyVisibility();
           break;
         case 7: buildReviewPage(); break;
       }
@@ -1467,7 +1522,8 @@
         if (formData.sustaineeGender) h += ri('Gender', formData.sustaineeGender);
         h += '</div>';
         if (formData.comments) { h += '<div class="review-section"><h4>Comments</h4><p style="margin: 0; white-space: pre-wrap;">' + formData.comments + '</p></div>'; }
-        h += '<div class="review-section"><h4>Stake President Approval</h4>' + ri('Already Approved?', formData.verbalSPApproval === 'yes' ? 'Yes — auto-record approval' : 'No — poll him') + ri('Priority', formData.urgency === 'urgent' ? '🔴 Urgent' : 'Standard') + '</div>';
+        h += '<div class="review-section"><h4>Stake President Approval</h4>' + ri('Already Approved?', formData.verbalSPApproval === 'yes' ? 'Yes — auto-record approval' : 'No — poll him')
+          + (formData.verbalSPApproval === 'yes' ? '' : ri('Priority', formData.urgency === 'urgent' ? '🔴 Urgent' : 'Standard')) + '</div>';
         c.innerHTML = h;
         return;
       }
@@ -1489,7 +1545,15 @@
           h += '<div class="review-section"><h4>Interview</h4>' + ri('Required With', callingRequirements.stakeInterview === 'President' ? 'Stake President' : 'Stake Presidency Counselor') + ri('Status', formData.interviewStatus) + '</div>';
         }
         if (formData.releaseeName) { h += '<div class="review-section"><h4>Release</h4>' + ri('Member to be Released', formData.releaseeName); if (formData.releaseeGender) h += ri('Gender', formData.releaseeGender); if (formData.releaseWard) h += ri('Release Ward', formData.releaseWard); h += '</div>'; }
-        if (formData.comments) { h += '<div class="review-section"><h4>Comments</h4><p style="margin: 0; white-space: pre-wrap;">' + formData.comments + '</p></div>'; }
+        if (formData.comments) {
+          h += '<div class="review-section"><h4>Comments</h4><p style="margin: 0; white-space: pre-wrap;">' + formData.comments + '</p>'
+             + (isStakeLeaderSubmitter()
+                 ? '<p style="margin:8px 0 0; font-size:13px; color:#666;">' + (formData.holdForCommentReview
+                     ? 'Polling is held until a clerk reviews this comment.'
+                     : 'Polling starts right away (no clerk review task).') + '</p>'
+                 : '')
+             + '</div>';
+        }
       }
       if (formData.type === 'calling' && isStakeLeaderSubmitter()) {
         var spReviewVal = (formData.type === 'calling')
@@ -1514,7 +1578,7 @@
         apiCall('submitReleaseOnly', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', comments: formData.comments, sustaineeGender: formData.sustaineeGender, verbalSPApproval: formData.verbalSPApproval, urgency: formData.urgency })
           .then(handleSubmitSuccess).catch(handleSubmitError);
       } else {
-        apiCall('submitCallingRecommendation', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard })
+        apiCall('submitCallingRecommendation', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, holdForCommentReview: formData.holdForCommentReview, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard })
           .then(handleSubmitSuccess).catch(handleSubmitError);
       }
     }
@@ -1524,7 +1588,7 @@
 
     function resetForm() {
       clearDraft();
-      formData = { type: '', submitterName: '', submitterCalling: '', onBehalfOf: '', onBehalfName: '', onBehalfCalling: '', memberName: '', ward: '', calling: '', sustainingBody: '', ordinationOffice: '', bishopInterviewDate: '', bishopSubmissionDate: '', preferredOrdinationDate: '', requirements: { templeRecommend: '', priesthood: '' }, interviewStatus: '', interviewWith: '', releaseeName: '', releaseWard: '', comments: '', sustaineeGender: '', releaseeGender: '', verbalSPApproval: 'no', urgency: 'standard', spApprovedIds: '', spApprovedNames: '', consultationConfirmed: '', releasePreflightAnswer: '', secondaryReleaseCalling: '', secondaryReleaseWard: '' };
+      formData = { type: '', submitterName: '', submitterCalling: '', onBehalfOf: '', onBehalfName: '', onBehalfCalling: '', memberName: '', ward: '', calling: '', sustainingBody: '', ordinationOffice: '', bishopInterviewDate: '', bishopSubmissionDate: '', preferredOrdinationDate: '', requirements: { templeRecommend: '', priesthood: '' }, interviewStatus: '', interviewWith: '', releaseeName: '', releaseWard: '', comments: '', sustaineeGender: '', releaseeGender: '', verbalSPApproval: 'no', urgency: 'standard', holdForCommentReview: false, spApprovedIds: '', spApprovedNames: '', consultationConfirmed: '', releasePreflightAnswer: '', secondaryReleaseCalling: '', secondaryReleaseWard: '' };
       submitOptions = null; callingRequirements = null; isLoadingSubmitOptions = false;
       pageFlow = [1, 2, 4, 7]; currentPage = 1;
       document.querySelectorAll('input[type="text"], input[type="date"]').forEach(function(i) { i.value = ''; });
