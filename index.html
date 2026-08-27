@@ -1631,6 +1631,25 @@
           : spOptions;
         const selectPrompt = item.wardLevel ? 'Select SP member or HC...' : 'Select SP member...';
 
+        // Collapsed "record response" drawer — for callings already extended without ever
+        // assigning an extender here, so you don't have to assign someone just to mark it.
+        // A release-scope task has no accept/decline, only "release extended".
+        const isReleaseScope = item.scope === 'release';
+        const recordButtons = isReleaseScope
+          ? `<button class="btn btn-success btn-sm" onclick="recordExtendAssignResponse('${item.actionId}', 'extended', this)">✓ Release Extended</button>`
+          : `<button class="btn btn-success btn-sm" onclick="recordExtendAssignResponse('${item.actionId}', 'accepted', this)">✓ Accepted</button>
+             <button class="btn btn-danger btn-sm" onclick="recordExtendAssignResponse('${item.actionId}', 'declined', this)">✗ Declined</button>`;
+        const recordResponseBlock = `
+          <div style="margin-top:10px;border-top:1px solid #eee;padding-top:8px;">
+            <span onclick="toggleExtAssignRecord('${item.actionId}')" style="cursor:pointer;font-size:13px;color:#5865F2;user-select:none;">
+              <span id="extAssignCaret_${item.actionId}">▸</span> Record response from member
+            </span>
+            <div id="extAssignRecord_${item.actionId}" style="display:none;margin-top:8px;">
+              <div class="item-meta" style="margin-bottom:6px;">Already extended without assigning it here? Record the answer directly — this completes this task and moves the calling forward.</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">${recordButtons}</div>
+            </div>
+          </div>`;
+
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
           ${assignedInfo}
@@ -1648,12 +1667,44 @@
               <button class="btn btn-primary" onclick="assignExtendCall('${item.actionId}', this, true)">Schedule &amp; Assign</button>
             </div>
           </div>
+          ${recordResponseBlock}
           ${renderCallingControls(item)}
         </div>`;
       });
 
       html += '</div></div></div>';
       return html;
+    }
+
+    // Expand/collapse the "Record response from member" drawer on a Schedule/Assign item.
+    function toggleExtAssignRecord(actionId) {
+      const box = document.getElementById('extAssignRecord_' + actionId);
+      const car = document.getElementById('extAssignCaret_' + actionId);
+      if (!box) return;
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      if (car) car.textContent = open ? '▸' : '▾';
+    }
+
+    // Record the member's answer straight on the Schedule/Assign task, for callings that were
+    // already extended without assigning an extender here. Runs the same cascade the real
+    // extend task would, then closes out the Schedule/Assign task.
+    async function recordExtendAssignResponse(actionId, response, btn) {
+      const label = response === 'declined' ? 'declined' : (response === 'extended' ? 'had their release extended' : 'accepted');
+      if (!confirm('Record that the member ' + label + '?\n\nThis completes this Schedule/Assign task and moves the calling forward exactly as if the assigned extender had reported it.')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      const sibs = btn ? Array.from(btn.parentElement.querySelectorAll('button')) : [];
+      sibs.forEach(b => b.disabled = true);
+      setSyncing(true);
+      try {
+        await performAction('recordExtendAssignResponse', { itemId: actionId, response: response });
+        if (itemEl) itemEl.remove();
+        showToast('Response recorded', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        sibs.forEach(b => b.disabled = false);
+      } finally { setSyncing(false); }
     }
 
     // withSchedule=false → "Assign" (no appointment); withSchedule=true → "Schedule & Assign"
@@ -2489,6 +2540,7 @@
           '<li><b>Assign:</b> Pick who will extend the call and assign them <i>without</i> scheduling an appointment.</li>' +
           '<li><b>Schedule &amp; Assign:</b> Pick who will extend the call, set the appointment date/time, and assign them with the appointment on the task.</li>' +
           '<li><b>Ward-level callings</b> (sustained in the ward) can be assigned to a <b>high councilor</b> as well as the Stake Presidency.</li>' +
+          '<li><b>Record response from member:</b> Expand this if the calling was already extended without assigning an extender here. Recording Accepted / Declined completes this task and moves the calling forward exactly as if the assigned extender had reported it.</li>' +
           '</ul>'
       },
       ordInterviews: {
