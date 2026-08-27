@@ -6,6 +6,10 @@
 !manifest.json
 !form.html
 !boundary-maps.html
+
+# Tab icons (favicons) for the Pages sites
+!icon-*.svg
+!icon-*.png
 !maps/
 !maps/*
 !.gitignore
