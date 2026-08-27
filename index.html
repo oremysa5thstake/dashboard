@@ -1117,9 +1117,10 @@
         html += renderUndoSection();
       }
 
-      // Admin Tools section
-      if (data.isAdmin && data.adminUsers && data.adminUsers.length > 0) {
-        html += renderAdminSection(data.adminUsers);
+      // Admin Tools section — admins and the Stake Presidency. The presidency sees the
+      // scripts + demos; "View Another User's Dashboard" stays admin-only.
+      if (data.isAdmin || data.isPresidency) {
+        html += renderAdminSection(data.adminUsers || [], !!data.isAdmin);
       }
 
       // Empty state
@@ -2404,43 +2405,81 @@
       } finally { setSyncing(false); }
     }
 
-    function renderAdminSection(adminUsers) {
+    // Small collapsible group inside Admin Tools.
+    function adminGroup(id, title, subtitle, bodyHtml, openByDefault) {
+      const open = !!openByDefault;
+      return '<div style="margin-bottom:14px;border:1px solid #eee;border-radius:8px;overflow:hidden;">'
+        + '<div onclick="toggleAdminGroup(\'' + id + '\')" style="cursor:pointer;padding:10px 12px;background:#fafafa;display:flex;align-items:center;gap:8px;">'
+        + '<span id="adminCaret_' + id + '" style="font-size:12px;color:#888;">' + (open ? '▾' : '▸') + '</span>'
+        + '<span style="font-weight:600;font-size:14px;">' + title + '</span>'
+        + (subtitle ? '<span style="font-size:12px;color:#888;">' + subtitle + '</span>' : '')
+        + '</div>'
+        + '<div id="adminGroup_' + id + '" style="display:' + (open ? 'block' : 'none') + ';padding:12px;">' + bodyHtml + '</div>'
+        + '</div>';
+    }
+
+    function toggleAdminGroup(id) {
+      const box = document.getElementById('adminGroup_' + id);
+      const car = document.getElementById('adminCaret_' + id);
+      if (!box) return;
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      if (car) car.textContent = open ? '▸' : '▾';
+    }
+
+    function renderAdminSection(adminUsers, showImpersonation) {
       let html = '<div class="section admin-section"><div class="section-header expanded" onclick="toggleSection(\'admin\')"><div class="section-title">🔧 Admin Tools</div><div class="section-meta">' + helpBtn('admin') + '<span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-admin"><div class="section-inner">';
 
-      html += '<div style="margin-bottom:20px;"><div class="settings-label">📜 Run Scripts</div>';
-      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
-      html += '<button class="btn btn-primary" onclick="runScript(\'UpdateFromSheet\')">🔄 Update from Sheet</button>';
-      html += '<button class="btn btn-secondary" onclick="runScript(\'StakeBusinessDoc\')">Generate Stake Business Doc</button>';
-      html += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
-      html += '<button class="btn btn-secondary" onclick="runScript(\'CheckStakeBusinessAvailability\')">📅 Check Stake Business Availability</button>';
-      html += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';
-      html += '<button class="btn btn-secondary" onclick="runScript(\'SundaySustainingReport\')">🙋 Send Sunday Sustaining Reports</button>';
-      html += '<button class="btn btn-secondary" onclick="runScript(\'CleanupPendingNotifications\')">🧹 Clean Up Pending Notifications</button>';
-      html += '<button class="btn btn-secondary" onclick="runScript(\'SendClerkSummaryEmails\')">📧 Send Ward-Clerk Summary Emails</button>';
-      html += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
-      html += '<button class="btn btn-secondary" onclick="openPerfModal()">⏱️ Performance Log</button>';
-      html += '</div></div>';
+      // ── Tools you run on purpose ──
+      let tools = '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+      tools += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
+      tools += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';
+      tools += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
+      tools += '<button class="btn btn-secondary" onclick="openPerfModal()">⏱️ Performance Log</button>';
+      tools += '</div>';
 
-      html += '<div><div class="settings-label">👤 View Another User\'s Dashboard</div>';
-      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;">';
-      html += '<select class="form-select" id="adminUserSelect" style="flex:1;max-width:300px;"><option value="">Select a user...</option>';
+      // ── Scheduled scripts, surfaced here only so they can be run early ──
+      let sched = '<div class="item-meta" style="margin-bottom:8px;">These run on their own schedule. Use these buttons only to run one <em>early</em> — running one again is safe (they are all idempotent).</div>';
+      sched += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+      sched += '<button class="btn btn-primary" onclick="runScript(\'UpdateFromSheet\')">🔄 Update from Sheet <span style="opacity:.75;">· hourly</span></button>';
+      sched += '<button class="btn btn-secondary" onclick="runScript(\'StakeBusinessDoc\')">📄 Generate Stake Business Doc <span style="opacity:.75;">· Thu</span></button>';
+      sched += '<button class="btn btn-secondary" onclick="runScript(\'CheckStakeBusinessAvailability\')">📅 Check Stake Business Availability <span style="opacity:.75;">· Thu</span></button>';
+      sched += '<button class="btn btn-secondary" onclick="runScript(\'SundaySustainingReport\')">🙋 Send Sunday Sustaining Reports <span style="opacity:.75;">· Sun 8am</span></button>';
+      sched += '<button class="btn btn-secondary" onclick="runScript(\'SendClerkSummaryEmails\')">📧 Send Ward-Clerk Summary Emails <span style="opacity:.75;">· hourly</span></button>';
+      sched += '<button class="btn btn-secondary" onclick="runScript(\'CleanupPendingNotifications\')">🧹 Clean Up Pending Notifications <span style="opacity:.75;">· nightly</span></button>';
+      sched += '</div>';
 
-      adminUsers.forEach(u => {
-        let t = u.name + (u.role ? ' (' + u.role + ')' : '');
-        if (t.length > 50) t = t.substring(0, 47) + '...';
-        html += '<option value="' + u.id + '">' + escapeHtmlDisplay(t) + '</option>';
+      html += adminGroup('scripts', '📜 Run Scripts', '', tools + adminGroup('sched', '⏰ Scheduled Scripts', 'run one early', sched, false), false);
+
+      // ── Training demos ──
+      let demos = '<div class="item-meta" style="margin-bottom:10px;">Training walkthroughs with fictional people — they never touch real data. Open one each and <b>start a shared session</b> to walk the same scenario together, each in your own role.</div>';
+      demos += '<div style="display:flex;flex-direction:column;gap:6px;">';
+      [['sp', '👔 Stake President'], ['spc', '👔 Counselor in the Presidency'], ['sec', '🗓️ Stake Executive Secretary'],
+       ['clerk', '🗃️ Stake Clerk (Membership)'], ['hc', '🎓 High Councilor']].forEach(function (r) {
+        demos += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
+          + '<button class="btn btn-secondary btn-sm" style="min-width:250px;text-align:left;" onclick="window.open(location.pathname + \'?demo=' + r[0] + '\', \'_blank\')">' + r[1] + ' Demo</button>'
+          + '<button class="btn btn-secondary btn-sm" onclick="copyDemoLink(\'' + r[0] + '\')">🔗 Copy link</button>'
+          + '</div>';
       });
+      demos += '</div>';
+      html += adminGroup('demos', '🎓 Dashboard Demos', '5 roles', demos, false);
 
-      html += '</select><button class="btn btn-primary" onclick="openUserDashboard()">Open</button>';
-      html += '<button class="btn btn-secondary" onclick="shareUserDashboardLink()">🔗 Share Link</button></div>';
-      html += '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">';
-      html += '<button class="btn btn-secondary" onclick="window.open(location.pathname + \'?demo=hc\', \'_blank\')">🎓 High Councilor Demo</button>';
-      html += '<button class="btn btn-secondary btn-sm" onclick="copyDemoLink()">🔗 Copy Demo Link</button>';
-      html += '<span style="font-size:12px;color:#888;">Training walkthrough with fictional people — never touches real data.</span>';
-      html += '</div></div>';
+      // ── Admin-only: open/share another user's dashboard ──
+      if (showImpersonation && adminUsers && adminUsers.length > 0) {
+        let imp = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+        imp += '<select class="form-select" id="adminUserSelect" style="flex:1;max-width:300px;"><option value="">Select a user...</option>';
+        adminUsers.forEach(u => {
+          let t = u.name + (u.role ? ' (' + u.role + ')' : '');
+          if (t.length > 50) t = t.substring(0, 47) + '...';
+          imp += '<option value="' + u.id + '">' + escapeHtmlDisplay(t) + '</option>';
+        });
+        imp += '</select><button class="btn btn-primary" onclick="openUserDashboard()">Open</button>';
+        imp += '<button class="btn btn-secondary" onclick="shareUserDashboardLink()">🔗 Share Link</button></div>';
+        html += adminGroup('impersonate', '👤 View Another User\'s Dashboard', '', imp, false);
+      }
+
       html += '</div></div></div>';
-
       return html;
     }
 
@@ -4648,14 +4687,34 @@
     }
 
     // ============================================================
-    // 🎓 HIGH COUNCILOR DEMO MODE (?demo=hc)
-    // A pure in-browser training walkthrough. Nothing in demo mode
-    // ever calls the backend or touches the spreadsheets — every
-    // click mutates local state (persisted in localStorage) and
+    // 🎓 DEMO MODE — role walkthroughs (?demo=hc|sp|spc|clerk|sec)
+    // A training walkthrough with fictional people. No real sheet is
+    // ever read or written: every click mutates scenario state and
     // re-renders the same dashboard UI real users see.
+    //
+    // All five roles share ONE scenario, so a group can walk it together —
+    // each person opens their own role and everyone's screen advances as
+    // any of them acts. Solo (no session) the state lives in localStorage;
+    // in a shared session it lives in a Script Property under a 4-char code
+    // (see demoSessionCreate/Get/Update in Core.js) — still never a real sheet.
     // ============================================================
 
-    const DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === 'hc';
+    const DEMO_ROLES = {
+      hc:    { label: 'High Councilor',              who: 'Bro. Demoson',    badge: 'Demo HC' },
+      sp:    { label: 'Stake President',             who: 'Pres. Whitfield', badge: 'Demo Stake President' },
+      spc:   { label: 'Counselor in the Presidency', who: 'Pres. Lofgran',   badge: 'Demo Counselor' },
+      clerk: { label: 'Stake Clerk (Membership)',    who: 'Bro. Ledger',     badge: 'Demo Membership Clerk' },
+      sec:   { label: 'Stake Executive Secretary',   who: 'Bro. Penrose',    badge: 'Demo Executive Secretary' }
+    };
+    const DEMO_ROLE = (function () {
+      const r = new URLSearchParams(window.location.search).get('demo');
+      return (r && DEMO_ROLES[r]) ? r : null;
+    })();
+    const DEMO_MODE = !!DEMO_ROLE;
+    const DEMO_ROLE_INFO = DEMO_ROLE ? DEMO_ROLES[DEMO_ROLE] : null;
+
+    // Shared-session state (null = solo/localStorage).
+    let demoSession = { code: null, rev: 0, timer: null, pushing: false, dirty: false };
     const DEMO_DOC_URL = 'https://docs.google.com/document/d/1GEFkw7OUvQ2D8iv6RRvCMfewAjEG_99vrv2mdRp6s2o/edit';
     const DEMO_STATE_KEY = 'hcDemoState_v1';
     const DEMO_WARD = '6-7th Ward';
@@ -4676,17 +4735,156 @@
     let demoState = null;
     let demoStakeLinks = []; // real stake links, fetched once (the only sheet read in demo)
 
+    // ONE scenario shared by every role. Each role's builder reads the slice it owns, so an
+    // action taken by one role shows up as the next role's task.
     function demoFreshState() {
       return {
-        approved: { c1: false, c2: false, c3: false, o1: false },
+        // Stage 0 — membership clerk clears a flagged recommendation so polling can start
+        clerkCtrReviewed: false, clerkCommentReviewed: false,
+        // Stage 1 — votes, tracked per voting role
+        approved: { c1: false, c2: false, c3: false, o1: false },   // high councilor (legacy key)
+        spVote:   { c1: false, c2: false, c3: false, o1: false },   // stake president
+        spcVote:  { c1: false, c2: false, c3: false, o1: false },   // counselor
+        // Stage 2 — secretary assigns/schedules who extends the stake calling
+        assignedTo: '', assignedAppt: '',
+        // Stage 3 — extending
         appt: '',
         porterAccepted: false, marcusExtended: false,
+        sadieAccepted: false,                     // the stake calling the counselor extends
+        // Stage 4 — stake business + sustainings
         sbConfirmed: false,
         sus: {},                                  // sustaining-report marks, keyed by numeric item id
+        // Stage 5 — setting apart
         saPorter: false, saSadie: false, oouDone: false,
+        // Stage 6 — ordination + certificate chain
+        ordInterview: '',                         // secretary schedules the interview
         ordDate: '', ordSustainReported: false, ordReported: false,
-        certLcr: false, certPrinted: false, certSigned: false, certDelivered: false
+        certLcr: false, certPrinted: false, certSigned: false, certDelivered: false,
+        // Clerk odds and ends
+        nameTagOrdered: false
       };
+    }
+
+    // ── Shared session plumbing ─────────────────────────────────
+    // Solo demos persist to localStorage. In a session the Script Property is the source of
+    // truth: demoSave() pushes, and a poll pulls other roles' changes and re-renders.
+    const DEMO_SESSION_POLL_MS = 4000;
+
+    function demoSessionUrl(code, role) {
+      return location.origin + location.pathname + '?demo=' + (role || DEMO_ROLE || 'hc') + '&s=' + code;
+    }
+
+    async function demoApi(action, params) {
+      const qs = new URLSearchParams(Object.assign({ action: action }, params || {}));
+      const res = await fetch(API_URL + '?' + qs.toString(), { method: 'GET' });
+      return await res.json();
+    }
+
+    async function demoSessionStart() {
+      try {
+        setSyncing(true);
+        const r = await demoApi('demoSessionCreate', {});
+        if (!r || !r.success) throw new Error((r && r.error) || 'Could not start a session');
+        demoSession.code = r.code; demoSession.rev = r.rev || 0;
+        await demoSessionPush();               // seed it with the current scenario state
+        demoSessionStartPolling();
+        demoUpdateSessionBar();
+        history.replaceState(null, '', demoSessionUrl(r.code));
+        showToast('Session ' + r.code + ' started — share the code or link', 'success');
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally { setSyncing(false); }
+    }
+
+    async function demoSessionJoin(codeRaw) {
+      const code = String(codeRaw || '').trim().toUpperCase();
+      if (!code) { showToast('Enter a session code', 'error'); return false; }
+      try {
+        setSyncing(true);
+        const r = await demoApi('demoSessionGet', { code: code });
+        if (!r || !r.success) throw new Error((r && r.error) || 'Session not found');
+        demoSession.code = code; demoSession.rev = r.rev || 0;
+        if (r.state && Object.keys(r.state).length) demoState = Object.assign(demoFreshState(), r.state);
+        demoSessionStartPolling();
+        demoUpdateSessionBar();
+        history.replaceState(null, '', demoSessionUrl(code));
+        showToast('Joined session ' + code, 'success');
+        onDataLoaded(demoBuildData());
+        return true;
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        return false;
+      } finally { setSyncing(false); }
+    }
+
+    function demoSessionLeave() {
+      demoSession.code = null; demoSession.rev = 0;
+      if (demoSession.timer) { clearInterval(demoSession.timer); demoSession.timer = null; }
+      demoUpdateSessionBar();
+      history.replaceState(null, '', location.pathname + '?demo=' + DEMO_ROLE);
+      showToast('Left the shared session — you are back on your own copy', 'success');
+    }
+
+    /** Push local scenario state up. Coalesces bursts so rapid taps make one write. */
+    async function demoSessionPush() {
+      if (!demoSession.code) return;
+      if (demoSession.pushing) { demoSession.dirty = true; return; }
+      demoSession.pushing = true;
+      try {
+        const r = await demoApi('demoSessionUpdate', { code: demoSession.code, state: JSON.stringify(demoState) });
+        if (r && r.success) demoSession.rev = r.rev;
+        else if (r && r.notFound) { showToast('That session expired — continuing on your own copy.', 'error'); demoSessionLeave(); }
+      } catch (e) {
+        // Offline/slow: keep playing locally; the next action retries.
+      } finally {
+        demoSession.pushing = false;
+        if (demoSession.dirty) { demoSession.dirty = false; demoSessionPush(); }
+      }
+    }
+
+    function demoSessionStartPolling() {
+      if (demoSession.timer) clearInterval(demoSession.timer);
+      demoSession.timer = setInterval(demoSessionPoll, DEMO_SESSION_POLL_MS);
+    }
+
+    async function demoSessionPoll() {
+      if (!demoSession.code || demoSession.pushing) return;
+      try {
+        const r = await demoApi('demoSessionGet', { code: demoSession.code, rev: demoSession.rev });
+        if (!r || !r.success) { if (r && r.notFound) demoSessionLeave(); return; }
+        if (r.changed && r.state) {
+          demoSession.rev = r.rev;
+          demoState = Object.assign(demoFreshState(), r.state);
+          onDataLoaded(demoBuildData());       // someone else moved the scenario forward
+        } else if (r.rev) demoSession.rev = r.rev;
+      } catch (e) { /* transient */ }
+    }
+
+    function demoUpdateSessionBar() {
+      const el = document.getElementById('demoSessionBar');
+      if (!el) return;
+      el.innerHTML = demoSession.code
+        ? '<span style="font-weight:600;">🔗 Session ' + escapeHtmlDisplay(demoSession.code) + '</span>'
+          + '<span style="opacity:.85;">everyone in this session moves together</span>'
+          + '<button class="btn btn-secondary btn-sm" onclick="demoCopySessionLink()">Copy link</button>'
+          + '<button class="btn btn-secondary btn-sm" onclick="demoSessionLeave()">Leave</button>'
+        : '<span style="opacity:.85;">Walking through as a group?</span>'
+          + '<button class="btn btn-secondary btn-sm" onclick="demoSessionStart()">Start shared session</button>'
+          + '<button class="btn btn-secondary btn-sm" onclick="demoPromptJoin()">Join with a code</button>';
+    }
+
+    function demoPromptJoin() {
+      const code = prompt('Enter the 4-character session code:');
+      if (code) demoSessionJoin(code);
+    }
+
+    function demoCopySessionLink() {
+      if (!demoSession.code) return;
+      const txt = 'Join the training demo — session ' + demoSession.code + '\n'
+        + Object.keys(DEMO_ROLES).map(r => DEMO_ROLES[r].label + ': ' + demoSessionUrl(demoSession.code, r)).join('\n');
+      navigator.clipboard.writeText(txt)
+        .then(() => showToast('Session links copied — paste them to the group', 'success'))
+        .catch(() => showToast(txt, 'success'));
     }
 
     function demoLoad() {
@@ -4695,18 +4893,26 @@
         demoState = raw ? Object.assign(demoFreshState(), JSON.parse(raw)) : demoFreshState();
       } catch (e) { demoState = demoFreshState(); }
     }
+    // Persist locally always; in a shared session also push so the other roles advance.
     function demoSave() {
       try { localStorage.setItem(DEMO_STATE_KEY, JSON.stringify(demoState)); } catch (e) {}
+      if (demoSession.code) demoSessionPush();
     }
     function demoRestart() {
+      if (demoSession.code && !confirm('Restart the scenario for EVERYONE in session ' + demoSession.code + '?')) return;
       try { localStorage.removeItem(DEMO_STATE_KEY); } catch (e) {}
+      if (demoSession.code) {
+        demoState = demoFreshState();
+        demoSessionPush().then(() => location.reload()).catch(() => location.reload());
+        return;
+      }
       location.reload();
     }
     function demoExit() {
-      location.href = location.pathname; // strip ?demo=hc
+      location.href = location.pathname; // strip ?demo=…
     }
-    function copyDemoLink() {
-      const link = location.origin + location.pathname + '?demo=hc';
+    function copyDemoLink(role) {
+      const link = location.origin + location.pathname + '?demo=' + (role || DEMO_ROLE || 'hc');
       navigator.clipboard.writeText(link)
         .then(() => showToast('Demo link copied to clipboard', 'success'))
         .catch(() => prompt('Copy this demo link:', link));
@@ -4739,18 +4945,30 @@
 
     function demoInit() {
       demoLoad();
-      userId = 'DEMOHC';
-      document.title = '🎓 Demo — Task Center';
-      // Fixed demo control bar
+      userId = 'DEMO' + DEMO_ROLE.toUpperCase();
+      document.title = '🎓 Demo (' + DEMO_ROLE_INFO.label + ') — Task Center';
+      // Fixed demo control bar: identity + restart/exit on top, session controls beneath.
       const bar = document.createElement('div');
       bar.id = 'demoBar';
-      bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a2e;color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:14px;box-shadow:0 -2px 8px rgba(0,0,0,.25);';
-      bar.innerHTML = '<span>🎓 <strong>DEMO MODE</strong> — fictional people, no real data touched</span>' +
-        '<button class="btn btn-warning btn-sm" style="color:#333;" onclick="demoRestart()">↺ Restart Demo</button>' +
-        '<button class="btn btn-secondary btn-sm" onclick="demoExit()">Exit</button>';
+      bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a2e;color:#fff;padding:8px 14px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px;box-shadow:0 -2px 8px rgba(0,0,0,.25);';
+      bar.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;">' +
+          '<span>🎓 <strong>DEMO</strong> — you are <strong>' + escapeHtmlDisplay(DEMO_ROLE_INFO.who) + '</strong>, ' + escapeHtmlDisplay(DEMO_ROLE_INFO.label) + '</span>' +
+          '<button class="btn btn-warning btn-sm" style="color:#333;" onclick="demoRestart()">↺ Restart</button>' +
+          '<button class="btn btn-secondary btn-sm" onclick="demoExit()">Exit</button>' +
+        '</div>' +
+        '<div id="demoSessionBar" style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;font-size:13px;"></div>';
       document.body.appendChild(bar);
-      document.body.style.paddingBottom = '64px';
-      onDataLoaded(demoBuildData());
+      document.body.style.paddingBottom = '86px';
+      demoUpdateSessionBar();
+
+      // ?s=CODE → join that shared session (and adopt its state) before first render.
+      const joinCode = new URLSearchParams(window.location.search).get('s');
+      if (joinCode) {
+        demoSessionJoin(joinCode).then(function (ok) { if (!ok) onDataLoaded(demoBuildData()); });
+      } else {
+        onDataLoaded(demoBuildData());
+      }
       // Fetch the REAL stake links — the one and only thing the demo reads from
       // the backend (read-only, public, no user data). Re-render when they land.
       fetch(API_URL + '?action=getStakeLinks')
@@ -4764,27 +4982,55 @@
         .catch(() => { /* links are a nicety; ignore failures in the demo */ });
     }
 
+    /** Every voting body has recorded all three callings. */
     function demoAllCallingsApproved() {
-      return demoState.approved.c1 && demoState.approved.c2 && demoState.approved.c3;
+      return demoItemApproved('c1') && demoItemApproved('c2') && demoItemApproved('c3');
+    }
+    /** The viewing role has finished its own share of the voting. */
+    function demoIVotedAll() {
+      const v = demoMyVotes();
+      return v.c1 && v.c2 && v.c3 && v.o1;
     }
     function demoAllSustained() {
       return [1, 2, 3, 4].every(i => typeof demoState.sus[i] !== 'undefined');
     }
     function demoComplete() {
       const s = demoState;
-      return demoAllCallingsApproved() && s.approved.o1 && s.porterAccepted && s.marcusExtended &&
+      return demoAllCallingsApproved() && demoItemApproved('o1') && s.porterAccepted && s.marcusExtended &&
         s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie && s.oouDone &&
         s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
     }
 
-    function demoBuildData() {
+    // A cross-role prerequisite. SOLO: assume the other roles already did their part, so any
+    // role can be explored end-to-end alone (this is how the HC demo always behaved).
+    // IN A SHARED SESSION: require it for real, so the group actually hands off to each other.
+    function demoPre(cond) { return demoSession.code ? !!cond : true; }
+
+    /** Record the viewer's vote. Solo, the other voting bodies are filled in automatically. */
+    function demoRecordVote(key) {
       const s = demoState;
-      const sunday = demoSundayText();
-      const data = {
+      const mine = DEMO_ROLE === 'sp' ? 'spVote' : (DEMO_ROLE === 'spc' ? 'spcVote' : 'approved');
+      s[mine][key] = true;
+      if (!demoSession.code) { s.spVote[key] = true; s.spcVote[key] = true; s.approved[key] = true; }
+    }
+    /** True once every voting body (SP, counselor, high council) has recorded this item. */
+    function demoItemApproved(key) {
+      const s = demoState;
+      return !!(s.spVote[key] && s.spcVote[key] && s.approved[key]);
+    }
+    /** The vote map for whichever role is viewing. */
+    function demoMyVotes() {
+      const s = demoState;
+      return DEMO_ROLE === 'sp' ? s.spVote : (DEMO_ROLE === 'spc' ? s.spcVote : s.approved);
+    }
+
+    /** Shared empty payload every role builder fills in. */
+    function demoBaseData(message) {
+      return {
         success: true,
-        userName: '🎓 Bro. Demoson (Demo HC)',
-        userId: 'DEMOHC',
-        canReassign: false, isAdmin: false, canMemberStatus: true,
+        userName: '🎓 ' + DEMO_ROLE_INFO.who + ' (' + DEMO_ROLE_INFO.badge + ')',
+        userId: 'DEMO' + DEMO_ROLE.toUpperCase(),
+        canReassign: false, isAdmin: false, isPresidency: false, isClerk: false, canMemberStatus: true,
         highCouncilors: [], stakePresidency: [], adminUsers: [],
         stakeLinks: demoStakeLinks || [], mentions: [], myTasks: [], ccItems: [], assignedToOthers: [],
         appointmentItems: [], coordinateItems: [], clerkReviews: [], interviews: [],
@@ -4792,11 +5038,41 @@
         nameTagsToOrder: [], pausedCanceledCallings: [], approvalStatus: [],
         approvals: [], ordinations: [], extendItems: [], stakeBusinessItems: [],
         sustainingReports: [], settingAparts: [], ordinationNotifications: [],
-        ordinationReports: [], ordinationCertificates: [],
-        dashboardMessage: demoComplete()
-          ? '🎉 Demo complete! You walked the full pipeline: approvals → extend → stake business → sustaining → setting apart → ordination → certificate. Tap "Restart Demo" below to run it again.'
-          : '🎓 DEMO — a training walkthrough with fictional people. Work top to bottom; each completed task unlocks the next step, exactly like the real dashboard.'
+        ordinationReports: [], ordinationCertificates: [], extendAssignItems: [],
+        unconfirmedSustainings: [],
+        dashboardMessage: message
       };
+    }
+
+    /** Fill data.counts the way the real payload does. */
+    function demoFinishCounts(data) {
+      data.counts = {
+        pendingCallings: data.approvals.length,
+        pendingOrdinations: data.ordinations.length,
+        extendCallings: data.extendItems.filter(i => i.type === 'extend-calling').length,
+        extendReleases: data.extendItems.filter(i => i.type === 'extend-release').length,
+        myTasks: 0, ccItems: 0
+      };
+      return data;
+    }
+
+    // Dispatcher — each role sees its own slice of the one shared scenario.
+    function demoBuildData() {
+      switch (DEMO_ROLE) {
+        case 'sp':    return demoBuildDataPresidency(true);
+        case 'spc':   return demoBuildDataPresidency(false);
+        case 'clerk': return demoBuildDataClerk();
+        case 'sec':   return demoBuildDataSecretary();
+        default:      return demoBuildDataHC();
+      }
+    }
+
+    function demoBuildDataHC() {
+      const s = demoState;
+      const sunday = demoSundayText();
+      const data = demoBaseData(demoComplete()
+          ? '🎉 Demo complete! You walked the full pipeline: approvals → extend → stake business → sustaining → setting apart → ordination → certificate. Tap "Restart" below to run it again.'
+          : '🎓 DEMO — a training walkthrough with fictional people. Work top to bottom; each completed task unlocks the next step, exactly like the real dashboard.');
 
       // ── Stage 1: HC approvals (SP has already fully approved everything) ──
       if (!s.approved.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
@@ -4806,7 +5082,8 @@
       if (!s.approved.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 2: extend tasks for the 6-7th Ward, assigned to the demo HC ──
-      if (demoAllCallingsApproved()) {
+      // In a shared session this also waits for the presidency to finish voting.
+      if (demoPre(demoAllCallingsApproved())) {
         if (!s.porterAccepted) data.extendItems.push({
           actionId: 'DEMO_EXT_PORTER', type: 'extend-calling', actionType: 'extend-calling',
           displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
@@ -4866,7 +5143,7 @@
       // ── Stage 6: ordination pipeline for Dallin. The notification appears the
       // moment the demo user casts their sustaining vote — as though they were
       // the last of the presidency + high council to sustain. ──
-      if (s.approved.o1 && !s.ordSustainReported) {
+      if (s.approved.o1 && demoPre(demoItemApproved('o1')) && !s.ordSustainReported) {
         data.ordinationNotifications.push({
           actionId: 'DEMO_ORDNOTIF',
           displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained by the Stake Presidency and High Council to be ordained an Elder. He can be ordained AFTER he has been sustained in sacrament meeting. Please coordinate a time with them when you can be present for their ordination.',
@@ -4893,14 +5170,167 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
-      data.counts = {
-        pendingCallings: data.approvals.length,
-        pendingOrdinations: data.ordinations.length,
-        extendCallings: data.extendItems.filter(i => i.type === 'extend-calling').length,
-        extendReleases: data.extendItems.filter(i => i.type === 'extend-release').length,
-        myTasks: 0, ccItems: 0
-      };
-      return data;
+      return demoFinishCounts(data);
+    }
+
+    // ── Stake Presidency (president + counselor) ────────────────
+    // Both vote on everything; the president also carries the setting-apart authority and
+    // sees the approval-status roll-up. In a shared session the counselor is the one the
+    // secretary assigns the stake calling to.
+    function demoBuildDataPresidency(isPresident) {
+      const s = demoState;
+      const sunday = demoSundayText();
+      const mine = isPresident ? s.spVote : s.spcVote;
+      const data = demoBaseData(demoComplete()
+        ? '🎉 Demo complete! The whole pipeline ran: approvals → assign → extend → stake business → sustaining → setting apart → ordination.'
+        : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', ' + DEMO_ROLE_INFO.label + '. Vote on what is waiting for you, then watch the work move to the secretary, clerk and high council.');
+      data.canReassign = true;
+      data.isPresidency = true;
+      data.stakePresidency = DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n }));
+      data.highCouncilors = DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n }));
+
+      // ── Stage 1: your approvals ──
+      if (!mine.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
+      if (!mine.c2) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
+      if (!mine.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
+        hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
+      if (!mine.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
+
+      // ── Who is still outstanding (the president watches this roll-up) ──
+      if (isPresident) {
+        [['c1', DEMO_CAST.porter, 'Elders Quorum Second Counselor', DEMO_WARD],
+         ['c2', DEMO_CAST.sadie, 'Stake Relief Society Secretary', '24th Ward'],
+         ['c3', DEMO_CAST.tanner, 'High Councilor', '32nd Ward']].forEach(function (row, idx) {
+          if (demoItemApproved(row[0])) return;
+          const pending = [];
+          if (!s.spVote[row[0]])  pending.push({ name: DEMO_SP[0], userId: 'DEMOSP0', column: 20, rowIndex: idx + 1 });
+          if (!s.spcVote[row[0]]) pending.push({ name: DEMO_SP[1], userId: 'DEMOSP1', column: 21, rowIndex: idx + 1 });
+          if (!s.approved[row[0]]) pending.push({ name: 'High Council', userId: 'DEMOHC0', column: 23, rowIndex: idx + 1 });
+          data.approvalStatus.push({
+            type: 'calling', rowIndex: idx + 1, memberName: row[1], calling: row[2], ward: row[3],
+            approved: [], pending: pending
+          });
+        });
+      }
+
+      // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
+      const assignedToMe = !isPresident;
+      if (assignedToMe && demoPre(s.assignedTo) && !s.sadieAccepted) {
+        data.extendItems.push({
+          actionId: 'DEMO_EXT_SADIE', type: 'extend-calling', actionType: 'extend-calling',
+          displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
+          appointmentStatus: s.assignedAppt || 'Pending',
+          assignedToNames: DEMO_SP[1]
+        });
+      }
+
+      // ── Stage 5: setting apart (the presidency sets apart stake callings) ──
+      if (demoPre(s.sus[3] === true) && !s.saSadie) data.settingAparts.push({
+        actionId: 'DEMO_SA_SADIE', sourceRow: 0,
+        callingMember: DEMO_CAST.sadie, callingWard: '24th Ward',
+        displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)  ·  Assigned to: Stake Presidency + assigned HC'
+      });
+
+      return demoFinishCounts(data);
+    }
+
+    // ── Stake Clerk (Membership) ────────────────────────────────
+    // Opens the scenario (clearing a flagged recommendation so polling can start) and closes
+    // it (LCR + the four certificate steps), with name tags and the Monday review in between.
+    function demoBuildDataClerk() {
+      const s = demoState;
+      const data = demoBaseData(demoComplete()
+        ? '🎉 Demo complete! You cleared the recommendation for polling and finished the certificate chain.'
+        : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', Stake Clerk over membership. You open the pipeline (clerk review) and close it (records + certificates).');
+      data.canReassign = true;
+      data.isClerk = true;
+      data.stakePresidency = DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n }));
+      data.highCouncilors = DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n }));
+
+      // ── Stage 0: review before polling starts ──
+      if (!s.clerkCtrReviewed) data.clerkReviews.push({
+        actionId: 'DEMO_CR_CTR', actionType: 'clerk-review-ctr',
+        displayText: 'Does ' + DEMO_CAST.porter + ' of the ' + DEMO_WARD + ' hold a current temple recommend?',
+        notes: 'Bishop Alders recommended them to be called as Elders Quorum Second Counselor'
+      });
+      if (!s.clerkCommentReviewed) data.clerkReviews.push({
+        actionId: 'DEMO_CR_COMMENT', actionType: 'clerk-review-comment',
+        displayText: 'Does this comment from Bishop Alders\' recommendation for ' + DEMO_CAST.sadie + ' require any action before polling the high council and stake presidency?',
+        notes: 'Comment: She serves in the stake Primary through the end of the month — please time the release accordingly.'
+      });
+
+      // ── Name tag, once the stake calling is approved ──
+      if (demoPre(demoItemApproved('c2')) && !s.nameTagOrdered) data.nameTagsToOrder.push({
+        timestamp: 'demo-sadie', memberName: DEMO_CAST.sadie,
+        calling: 'Stake Relief Society Secretary', ward: '24th Ward'
+      });
+
+      // ── Monday review of anything not marked on Sunday ──
+      if (demoPre(s.sbConfirmed) && !demoAllSustained() && Object.keys(s.sus).length > 0) {
+        data.unconfirmedSustainings.push({
+          actionId: 'DEMO_UNCONF',
+          displayText: 'Unconfirmed sustainings/releasings — ' + demoSundayText(),
+          unconfirmedItems: [{ idx: 0, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain' }]
+        });
+      }
+
+      // ── Stage 6: records + certificate chain (this is the clerk's own queue) ──
+      if (demoPre(s.ordReported)) {
+        if (!s.certLcr) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_LCR', actionType: 'ordination-record-lcr',
+          displayText: DEMO_CAST.dallin + ' — record Elder ordination on LCR (' + DEMO_WARD + ')',
+          notes: 'You are the primary on every certificate step; the Stake Clerk is CC\'d, and so is the assigned high councilor.' });
+        else if (!s.certPrinted) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_PRINT', actionType: 'ordination-print-certificate',
+          displayText: DEMO_CAST.dallin + ' — print the ordination certificate' });
+        else if (!s.certSigned) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_SIGN', actionType: 'ordination-sign-certificate',
+          displayText: DEMO_CAST.dallin + ' — get the certificate signed' });
+        else if (!s.certDelivered) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_DELIVER', actionType: 'ordination-deliver-certificate',
+          displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
+      }
+
+      return demoFinishCounts(data);
+    }
+
+    // ── Stake Executive Secretary ───────────────────────────────
+    // The scheduler: assigns who extends the stake calling, books the appointments, and
+    // schedules the ordination interview.
+    function demoBuildDataSecretary() {
+      const s = demoState;
+      const data = demoBaseData(demoComplete()
+        ? '🎉 Demo complete! You assigned the extend, booked the appointment and scheduled the interview.'
+        : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', Stake Executive Secretary. Once the presidency and high council approve, assigning and scheduling is yours.');
+      data.canReassign = true;
+      data.isExecSec = true;
+      data.stakePresidency = DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n }));
+      data.highCouncilors = DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n }));
+
+      // ── Stage 2: Schedule/Assign the approved stake calling ──
+      if (demoPre(demoItemApproved('c2')) && !s.assignedTo) {
+        data.extendAssignItems.push({
+          actionId: 'DEMO_ASSIGN_SADIE', actionType: 'extend-assign', scope: 'calling', wardLevel: false,
+          displayText: 'Schedule & assign — extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
+          notes: 'Scope: calling'
+        });
+      }
+
+      // ── Appointment for the ward calling the high councilor is extending ──
+      if (demoPre(demoAllCallingsApproved()) && !s.appt && !s.porterAccepted) {
+        data.appointmentItems.push({
+          actionId: 'DEMO_APPT_PORTER', actionType: 'appointment-scheduling',
+          displayText: 'Schedule appointment: ' + DEMO_CAST.porter + ' with ' + DEMO_SP[2] + ' — Calling as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
+          notes: 'For: ' + DEMO_SP[2]
+        });
+      }
+
+      // ── Ordination interview with one member of the presidency ──
+      if (demoPre(demoItemApproved('o1')) && !s.ordInterview) {
+        data.ordinationInterviewSchedules.push({
+          actionId: 'DEMO_ORDINT', actionType: 'ordination-interview-schedule',
+          displayText: 'Schedule ordination interview: ' + DEMO_CAST.dallin + ' — Elder (' + DEMO_WARD + ')',
+          notes: 'Pick which member of the presidency will interview him, then set the time.'
+        });
+      }
+
+      return demoFinishCounts(data);
     }
 
     // Demo replacement for the backend API. Mutates state, saves, and lets the
@@ -4913,20 +5343,32 @@
         case 'approve':
         case 'concern': {
           const map = { calling_1: 'c1', calling_2: 'c2', calling_3: 'c3', ordination_1: 'o1' };
-          if (map[id]) s.approved[map[id]] = true;
+          if (map[id]) demoRecordVote(map[id]);
           if (action === 'concern') showToast('In the real dashboard, ⚠️ Concerns pauses this item and notifies the clerks. The demo moves on as if approved.', 'success');
           else if (id === 'ordination_1') showToast('You were the last to sustain — coordinating the ordination is now your task (see 📋 Ordination Sustaining below).', 'success');
           else if (demoAllCallingsApproved() && s.approved.o1) showToast('All approvals in! Watch for the extend tasks assigned to you.', 'success');
           break;
         }
-        case 'approveAll': s.approved.c1 = s.approved.c2 = s.approved.c3 = s.approved.o1 = true; break;
-        case 'sustainAll': s.approved.o1 = true; break;
+        case 'approveAll': ['c1','c2','c3','o1'].forEach(demoRecordVote); break;
+        case 'sustainAll': demoRecordVote('o1'); break;
+        case 'recordVote': {
+          // Clerk/secretary recording a vote on someone's behalf, from Approval Status.
+          const col = parseInt(params.column, 10);
+          const key = { 1: 'c1', 2: 'c2', 3: 'c3' }[parseInt(params.rowIndex, 10)];
+          if (key) {
+            if (col === 20) s.spVote[key] = true;
+            else if (col === 21) s.spcVote[key] = true;
+            else s.approved[key] = true;
+          }
+          break;
+        }
         case 'scheduleAppointment':
         case 'rescheduleAppointment':
           s.appt = demoFormatDateTime(params.appointmentDate + 'T' + params.appointmentTime);
           break;
         case 'accepted':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast(DEMO_CAST.porter.split(' ')[0] + ' accepted! He\'s now scheduled for stake business this Sunday.', 'success'); }
+          if (id === 'DEMO_EXT_SADIE') { s.sadieAccepted = true; showToast(DEMO_CAST.sadie.split(' ')[0] + ' accepted! She goes on this Sunday\'s stake business.', 'success'); }
           break;
         case 'declined':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast('In real life, declining ends the process and notifies the Stake Presidency. For the demo, let\'s pretend he said yes 😉', 'success'); }
@@ -4974,6 +5416,43 @@
           s.certDelivered = true;
           showToast('🎉 That\'s the whole pipeline — demo complete!', 'success');
           break;
+        // ── Membership clerk ──
+        case 'ctrReview':
+        case 'priesthoodReview':
+          s.clerkCtrReviewed = true;
+          showToast('Recorded — that clears ' + DEMO_CAST.porter.split(' ')[0] + '\'s recommendation, so it starts polling.', 'success');
+          break;
+        case 'reviewComplete':
+          s.clerkCommentReviewed = true;
+          showToast('Comment reviewed — this recommendation now polls the presidency and high council.', 'success');
+          break;
+        case 'markNameTagOrdered': s.nameTagOrdered = true; break;
+        case 'unconfirmedReschedule':
+        case 'unconfirmedDismiss':
+          showToast('In real life this moves the item to next Sunday (or drops it). Demo: noted.', 'success');
+          break;
+
+        // ── Executive secretary ──
+        case 'assignExtendCall': {
+          const who = (DEMO_SP[1] || 'a counselor');
+          s.assignedTo = who;
+          s.assignedAppt = (params.appointmentDateTime ? demoFormatDateTime(params.appointmentDateTime) : '');
+          showToast('Assigned to ' + who + (s.assignedAppt ? ' for ' + s.assignedAppt : ' (no appointment)') + '. It is now on their dashboard.', 'success');
+          break;
+        }
+        case 'recordExtendAssignResponse':
+          s.assignedTo = s.assignedTo || DEMO_SP[1];
+          s.sadieAccepted = true;
+          showToast('Recorded — the calling moves straight on to stake business.', 'success');
+          break;
+        case 'dismissAppointment':
+          s.appt = s.appt || 'Dismissed';
+          break;
+        case 'assignOrdinationInterview':
+          s.ordInterview = params.appointmentDateTime ? demoFormatDateTime(params.appointmentDateTime) : 'scheduled';
+          showToast('Interview scheduled with ' + DEMO_SP[0] + '. After it passes, the rest of the presidency and high council sustain.', 'success');
+          break;
+
         case 'getMemberStatus':
           return demoBuildMemberStatus();
         default:
