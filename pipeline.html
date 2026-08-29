@@ -165,6 +165,14 @@
   details .body ul{margin-bottom:0}
   @media (prefers-reduced-motion:reduce){ *{transition:none !important; animation:none !important} }
 
+  .live{display:flex; align-items:center; gap:10px; margin:20px 0 4px; padding:11px 15px; border-radius:9px;
+        border:1px solid var(--rule); background:var(--sunken); font-size:14px; color:var(--muted)}
+  .live .dot{width:8px; height:8px; border-radius:50%; background:var(--muted); flex:none}
+  .live[data-state="ok"]{border-color:var(--go); background:var(--go-soft); color:var(--ink)}
+  .live[data-state="ok"] .dot{background:var(--go)}
+  .live[data-state="off"]{border-color:var(--rule); background:var(--sunken); color:var(--muted)}
+  .live b{color:inherit; font-weight:600}
+  .dim{opacity:.34}
   footer{margin-top:64px; padding-top:28px; border-top:1px solid var(--rule); color:var(--muted); font-size:13.5px}
 </style>
 
@@ -530,6 +538,11 @@
 
     <p>When the hourly job first picks up a row, it stamps a marker in <span class="col">col B</span> so it is never polled twice, writes a status into <span class="col">col C</span>, and notifies whoever is being asked. There are four ways this plays out.</p>
 
+    <div class="live" id="pollLive" data-state="loading">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="pollLiveText">Checking how this stake is currently set to poll&hellip;</span>
+    </div>
+
     <figure>
       <div class="fig-scroll">
       <svg viewBox="0 0 900 330" role="img" aria-label="Four polling patterns: separate phases where the presidency is polled first and the high council second; combined polling of everyone at once; presidency pre-approved so only the high council is polled; and release-only where just the stake president is polled.">
@@ -540,7 +553,7 @@
         </defs>
 
         <!-- A: separate phases -->
-        <text x="20" y="26" class="t">A · Separate phases <tspan class="t-sm">(the default)</tspan></text>
+        <g id="patA"><text x="20" y="26" class="t">A · Separate phases <tspan id="patA-tag" class="t-sm">— set in the Settings sheet</tspan></text>
         <rect x="20" y="38" width="150" height="46" rx="8" class="nd-acc"/>
         <text x="95" y="58" text-anchor="middle" class="t t-acc">Presidency</text>
         <text x="95" y="74" text-anchor="middle" class="t-mono">cols T–V</text>
@@ -556,7 +569,8 @@
         <text x="560" y="72" class="t-sm">every presidency member has voted.</text>
 
         <!-- B: combined -->
-        <text x="20" y="126" class="t">B · Combined polling</text>
+        </g>
+        <g id="patB"><text x="20" y="126" class="t">B · Combined polling <tspan id="patB-tag" class="t-sm"></tspan></text>
         <rect x="20" y="138" width="352" height="46" rx="8" class="nd-acc"/>
         <text x="196" y="158" text-anchor="middle" class="t t-acc">Presidency and high council together</text>
         <text x="196" y="174" text-anchor="middle" class="t-mono">cols T–AH, all at once</text>
@@ -567,6 +581,7 @@
         <text x="560" y="172" class="t-sm">the presidency hasn't weighed yet.</text>
 
         <!-- C: pre-approved -->
+        </g>
         <text x="20" y="226" class="t">C · Presidency already approved</text>
         <rect x="20" y="238" width="150" height="46" rx="8" class="nd-soft"/>
         <text x="95" y="258" text-anchor="middle" class="t">Recorded on</text>
@@ -586,7 +601,7 @@
         <text x="20" y="316" class="t">D · Release only <tspan class="t-sm">— the stake president alone, </tspan><tspan class="t-mono">col T</tspan></text>
       </svg>
       </div>
-      <figcaption><b>Which pattern runs is a stake-wide setting, except C and D which are decided per row.</b> A release needs only the stake president; the other twelve approval columns stay deliberately empty and are never counted against it.</figcaption>
+      <figcaption><b>A and B are a stake-wide setting &mdash; the banner above this figure shows which one is live right now; C and D are decided per row.</b> A release needs only the stake president; the other twelve approval columns stay deliberately empty and are never counted against it.</figcaption>
     </figure>
 
     <h3>Casting a vote</h3>
@@ -1094,5 +1109,40 @@
   </main>
 </div>
 </div>
+
+<script>
+  // Read the stake's real polling setting so this page shows what is actually in force
+  // rather than calling one pattern "the default". Public read-only endpoint returning a
+  // single boolean; if it fails the page keeps its neutral wording and says so quietly.
+  (function () {
+    var API = "https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec";
+    var strip = document.getElementById('pollLive');
+    var text  = document.getElementById('pollLiveText');
+    if (!strip || !text) return;
+
+    function settle(state, html) { strip.setAttribute('data-state', state); text.innerHTML = html; }
+
+    fetch(API + '?action=getWorkflowSettings')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || d.success !== true) throw new Error('unavailable');
+        var sep = d.pollPhasesSeparately === true;
+        var onId  = sep ? 'patA' : 'patB';
+        var offId = sep ? 'patB' : 'patA';
+        var on = document.getElementById(onId), off = document.getElementById(offId);
+        if (off) off.classList.add('dim');
+        var onTag = document.getElementById(onId + '-tag');
+        var offTag = document.getElementById(offId + '-tag');
+        if (onTag)  onTag.textContent  = '\u2014 currently active';
+        if (offTag) offTag.textContent = '\u2014 not in use';
+        settle('ok', sep
+          ? 'This stake polls in <b>separate phases</b>: the presidency votes first, and the high council is only notified once all three have. That is pattern <b>A</b> below.'
+          : 'This stake uses <b>combined polling</b>: the presidency and high council are notified together. That is pattern <b>B</b> below.');
+      })
+      .catch(function () {
+        settle('off', 'Couldn\u2019t reach the sheet just now, so both patterns are shown. Which one is in force is set in the <b>Settings</b> sheet.');
+      });
+  })();
+</script>
 </body>
 </html>
