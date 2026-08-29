@@ -2465,7 +2465,12 @@
           + '</div>';
       });
       demos += '</div>';
-      html += adminGroup('demos', '🎓 Dashboard Demos', '5 roles', demos, false);
+      demos += '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--rule,#eee);">'
+        + '<div class="item-meta" style="margin-bottom:8px;">A written walkthrough of the whole pipeline — every stage, who acts, and which column records it. Good to read before running a demo.</div>'
+        + '<button class="btn btn-secondary btn-sm" style="min-width:250px;text-align:left;" onclick="window.open(\'pipeline.html\', \'_blank\')">🗺️ Approval Pipeline Guide</button>'
+        + '<button class="btn btn-secondary btn-sm" onclick="copyPipelineLink()">🔗 Copy link</button>'
+        + '</div>';
+      html += adminGroup('demos', '🎓 Demos &amp; Training', '5 roles + guide', demos, false);
 
       // ── Admin-only: open/share another user's dashboard ──
       if (showImpersonation && adminUsers && adminUsers.length > 0) {
@@ -4913,6 +4918,13 @@
     function demoExit() {
       location.href = location.pathname; // strip ?demo=…
     }
+    function copyPipelineLink() {
+      const link = location.origin + location.pathname.replace(/[^/]*$/, '') + 'pipeline.html';
+      navigator.clipboard.writeText(link)
+        .then(() => showToast('Pipeline guide link copied', 'success'))
+        .catch(() => prompt('Copy this link:', link));
+    }
+
     function copyDemoLink(role) {
       const link = location.origin + location.pathname + '?demo=' + (role || DEMO_ROLE || 'hc');
       navigator.clipboard.writeText(link)

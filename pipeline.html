@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How a calling, release or ordination moves through the Orem YSA 5th Stake dashboard, stage by stage.">
+<meta name="theme-color" content="#4F46E5">
+<link rel="icon" type="image/svg+xml" href="icon-dashboard.svg">
+<link rel="alternate icon" type="image/png" href="icon-dashboard.png">
+<title>Stake Approval Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+
+<style>
+  :root{
+    --paper:#FCFCFD; --surface:#FFFFFF; --sunken:#F5F6FA;
+    --ink:#14161D; --body:#33384A; --muted:#646B80; --rule:#E4E6EE;
+    --accent:#4F46E5; --accent-soft:#EEF0FE; --accent-line:#C7CBF7;
+    --ord:#0F766E; --ord-soft:#E6F4F2; --ord-line:#A8D5CE;
+    --go:#15803D; --go-soft:#E8F5EC;
+    --wait:#A16207; --wait-soft:#FBF3E2;
+    --stop:#B42318; --stop-soft:#FBEBE9;
+    --shadow:0 1px 2px rgba(20,22,29,.05), 0 8px 24px -16px rgba(20,22,29,.28);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#0E1017; --surface:#161923; --sunken:#12151E;
+      --ink:#F2F4FA; --body:#C7CCDA; --muted:#8B93A7; --rule:#262B39;
+      --accent:#8B93F8; --accent-soft:#1E2140; --accent-line:#3A3F73;
+      --ord:#4DB6A5; --ord-soft:#10312C; --ord-line:#2A5F57;
+      --go:#4ADE80; --go-soft:#11291B;
+      --wait:#FBBF24; --wait-soft:#2C2210;
+      --stop:#F87171; --stop-soft:#2E1616;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0E1017; --surface:#161923; --sunken:#12151E;
+    --ink:#F2F4FA; --body:#C7CCDA; --muted:#8B93A7; --rule:#262B39;
+    --accent:#8B93F8; --accent-soft:#1E2140; --accent-line:#3A3F73;
+    --ord:#4DB6A5; --ord-soft:#10312C; --ord-line:#2A5F57;
+    --go:#4ADE80; --go-soft:#11291B;
+    --wait:#FBBF24; --wait-soft:#2C2210;
+    --stop:#F87171; --stop-soft:#2E1616;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--body);
+    font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4{font-family:"IBM Plex Serif",Georgia,"Times New Roman",serif; color:var(--ink); text-wrap:balance; margin:0}
+  a{color:var(--accent)}
+  code,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* ---------- shell ---------- */
+  .wrap{max-width:1200px; margin:0 auto; padding:0 24px 96px}
+  .masthead{border-bottom:1px solid var(--rule); padding:64px 0 40px; margin-bottom:40px}
+  .eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:0 0 14px}
+  h1{font-size:clamp(34px,5.2vw,52px); line-height:1.08; letter-spacing:-.018em; font-weight:600}
+  .standfirst{margin:18px 0 0; max-width:62ch; font-size:18px; color:var(--body)}
+  .meta{margin-top:24px; display:flex; flex-wrap:wrap; gap:8px}
+  .chip{font-size:12px; padding:5px 11px; border-radius:999px; border:1px solid var(--rule); background:var(--surface); color:var(--muted); font-weight:500}
+  .chip.c-call{border-color:var(--accent-line); background:var(--accent-soft); color:var(--accent)}
+  .chip.c-ord{border-color:var(--ord-line); background:var(--ord-soft); color:var(--ord)}
+
+  .cols{display:grid; grid-template-columns:1fr; gap:48px}
+  @media (min-width:1040px){ .cols{grid-template-columns:212px minmax(0,1fr)} }
+
+  nav.toc{align-self:start}
+  @media (min-width:1040px){ nav.toc{position:sticky; top:28px; max-height:calc(100vh - 56px); overflow-y:auto} }
+  .toc h2{font-family:"IBM Plex Sans",sans-serif; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:0 0 12px}
+  .toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px}
+  .toc a{display:flex; gap:9px; padding:5px 8px; border-radius:6px; text-decoration:none; color:var(--muted); font-size:13.5px; line-height:1.35}
+  .toc a:hover{background:var(--sunken); color:var(--ink)}
+  .toc a .num{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--accent); flex:none; padding-top:1px}
+  .toc a:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+
+  main{min-width:0}
+  section{scroll-margin-top:24px; padding-bottom:8px}
+  section + section{margin-top:56px; padding-top:48px; border-top:1px solid var(--rule)}
+  .sec-head{display:flex; gap:16px; align-items:baseline; margin-bottom:6px}
+  .sec-num{font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--accent); font-weight:500; flex:none; padding-top:4px}
+  h2.sec-title{font-size:clamp(23px,3vw,30px); letter-spacing:-.012em; font-weight:600}
+  .sec-sub{margin:0 0 26px 40px; color:var(--muted); font-size:15.5px; max-width:64ch}
+  @media (max-width:600px){ .sec-sub{margin-left:0} }
+
+  p{margin:0 0 16px; max-width:68ch}
+  h3{font-size:17.5px; margin:32px 0 10px; letter-spacing:-.005em; font-weight:600}
+  h4{font-size:14px; margin:0 0 8px; font-family:"IBM Plex Sans",sans-serif; font-weight:600; letter-spacing:.01em}
+  ul,ol.steps{margin:0 0 16px; padding-left:20px; max-width:68ch}
+  li{margin-bottom:7px}
+  strong{color:var(--ink); font-weight:600}
+
+  /* ---------- column-code pill ---------- */
+  .col{font-family:"IBM Plex Mono",monospace; font-size:12.5px; background:var(--sunken); border:1px solid var(--rule);
+       padding:1px 6px; border-radius:4px; color:var(--ink); white-space:nowrap}
+  .who{font-weight:600; color:var(--ink)}
+
+  /* ---------- figures ---------- */
+  figure{margin:26px 0 30px; background:var(--surface); border:1px solid var(--rule); border-radius:12px; padding:22px 20px 16px; box-shadow:var(--shadow)}
+  .fig-scroll{overflow-x:auto; padding-bottom:4px}
+  figure svg{display:block; max-width:100%; height:auto; min-width:600px; margin:0 auto; color:var(--muted)}
+  figcaption{margin-top:16px; padding-top:14px; border-top:1px solid var(--rule); font-size:13.5px; color:var(--muted); max-width:74ch}
+  figcaption b{color:var(--ink); font-weight:600}
+
+  /* svg primitives */
+  .nd{fill:var(--surface); stroke:currentColor; stroke-width:1.25; opacity:1}
+  .nd-acc{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.4}
+  .nd-ord{fill:var(--ord-soft); stroke:var(--ord); stroke-width:1.4}
+  .nd-go{fill:var(--go-soft); stroke:var(--go); stroke-width:1.4}
+  .nd-wait{fill:var(--wait-soft); stroke:var(--wait); stroke-width:1.4}
+  .nd-stop{fill:var(--stop-soft); stroke:var(--stop); stroke-width:1.4}
+  .nd-soft{fill:var(--sunken); stroke:var(--rule); stroke-width:1.25}
+  .t{fill:var(--ink); font-family:"IBM Plex Sans",sans-serif; font-size:12.5px; font-weight:500}
+  .t-sm{fill:var(--muted); font-family:"IBM Plex Sans",sans-serif; font-size:11px}
+  .t-mono{fill:var(--muted); font-family:"IBM Plex Mono",monospace; font-size:10.5px}
+  .t-acc{fill:var(--accent)} .t-ord{fill:var(--ord)} .t-go{fill:var(--go)} .t-wait{fill:var(--wait)} .t-stop{fill:var(--stop)}
+  .ln{stroke:currentColor; stroke-width:1.4; fill:none}
+  .ln-acc{stroke:var(--accent); stroke-width:1.6; fill:none}
+  .ln-ord{stroke:var(--ord); stroke-width:1.6; fill:none}
+  .ln-stop{stroke:var(--stop); stroke-width:1.6; fill:none}
+  .ln-go{stroke:var(--go); stroke-width:1.6; fill:none}
+  .ln-dash{stroke-dasharray:5 4}
+  .lane{fill:var(--sunken); stroke:none}
+
+  /* ---------- role table ---------- */
+  .tbl-wrap{overflow-x:auto; margin:22px 0 26px; border:1px solid var(--rule); border-radius:12px; background:var(--surface)}
+  table{border-collapse:collapse; width:100%; min-width:620px; font-size:14.5px}
+  th,td{text-align:left; padding:12px 16px; border-bottom:1px solid var(--rule); vertical-align:top}
+  thead th{font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:600; background:var(--sunken)}
+  tbody tr:last-child td{border-bottom:none}
+  td.role{color:var(--ink); font-weight:600; white-space:nowrap}
+
+  /* ---------- callouts ---------- */
+  .note{border-left:3px solid var(--accent); background:var(--accent-soft); padding:14px 18px; border-radius:0 8px 8px 0; margin:22px 0; font-size:14.5px}
+  .note.warn{border-left-color:var(--wait); background:var(--wait-soft)}
+  .note.stop{border-left-color:var(--stop); background:var(--stop-soft)}
+  .note p{margin:0; max-width:70ch}
+  .note p + p{margin-top:9px}
+  .note .lbl{display:block; font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:600; margin-bottom:5px; color:var(--ink)}
+
+  /* ---------- gate cards ---------- */
+  .grid2{display:grid; gap:14px; margin:20px 0 26px}
+  @media (min-width:680px){ .grid2{grid-template-columns:1fr 1fr} }
+  .card{border:1px solid var(--rule); border-radius:10px; padding:16px 18px; background:var(--surface)}
+  .card h4{color:var(--ink)}
+  .card p{margin:0; font-size:14px; color:var(--muted); max-width:none}
+  .card .tag{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:2px 8px; border-radius:999px; display:inline-block; margin-bottom:9px}
+  .tag-wait{background:var(--wait-soft); color:var(--wait)}
+  .tag-go{background:var(--go-soft); color:var(--go)}
+  .tag-stop{background:var(--stop-soft); color:var(--stop)}
+  .tag-acc{background:var(--accent-soft); color:var(--accent)}
+
+  details{border:1px solid var(--rule); border-radius:10px; padding:0; margin:18px 0; background:var(--surface); overflow:hidden}
+  summary{cursor:pointer; padding:13px 18px; font-weight:600; color:var(--ink); font-size:14.5px; list-style:none; display:flex; gap:10px; align-items:center}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸"; color:var(--accent); font-size:12px; transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  details .body{padding:2px 18px 16px; font-size:14.5px; border-top:1px solid var(--rule)}
+  details .body p:first-child{margin-top:14px}
+  details .body ul{margin-bottom:0}
+  @media (prefers-reduced-motion:reduce){ *{transition:none !important; animation:none !important} }
+
+  footer{margin-top:64px; padding-top:28px; border-top:1px solid var(--rule); color:var(--muted); font-size:13.5px}
+</style>
+
+</head>
+<body>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow"><a href="index.html" style="color:inherit;text-decoration:none;border-bottom:1px solid var(--rule)">&larr; Dashboard</a> &nbsp;·&nbsp; Orem YSA 5th Stake Operating Reference</p>
+  <h1>Stake Approval Pipeline</h1>
+  <p class="standfirst">Every step from a bishop's recommendation to a member being set apart — who acts at each stage, what the system does on its own, and which column records it.</p>
+  <div class="meta">
+    <span class="chip c-call">Callings</span>
+    <span class="chip c-call">Releases</span>
+    <span class="chip c-ord">Ordinations</span>
+    <span class="chip">9 stages</span>
+    <span class="chip">6 roles</span>
+  </div>
+</header>
+
+<div class="cols">
+  <nav class="toc" aria-label="Sections">
+    <h2>Stages</h2>
+    <ol>
+      <li><a href="#overview"><span class="num">00</span><span>The whole pipeline</span></a></li>
+      <li><a href="#roles"><span class="num">—</span><span>Who does what</span></a></li>
+      <li><a href="#submit"><span class="num">01</span><span>Submitting</span></a></li>
+      <li><a href="#review"><span class="num">02</span><span>Clerk review gate</span></a></li>
+      <li><a href="#poll"><span class="num">03</span><span>Polling</span></a></li>
+      <li><a href="#extend"><span class="num">04</span><span>Extending</span></a></li>
+      <li><a href="#business"><span class="num">05</span><span>Stake business</span></a></li>
+      <li><a href="#sustain"><span class="num">06</span><span>Sunday sustaining</span></a></li>
+      <li><a href="#setapart"><span class="num">07</span><span>Setting apart</span></a></li>
+      <li><a href="#records"><span class="num">08</span><span>Records &amp; tags</span></a></li>
+      <li><a href="#release"><span class="num">R</span><span>Release-only path</span></a></li>
+      <li><a href="#ordination"><span class="num">O</span><span>Ordination path</span></a></li>
+      <li><a href="#controls"><span class="num">✻</span><span>Pause, hold, cancel</span></a></li>
+      <li><a href="#clock"><span class="num">⏱</span><span>What runs on a clock</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <!-- ============ 00 OVERVIEW ============ -->
+  <section id="overview">
+    <div class="sec-head"><span class="sec-num">00</span><h2 class="sec-title">The whole pipeline</h2></div>
+    <p class="sec-sub">A calling travels nine stages. Every stage either waits on a person or fires on its own — and the difference matters when something looks stuck.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 960 430" role="img" aria-label="Nine-stage calling pipeline: submit, clerk review, poll stake presidency, poll high council, extend, add to stake business, Sunday sustaining, setting apart, records. Stages alternate between waiting on a person and firing automatically.">
+        <defs>
+          <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+
+        <!-- legend -->
+        <rect x="20" y="14" width="13" height="13" rx="3" class="nd-acc"/>
+        <text x="40" y="25" class="t-sm">a person must act</text>
+        <rect x="176" y="14" width="13" height="13" rx="3" class="nd-soft"/>
+        <text x="196" y="25" class="t-sm">the system does it</text>
+
+        <!-- ROW 1 -->
+        <g>
+          <rect x="20" y="72" width="150" height="58" rx="8" class="nd-acc"/>
+          <text x="95" y="95" text-anchor="middle" class="t t-acc">1 · Submit</text>
+          <text x="95" y="113" text-anchor="middle" class="t-sm">bishop / HC / clerk</text>
+
+          <rect x="222" y="72" width="150" height="58" rx="8" class="nd-wait"/>
+          <text x="297" y="95" text-anchor="middle" class="t t-wait">2 · Clerk review</text>
+          <text x="297" y="113" text-anchor="middle" class="t-sm">only if flagged</text>
+
+          <rect x="424" y="72" width="150" height="58" rx="8" class="nd-acc"/>
+          <text x="499" y="95" text-anchor="middle" class="t t-acc">3 · Poll</text>
+          <text x="499" y="113" text-anchor="middle" class="t-sm">presidency → council</text>
+
+          <rect x="626" y="72" width="150" height="58" rx="8" class="nd-acc"/>
+          <text x="701" y="95" text-anchor="middle" class="t t-acc">4 · Extend</text>
+          <text x="701" y="113" text-anchor="middle" class="t-sm">accepted / declined</text>
+
+          <rect x="828" y="72" width="112" height="58" rx="8" class="nd-soft"/>
+          <text x="884" y="95" text-anchor="middle" class="t">5 · Stake</text>
+          <text x="884" y="113" text-anchor="middle" class="t">business</text>
+        </g>
+
+        <!-- row 1 arrows -->
+        <line x1="170" y1="101" x2="215" y2="101" class="ln" marker-end="url(#ar1)"/>
+        <line x1="372" y1="101" x2="417" y2="101" class="ln" marker-end="url(#ar1)"/>
+        <line x1="574" y1="101" x2="619" y2="101" class="ln" marker-end="url(#ar1)"/>
+        <line x1="776" y1="101" x2="821" y2="101" class="ln" marker-end="url(#ar1)"/>
+        <text x="395" y="94" text-anchor="middle" class="t-mono">Poll? = TRUE</text>
+        <text x="597" y="94" text-anchor="middle" class="t-mono">all approve</text>
+        <text x="799" y="94" text-anchor="middle" class="t-mono">accepted</text>
+
+        <!-- skip arrow: no flags, straight to polling -->
+        <path d="M95 130 V 168 H 499 V 138" class="ln ln-dash" marker-end="url(#ar1)"/>
+        <text x="250" y="182" class="t-sm">nothing flagged — polling starts on the next hourly run</text>
+
+        <!-- wrap connector -->
+        <path d="M884 130 V 214 H 95 V 258" class="ln ln-acc" marker-end="url(#ar1a)"/>
+
+        <!-- ROW 2 -->
+        <g>
+          <rect x="20" y="262" width="150" height="58" rx="8" class="nd-acc"/>
+          <text x="95" y="285" text-anchor="middle" class="t t-acc">6 · Sustained</text>
+          <text x="95" y="303" text-anchor="middle" class="t-sm">Sunday, in ward</text>
+
+          <rect x="222" y="262" width="150" height="58" rx="8" class="nd-acc"/>
+          <text x="297" y="285" text-anchor="middle" class="t t-acc">7 · Set apart</text>
+          <text x="297" y="303" text-anchor="middle" class="t-sm">SP / HC / counselor</text>
+
+          <rect x="424" y="262" width="150" height="58" rx="8" class="nd-soft"/>
+          <text x="499" y="285" text-anchor="middle" class="t">8 · Clerk email</text>
+          <text x="499" y="303" text-anchor="middle" class="t-sm">batched hourly</text>
+
+          <rect x="626" y="262" width="150" height="58" rx="8" class="nd-go"/>
+          <text x="701" y="285" text-anchor="middle" class="t t-go">9 · Recorded</text>
+          <text x="701" y="303" text-anchor="middle" class="t-sm">LCR + name tag</text>
+        </g>
+
+        <line x1="170" y1="291" x2="215" y2="291" class="ln" marker-end="url(#ar1)"/>
+        <line x1="372" y1="291" x2="417" y2="291" class="ln" marker-end="url(#ar1)"/>
+        <line x1="574" y1="291" x2="619" y2="291" class="ln" marker-end="url(#ar1)"/>
+
+        <!-- annotations under row 2 -->
+        <text x="95"  y="345" text-anchor="middle" class="t-mono">col AO</text>
+        <text x="297" y="345" text-anchor="middle" class="t-mono">col AR</text>
+        <text x="701" y="345" text-anchor="middle" class="t-mono">col AP / AT</text>
+
+        <!-- side note: declined -->
+        <rect x="828" y="262" width="112" height="58" rx="8" class="nd-stop"/>
+        <text x="884" y="285" text-anchor="middle" class="t t-stop">Declined</text>
+        <text x="884" y="303" text-anchor="middle" class="t-sm">stops here</text>
+        <path d="M701 262 V 240 H 884 V 258" class="ln ln-stop ln-dash" marker-end="url(#ar1)"/>
+        <text x="792" y="234" text-anchor="middle" class="t-sm t-stop">member says no</text>
+      </svg>
+      </div>
+      <figcaption><b>Stages 3, 4, 6 and 7 wait on a human; the rest fire on their own.</b> The dashed line is the common case — nothing is flagged, so a submission goes straight from the form into polling on the next hourly run. A decline at stage 4 ends the process; it does not loop back.</figcaption>
+    </figure>
+
+    <div class="note">
+      <span class="lbl">Reading the column codes</span>
+      <p>Throughout this document, a code like <span class="col">col AO</span> is the column in the <strong>Calling Approvals</strong> sheet where that fact gets recorded. If you ever need to know whether a step really happened, that column is the source of truth — the dashboard is only a view of it.</p>
+    </div>
+  </section>
+
+  <!-- ============ ROLES ============ -->
+  <section id="roles">
+    <div class="sec-head"><span class="sec-num">—</span><h2 class="sec-title">Who does what</h2></div>
+    <p class="sec-sub">Six roles touch the pipeline. Most people only ever see the two or three stages that belong to them.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Role</th><th>They act at</th><th>What lands on their dashboard</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="role">Bishop&nbsp;/ ward leader</td>
+            <td>Stage 1</td>
+            <td>Nothing. They submit the form and are done — the pipeline reports back through their ward clerk's summary email.</td>
+          </tr>
+          <tr>
+            <td class="role">Stake&nbsp;Presidency</td>
+            <td>Stages 3, 4, 7</td>
+            <td>Approvals to vote on, callings to extend, setting-apart assignments. The president also sees who is still outstanding on every pending item.</td>
+          </tr>
+          <tr>
+            <td class="role">High&nbsp;Council</td>
+            <td>Stages 3, 4, 6, 7</td>
+            <td>Approvals, extends for their assigned ward, the Sunday stake-business confirmation and sustaining report, and setting aparts.</td>
+          </tr>
+          <tr>
+            <td class="role">Executive&nbsp;Secretary</td>
+            <td>Stages 2, 4</td>
+            <td>Interviews to schedule, appointments to book, and the <em>Schedule/Assign</em> bin — deciding who extends a calling.</td>
+          </tr>
+          <tr>
+            <td class="role">Stake&nbsp;Clerk</td>
+            <td>Stages 2, 8, 9</td>
+            <td>Clerk reviews that block polling, the Monday unconfirmed-sustainings check, and CC on the certificate chain.</td>
+          </tr>
+          <tr>
+            <td class="role">Membership&nbsp;Clerk</td>
+            <td>Stages 2, 9</td>
+            <td>Clerk reviews, LCR records, and all four ordination-certificate steps.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 01 SUBMIT ============ -->
+  <section id="submit">
+    <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Submitting</h2></div>
+    <p class="sec-sub">One form, three destinations. What the form asks changes with who is filling it out and what they picked on the first page.</p>
+
+    <p>Everything enters through the same public form. The first question — <strong>calling, release, or ordination</strong> — decides which pages you see and which sheet the submission lands in.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 300" role="img" aria-label="The form branches into three paths: a calling recommendation and a release-only both land in the Calling Approvals sheet, while a priesthood ordination lands in the Priesthood Ordinations sheet and starts with an interview.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="112" width="140" height="66" rx="8" class="nd-acc"/>
+        <text x="90" y="139" text-anchor="middle" class="t t-acc">The form</text>
+        <text x="90" y="157" text-anchor="middle" class="t-sm">"What are you</text>
+        <text x="90" y="171" text-anchor="middle" class="t-sm">submitting?"</text>
+
+        <!-- three branches -->
+        <path d="M160 132 H 210 V 58 H 258" class="ln" marker-end="url(#ar2)"/>
+        <path d="M160 145 H 258" class="ln" marker-end="url(#ar2)"/>
+        <path d="M160 158 H 210 V 236 H 258" class="ln" marker-end="url(#ar2)"/>
+
+        <rect x="262" y="30" width="176" height="56" rx="8" class="nd"/>
+        <text x="350" y="53" text-anchor="middle" class="t">Calling recommendation</text>
+        <text x="350" y="71" text-anchor="middle" class="t-sm">requirements + interview</text>
+
+        <rect x="262" y="117" width="176" height="56" rx="8" class="nd"/>
+        <text x="350" y="140" text-anchor="middle" class="t">Release only</text>
+        <text x="350" y="158" text-anchor="middle" class="t-sm">no requirements asked</text>
+
+        <rect x="262" y="208" width="176" height="56" rx="8" class="nd-ord"/>
+        <text x="350" y="231" text-anchor="middle" class="t t-ord">Priesthood ordination</text>
+        <text x="350" y="249" text-anchor="middle" class="t-sm">interview comes first</text>
+
+        <!-- to sheets -->
+        <path d="M438 58 H 500 V 118 H 556" class="ln" marker-end="url(#ar2)"/>
+        <path d="M438 145 H 556" class="ln" marker-end="url(#ar2)"/>
+        <path d="M438 236 H 556" class="ln ln-ord" marker-end="url(#ar2)"/>
+
+        <rect x="560" y="90" width="180" height="56" rx="8" class="nd-soft"/>
+        <text x="650" y="113" text-anchor="middle" class="t">Calling Approvals</text>
+        <text x="650" y="131" text-anchor="middle" class="t-mono">one row per item</text>
+
+        <rect x="560" y="208" width="180" height="56" rx="8" class="nd-soft"/>
+        <text x="650" y="231" text-anchor="middle" class="t">Priesthood Ordinations</text>
+        <text x="650" y="249" text-anchor="middle" class="t-mono">separate sheet</text>
+
+        <!-- marker note -->
+        <path d="M740 118 H 790" class="ln" marker-end="url(#ar2)"/>
+        <text x="798" y="106" class="t-mono">col G =</text>
+        <text x="798" y="121" class="t-mono">"Called"</text>
+        <text x="798" y="136" class="t-mono">or "Released"</text>
+      </svg>
+      </div>
+      <figcaption><b>Calling and release share one sheet; the marker in <span class="col">col G</span> is what separates them.</b> Nearly every later rule keys off that single value — a release-only row is detected by <span class="col">col G = "Released"</span>, not by a separate sheet or flag.</figcaption>
+    </figure>
+
+    <h3>What the form asks, and why</h3>
+    <ul>
+      <li><strong>Your name and calling</strong> — determines whether you may submit on behalf of someone else, and whether you see the stake-presidency options page at the end.</li>
+      <li><strong>Consultation check</strong> — some callings require consulting a specific leader first. If you aren't that leader, the form asks you to confirm you consulted them.</li>
+      <li><strong>Requirements</strong> — temple recommend and priesthood office, asked only when the calling requires them. Answering <em>Unsure</em> is fine; it routes to a clerk rather than blocking you.</li>
+      <li><strong>Comments</strong> — free text. A comment normally holds polling for a clerk to read first.</li>
+      <li><strong>Stake presidency options</strong> — shown only to the stake president, presidency, clerks and executive secretaries. This is where an already-given verbal approval gets recorded so those members aren't polled again.</li>
+    </ul>
+
+    <div class="note">
+      <span class="lbl">A shortcut worth knowing</span>
+      <p>When a clerk or secretary leaves a comment on their own submission, they can leave <strong>"Hold polling until a clerk reviews this comment"</strong> unchecked. Polling then starts immediately and no review task is created — otherwise they'd be assigning themselves the job of reading their own comment.</p>
+    </div>
+  </section>
+
+  <!-- ============ 02 REVIEW ============ -->
+  <section id="review">
+    <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">The clerk review gate</h2></div>
+    <p class="sec-sub">One column decides whether a submission polls tonight or waits for a clerk. This is the single most common reason something "isn't moving."</p>
+
+    <p>Every row carries a <strong>Poll?</strong> flag in <span class="col">col R</span>. The hourly job only picks up rows where it is <span class="col">TRUE</span>. Four things can set it false at submission, and each one creates a task for the clerks.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 340" role="img" aria-label="Four conditions set the Poll flag to false and create a clerk task: temple recommend unsure, priesthood unsure or Aaronic, a comment, or requirements not met. Clearing the task sets the flag true and polling begins.">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar3g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="var(--go)"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="140" width="120" height="56" rx="8" class="nd-acc"/>
+        <text x="80" y="163" text-anchor="middle" class="t t-acc">Submitted</text>
+        <text x="80" y="181" text-anchor="middle" class="t-sm">new row</text>
+
+        <!-- decision -->
+        <path d="M140 168 H 190" class="ln" marker-end="url(#ar3)"/>
+        <path d="M256 130 L 322 168 L 256 206 L 190 168 Z" class="nd-wait"/>
+        <text x="256" y="164" text-anchor="middle" class="t t-wait">anything</text>
+        <text x="256" y="180" text-anchor="middle" class="t t-wait">flagged?</text>
+
+        <!-- NO path -->
+        <path d="M256 130 V 66 H 706" class="ln ln-go" marker-end="url(#ar3g)"/>
+        <text x="330" y="58" class="t-sm t-go">no — polls on the next hourly run</text>
+
+        <!-- YES path: four reasons -->
+        <path d="M322 168 H 372" class="ln" marker-end="url(#ar3)"/>
+        <text x="347" y="160" text-anchor="middle" class="t-sm">yes</text>
+
+        <rect x="376" y="98" width="196" height="30" rx="6" class="nd"/>
+        <text x="386" y="118" class="t-sm">Temple recommend <tspan class="t-mono">Unsure</tspan></text>
+
+        <rect x="376" y="134" width="196" height="30" rx="6" class="nd"/>
+        <text x="386" y="154" class="t-sm">Priesthood <tspan class="t-mono">Unsure / Aaronic</tspan></text>
+
+        <rect x="376" y="170" width="196" height="30" rx="6" class="nd"/>
+        <text x="386" y="190" class="t-sm">A comment was left</text>
+
+        <rect x="376" y="206" width="196" height="30" rx="6" class="nd"/>
+        <text x="386" y="226" class="t-sm">Requirements not met</text>
+
+        <!-- to clerk task -->
+        <path d="M572 113 H 610 V 168" class="ln"/>
+        <path d="M572 149 H 610" class="ln"/>
+        <path d="M572 185 H 610" class="ln"/>
+        <path d="M572 221 H 610 V 174" class="ln"/>
+        <path d="M610 168 H 646" class="ln" marker-end="url(#ar3)"/>
+
+        <rect x="650" y="140" width="120" height="56" rx="8" class="nd-wait"/>
+        <text x="710" y="163" text-anchor="middle" class="t t-wait">Clerk task</text>
+        <text x="710" y="181" text-anchor="middle" class="t-sm">on their dashboard</text>
+
+        <!-- clerk clears -->
+        <path d="M710 140 V 96 H 830 V 140" class="ln ln-go" marker-end="url(#ar3g)"/>
+        <text x="770" y="88" text-anchor="middle" class="t-sm t-go">clerk answers</text>
+
+        <rect x="770" y="140" width="120" height="56" rx="8" class="nd-go"/>
+        <text x="830" y="163" text-anchor="middle" class="t t-go">Polls</text>
+        <text x="830" y="181" text-anchor="middle" class="t-mono">col R = TRUE</text>
+
+        <!-- footnote -->
+        <text x="20" y="278" class="t-sm">Clerk tasks go to the</text>
+        <text x="20" y="294" class="t-sm">stake clerk <tspan class="t-sm">and</tspan> the membership clerk —</text>
+        <text x="20" y="310" class="t-sm">either one can clear it.</text>
+        <text x="376" y="278" class="t-sm">An interview requirement creates a task for the</text>
+        <text x="376" y="294" class="t-sm">executive secretaries instead, and does <tspan class="t-sm t-wait">not</tspan> block polling.</text>
+      </svg>
+      </div>
+      <figcaption><b>Answering "Unsure" on the form is a routing decision, not an error.</b> It sends the question to the people who can actually look it up, rather than making the submitter guess. Polling resumes the moment they answer.</figcaption>
+    </figure>
+
+    <div class="note warn">
+      <span class="lbl">If something seems stuck at this stage</span>
+      <p>Open the <strong>Clerk Reviews</strong> section of the dashboard — an unanswered review is almost always the cause. The row is fine; it simply has <span class="col">col R = FALSE</span> and the hourly job is skipping it by design.</p>
+    </div>
+  </section>
+
+  <!-- ============ 03 POLL ============ -->
+  <section id="poll">
+    <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">Polling for approval</h2></div>
+    <p class="sec-sub">Fifteen approval columns — three for the presidency, twelve for the high council. How they get filled depends on one setting and on what the submitter already recorded.</p>
+
+    <p>When the hourly job first picks up a row, it stamps a marker in <span class="col">col B</span> so it is never polled twice, writes a status into <span class="col">col C</span>, and notifies whoever is being asked. There are four ways this plays out.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 330" role="img" aria-label="Four polling patterns: separate phases where the presidency is polled first and the high council second; combined polling of everyone at once; presidency pre-approved so only the high council is polled; and release-only where just the stake president is polled.">
+        <defs>
+          <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- A: separate phases -->
+        <text x="20" y="26" class="t">A · Separate phases <tspan class="t-sm">(the default)</tspan></text>
+        <rect x="20" y="38" width="150" height="46" rx="8" class="nd-acc"/>
+        <text x="95" y="58" text-anchor="middle" class="t t-acc">Presidency</text>
+        <text x="95" y="74" text-anchor="middle" class="t-mono">cols T–V</text>
+        <line x1="170" y1="61" x2="218" y2="61" class="ln" marker-end="url(#ar4)"/>
+        <text x="194" y="53" text-anchor="middle" class="t-sm">all 3</text>
+        <rect x="222" y="38" width="150" height="46" rx="8" class="nd-acc"/>
+        <text x="297" y="58" text-anchor="middle" class="t t-acc">High council</text>
+        <text x="297" y="74" text-anchor="middle" class="t-mono">cols W–AH</text>
+        <line x1="372" y1="61" x2="420" y2="61" class="ln" marker-end="url(#ar4)"/>
+        <rect x="424" y="38" width="120" height="46" rx="8" class="nd-go"/>
+        <text x="484" y="66" text-anchor="middle" class="t t-go">Approved</text>
+        <text x="560" y="56" class="t-sm">The council is not notified until</text>
+        <text x="560" y="72" class="t-sm">every presidency member has voted.</text>
+
+        <!-- B: combined -->
+        <text x="20" y="126" class="t">B · Combined polling</text>
+        <rect x="20" y="138" width="352" height="46" rx="8" class="nd-acc"/>
+        <text x="196" y="158" text-anchor="middle" class="t t-acc">Presidency and high council together</text>
+        <text x="196" y="174" text-anchor="middle" class="t-mono">cols T–AH, all at once</text>
+        <line x1="372" y1="161" x2="420" y2="161" class="ln" marker-end="url(#ar4)"/>
+        <rect x="424" y="138" width="120" height="46" rx="8" class="nd-go"/>
+        <text x="484" y="166" text-anchor="middle" class="t t-go">Approved</text>
+        <text x="560" y="156" class="t-sm">Faster, but the council sees items</text>
+        <text x="560" y="172" class="t-sm">the presidency hasn't weighed yet.</text>
+
+        <!-- C: pre-approved -->
+        <text x="20" y="226" class="t">C · Presidency already approved</text>
+        <rect x="20" y="238" width="150" height="46" rx="8" class="nd-soft"/>
+        <text x="95" y="258" text-anchor="middle" class="t">Recorded on</text>
+        <text x="95" y="274" text-anchor="middle" class="t-sm">the form</text>
+        <line x1="170" y1="261" x2="218" y2="261" class="ln ln-dash" marker-end="url(#ar4)"/>
+        <text x="194" y="253" text-anchor="middle" class="t-sm">skip</text>
+        <rect x="222" y="238" width="150" height="46" rx="8" class="nd-acc"/>
+        <text x="297" y="258" text-anchor="middle" class="t t-acc">High council only</text>
+        <text x="297" y="274" text-anchor="middle" class="t-mono">Phase 2 (HC)</text>
+        <line x1="372" y1="261" x2="420" y2="261" class="ln" marker-end="url(#ar4)"/>
+        <rect x="424" y="238" width="120" height="46" rx="8" class="nd-go"/>
+        <text x="484" y="266" text-anchor="middle" class="t t-go">Approved</text>
+        <text x="560" y="256" class="t-sm">Checked per member on the form, so</text>
+        <text x="560" y="272" class="t-sm">only those who did approve are skipped.</text>
+
+        <!-- D: release -->
+        <text x="20" y="316" class="t">D · Release only <tspan class="t-sm">— the stake president alone, </tspan><tspan class="t-mono">col T</tspan></text>
+      </svg>
+      </div>
+      <figcaption><b>Which pattern runs is a stake-wide setting, except C and D which are decided per row.</b> A release needs only the stake president; the other twelve approval columns stay deliberately empty and are never counted against it.</figcaption>
+    </figure>
+
+    <h3>Casting a vote</h3>
+    <p>Approvers see pending items at the top of their dashboard and answer <strong>Approve</strong> or <strong>Concern</strong>. There is also an <em>Approve All</em> button, which is the intended way to work through a batch — voting one at a time on a slow connection is what used to make the dashboard feel unresponsive.</p>
+    <p>Clerks and secretaries can record a vote <strong>on behalf</strong> of someone who gave it verbally. That runs exactly the same completion logic as a self-vote, so a recorded approval moves the item forward identically.</p>
+
+    <div class="note stop">
+      <span class="lbl">Concern is not a "no"</span>
+      <p>Raising a concern opens the opposition flow rather than declining the calling. It is a signal to the presidency, not a final answer — the item stays in the pipeline while it is worked out.</p>
+    </div>
+  </section>
+
+  <!-- ============ 04 EXTEND ============ -->
+  <section id="extend">
+    <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">Extending the calling</h2></div>
+    <p class="sec-sub">The moment the last approval lands, the system decides who should extend the calling — and for one category, it deliberately declines to decide.</p>
+
+    <p>Each calling on the Callings Chart carries an <strong>Extend Call</strong> value that names who does the extending. That value fans out to six outcomes.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 380" role="img" aria-label="The Extend Call value on the Callings Chart routes a fully approved calling to the stake president, first or second counselor, the counselor over that ward, the high councilor over that ward, a specific high councilor, or into the Schedule slash Assign bin for a secretary to decide.">
+        <defs>
+          <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar5a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="158" width="150" height="60" rx="8" class="nd-go"/>
+        <text x="95" y="182" text-anchor="middle" class="t t-go">Fully approved</text>
+        <text x="95" y="200" text-anchor="middle" class="t-sm">all 15 columns</text>
+
+        <line x1="170" y1="188" x2="212" y2="188" class="ln" marker-end="url(#ar5)"/>
+
+        <rect x="216" y="150" width="128" height="76" rx="8" class="nd-soft"/>
+        <text x="280" y="177" text-anchor="middle" class="t">Callings Chart</text>
+        <text x="280" y="195" text-anchor="middle" class="t">"Extend Call"</text>
+        <text x="280" y="212" text-anchor="middle" class="t-mono">col Q</text>
+
+        <!-- fan out -->
+        <path d="M344 172 H 380 V 44 H 452" class="ln" marker-end="url(#ar5)"/>
+        <path d="M344 180 H 392 V 92 H 452" class="ln" marker-end="url(#ar5)"/>
+        <path d="M344 188 H 404 V 140 H 452" class="ln" marker-end="url(#ar5)"/>
+        <path d="M344 196 H 404 V 188 H 452" class="ln" marker-end="url(#ar5)"/>
+        <path d="M344 204 H 392 V 236 H 452" class="ln" marker-end="url(#ar5)"/>
+        <path d="M344 212 H 380 V 300 H 452" class="ln ln-acc" marker-end="url(#ar5a)"/>
+
+        <g>
+          <rect x="456" y="26" width="60" height="34" rx="6" class="nd-soft"/>
+          <text x="486" y="48" text-anchor="middle" class="t-mono">SP</text>
+          <text x="528" y="48" class="t-sm">Stake president</text>
+
+          <rect x="456" y="74" width="60" height="34" rx="6" class="nd-soft"/>
+          <text x="486" y="96" text-anchor="middle" class="t-mono">1C / 2C</text>
+          <text x="528" y="96" class="t-sm">That counselor</text>
+
+          <rect x="456" y="122" width="60" height="34" rx="6" class="nd-soft"/>
+          <text x="486" y="144" text-anchor="middle" class="t-mono">SPC</text>
+          <text x="528" y="144" class="t-sm">The counselor over that ward</text>
+
+          <rect x="456" y="170" width="60" height="34" rx="6" class="nd-soft"/>
+          <text x="486" y="192" text-anchor="middle" class="t-mono">HC</text>
+          <text x="528" y="192" class="t-sm">The high councilor over that ward</text>
+
+          <rect x="456" y="218" width="60" height="34" rx="6" class="nd-soft"/>
+          <text x="486" y="240" text-anchor="middle" class="t-mono">HC1–12</text>
+          <text x="528" y="240" class="t-sm">One named high councilor</text>
+
+          <rect x="456" y="282" width="60" height="34" rx="6" class="nd-acc"/>
+          <text x="486" y="304" text-anchor="middle" class="t-mono t-acc">SPB</text>
+          <text x="528" y="298" class="t t-acc">Schedule / Assign bin</text>
+          <text x="528" y="315" class="t-sm">a secretary decides who extends it</text>
+        </g>
+
+        <!-- outcome column -->
+        <path d="M770 140 H 806" class="ln" marker-end="url(#ar5)"/>
+        <text x="700" y="134" class="t-sm">the five above</text>
+        <text x="700" y="149" class="t-sm">auto-assign</text>
+
+        <rect x="810" y="112" width="80" height="56" rx="8" class="nd-acc"/>
+        <text x="850" y="136" text-anchor="middle" class="t t-acc">Extend</text>
+        <text x="850" y="152" text-anchor="middle" class="t-sm">task</text>
+
+        <path d="M770 300 H 830 V 174" class="ln ln-acc" marker-end="url(#ar5a)"/>
+        <text x="700" y="342" class="t-sm">Unrecognized or blank values fall back to the stake president.</text>
+      </svg>
+      </div>
+      <figcaption><b><span class="col">SPB</span> is the deliberate exception: instead of guessing an extender, the system hands the calling to the secretaries.</b> They pick the person and, if it's an appointment, the time — a ward-level calling can be assigned to a high councilor as well as to the presidency.</figcaption>
+    </figure>
+
+    <h3>What the extender sees</h3>
+    <p>The assigned person gets an <strong>Extend calling</strong> task; if someone is being released from that position, a separate <strong>Extend release</strong> task is created alongside it, because the two conversations can happen at different times with different people. All three presidency members, the clerks and the secretaries are CC'd, so anyone can see the state and any of them can act.</p>
+
+    <div class="grid2">
+      <div class="card">
+        <span class="tag tag-go">Accepted</span>
+        <h4>The calling moves on</h4>
+        <p>Recorded in <span class="col">col AJ</span>. The row immediately becomes eligible for the next stake business meeting.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-stop">Declined</span>
+        <h4>The pipeline stops</h4>
+        <p>Recorded in <span class="col">col AX</span>. Nothing further is created — the presidency decides what to do next.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-acc">Release extended</span>
+        <h4>Tracked separately</h4>
+        <p>Recorded in <span class="col">col AL</span>. A release can be extended before, after, or without the matching calling.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-wait">Sent to the bin</span>
+        <h4>Reassign without losing it</h4>
+        <p>Any extend task can be pushed back into the Schedule/Assign bin — useful when the assigned person can't reach the member.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 BUSINESS ============ -->
+  <section id="business">
+    <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Onto stake business</h2></div>
+    <p class="sec-sub">Once accepted, an item queues for a Sunday. Which Sunday depends on the clock — specifically, on that ward's sacrament meeting time.</p>
+
+    <p>An accepted calling is added to the <strong>Stake Business</strong> sheet for an upcoming Sunday. The date is chosen per ward: if the ward's meeting hasn't started yet, the item goes on <em>this</em> Sunday; if that meeting has already passed, it rolls to the next one. Stake-wide items use the earliest meeting time across all wards.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 250" role="img" aria-label="From accepted, an item is added to the Stake Business sheet unless it is held, paused or canceled. On Thursday the high councilors confirm availability and the stake business document is generated and posted to the high council channel.">
+        <defs>
+          <marker id="ar6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar6s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="var(--stop)"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="92" width="126" height="52" rx="8" class="nd-go"/>
+        <text x="83" y="122" text-anchor="middle" class="t t-go">Accepted</text>
+
+        <line x1="146" y1="118" x2="188" y2="118" class="ln" marker-end="url(#ar6)"/>
+
+        <path d="M248 84 L 310 118 L 248 152 L 186 118 Z" class="nd-wait"/>
+        <text x="248" y="114" text-anchor="middle" class="t t-wait">held or</text>
+        <text x="248" y="130" text-anchor="middle" class="t t-wait">paused?</text>
+
+        <path d="M248 152 V 196" class="ln ln-stop" marker-end="url(#ar6s)"/>
+        <text x="258" y="180" class="t-sm t-stop">yes — waits, nothing lost</text>
+        <rect x="150" y="198" width="196" height="34" rx="6" class="nd-stop"/>
+        <text x="248" y="220" text-anchor="middle" class="t-sm t-stop">stays out of stake business</text>
+
+        <line x1="310" y1="118" x2="352" y2="118" class="ln" marker-end="url(#ar6)"/>
+        <text x="331" y="110" text-anchor="middle" class="t-sm">no</text>
+
+        <rect x="356" y="92" width="150" height="52" rx="8" class="nd-soft"/>
+        <text x="431" y="115" text-anchor="middle" class="t">Stake Business</text>
+        <text x="431" y="132" text-anchor="middle" class="t-sm">dated for a Sunday</text>
+
+        <line x1="506" y1="118" x2="548" y2="118" class="ln" marker-end="url(#ar6)"/>
+
+        <rect x="552" y="92" width="150" height="52" rx="8" class="nd-acc"/>
+        <text x="627" y="115" text-anchor="middle" class="t t-acc">Thursday</text>
+        <text x="627" y="132" text-anchor="middle" class="t-sm">HCs confirm they'll attend</text>
+
+        <line x1="702" y1="118" x2="744" y2="118" class="ln" marker-end="url(#ar6)"/>
+
+        <rect x="748" y="92" width="132" height="52" rx="8" class="nd-soft"/>
+        <text x="814" y="115" text-anchor="middle" class="t">The document</text>
+        <text x="814" y="132" text-anchor="middle" class="t-sm">posted to the HC channel</text>
+
+        <!-- backup -->
+        <path d="M627 92 V 52 H 814 V 88" class="ln ln-dash" marker-end="url(#ar6)"/>
+        <text x="640" y="44" class="t-sm">can't attend → backup HC asked → otherwise a replacement is requested</text>
+      </svg>
+      </div>
+      <figcaption><b>The Thursday document is generated once and then updated in place.</b> Items added later in the week land in the same document rather than creating a second one, and the high council channel is only notified the first time.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 06 SUSTAIN ============ -->
+  <section id="sustain">
+    <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Sunday sustaining</h2></div>
+    <p class="sec-sub">Sunday morning the system builds one report per ward for whoever is conducting. Marking an item there is what actually advances the calling.</p>
+
+    <p>At 8am each Sunday, every ward with business gets a <strong>sustaining report</strong> assigned to whoever is conducting — a high councilor, a specific counselor, or the whole presidency. Releases are listed first, matching how they're read in the meeting.</p>
+
+    <p>What happens when the conductor marks an item depends on whether it was sustained in one ward or across the whole stake.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 320" role="img" aria-label="A ward-level item marked sustained immediately records the sustaining, creates a setting-apart task and queues a ward clerk email. A stake-wide item instead records which ward reported, and only cascades once every conducting ward has reported.">
+        <defs>
+          <marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="132" width="140" height="56" rx="8" class="nd-acc"/>
+        <text x="90" y="156" text-anchor="middle" class="t t-acc">Conductor marks</text>
+        <text x="90" y="174" text-anchor="middle" class="t-sm">"Sustained"</text>
+
+        <path d="M160 148 H 196 V 74 H 236" class="ln" marker-end="url(#ar7)"/>
+        <path d="M160 172 H 196 V 246 H 236" class="ln" marker-end="url(#ar7)"/>
+
+        <!-- ward lane -->
+        <rect x="236" y="30" width="640" height="92" rx="10" class="lane"/>
+        <text x="252" y="52" class="t">Ward-level calling <tspan class="t-sm">— sustained in one ward</tspan></text>
+        <rect x="252" y="62" width="128" height="44" rx="6" class="nd-go"/>
+        <text x="316" y="82" text-anchor="middle" class="t-sm t-go">Recorded</text>
+        <text x="316" y="98" text-anchor="middle" class="t-mono">col AO</text>
+        <line x1="380" y1="84" x2="416" y2="84" class="ln" marker-end="url(#ar7)"/>
+        <rect x="420" y="62" width="140" height="44" rx="6" class="nd-acc"/>
+        <text x="490" y="82" text-anchor="middle" class="t-sm t-acc">Setting-apart task</text>
+        <text x="490" y="98" text-anchor="middle" class="t-sm">created</text>
+        <line x1="560" y1="84" x2="596" y2="84" class="ln" marker-end="url(#ar7)"/>
+        <rect x="600" y="62" width="140" height="44" rx="6" class="nd-soft"/>
+        <text x="670" y="82" text-anchor="middle" class="t-sm">Ward clerk email</text>
+        <text x="670" y="98" text-anchor="middle" class="t-sm">queued</text>
+
+        <!-- stake lane -->
+        <rect x="236" y="146" width="640" height="152" rx="10" class="lane"/>
+        <text x="252" y="168" class="t">Stake-wide calling <tspan class="t-sm">— must be sustained in every ward</tspan></text>
+        <rect x="252" y="178" width="150" height="44" rx="6" class="nd-wait"/>
+        <text x="327" y="198" text-anchor="middle" class="t-sm t-wait">Ward noted</text>
+        <text x="327" y="214" text-anchor="middle" class="t-sm">as reported</text>
+
+        <line x1="402" y1="200" x2="438" y2="200" class="ln" marker-end="url(#ar7)"/>
+        <path d="M500 172 L 566 200 L 500 228 L 434 200 Z" class="nd-wait"/>
+        <text x="500" y="196" text-anchor="middle" class="t-sm t-wait">all wards</text>
+        <text x="500" y="211" text-anchor="middle" class="t-sm t-wait">reported?</text>
+
+        <path d="M500 228 V 262 H 360" class="ln ln-dash" marker-end="url(#ar7)"/>
+        <text x="368" y="280" class="t-sm">not yet — waits for the remaining wards</text>
+
+        <line x1="566" y1="200" x2="602" y2="200" class="ln" marker-end="url(#ar7)"/>
+        <text x="584" y="192" text-anchor="middle" class="t-sm">yes</text>
+        <rect x="606" y="178" width="128" height="44" rx="6" class="nd-go"/>
+        <text x="670" y="198" text-anchor="middle" class="t-sm t-go">Recorded</text>
+        <text x="670" y="214" text-anchor="middle" class="t-mono">col AO</text>
+        <line x1="734" y1="200" x2="770" y2="200" class="ln" marker-end="url(#ar7)"/>
+        <rect x="774" y="178" width="90" height="44" rx="6" class="nd-acc"/>
+        <text x="819" y="204" text-anchor="middle" class="t-sm t-acc">same cascade</text>
+      </svg>
+      </div>
+      <figcaption><b>A stake-wide calling looks "not sustained" until the last ward reports — that is expected, not a fault.</b> Until then the item is only accumulating which wards have covered it; the setting-apart task and the clerk email wait for the final one.</figcaption>
+    </figure>
+
+    <div class="note warn">
+      <span class="lbl">Monday morning</span>
+      <p>Anything left unmarked from Sunday is collected into an <strong>unconfirmed sustainings</strong> review for the clerks, who can push each item to the next Sunday or dismiss it. Only items that had a report task appear — if a ward's availability was never confirmed, there was no report to leave unmarked.</p>
+    </div>
+  </section>
+
+  <!-- ============ 07 SET APART ============ -->
+  <section id="setapart">
+    <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">Setting apart</h2></div>
+    <p class="sec-sub">Who sets a person apart is a property of the calling, not of who extended it.</p>
+
+    <p>The Callings Chart names the setter for each calling, and the task is created automatically the moment the sustaining is recorded. Four routings exist:</p>
+
+    <div class="grid2">
+      <div class="card"><span class="tag tag-acc">SP</span><h4>The stake president</h4><p>He is the sole primary on the task.</p></div>
+      <div class="card"><span class="tag tag-acc">SPC</span><h4>The counselor over that ward</h4><p>Resolved from the ward's high council assignment.</p></div>
+      <div class="card"><span class="tag tag-acc">HC</span><h4>The high councilor over that ward</h4><p>The same person who covers that ward's stake business.</p></div>
+      <div class="card"><span class="tag tag-acc">SPC / HC</span><h4>Both, together</h4><p>The counselor <em>and</em> the ward's high councilor are both primaries — either completes it.</p></div>
+    </div>
+
+    <p>In every case the full presidency, the clerks, the secretaries and the conducting high councilor are CC'd, so the task is visible to everyone who might need to act on it. Completion is recorded in <span class="col">col AR</span>.</p>
+
+    <div class="note">
+      <span class="lbl">Members outside the stake</span>
+      <p>When someone called to a stake position lives in a ward outside the stake, a second <strong>out-of-unit record</strong> task is created alongside the setting apart. Submitting that short form emails the member's details and the ward-clerk instructions to the stake and membership clerks — the two tasks complete independently, because the ordinance and the paperwork rarely happen the same day.</p>
+    </div>
+  </section>
+
+  <!-- ============ 08 RECORDS ============ -->
+  <section id="records">
+    <div class="sec-head"><span class="sec-num">08</span><h2 class="sec-title">Records, emails and name tags</h2></div>
+    <p class="sec-sub">The quiet tail of the pipeline — mostly automatic, and mostly invisible unless you're a clerk.</p>
+
+    <h3>Ward clerk summary emails</h3>
+    <p>Rather than emailing a ward clerk once per person, the system queues each sustaining and sends <strong>one summary per ward</strong> on the hourly run. The email names the setter, and adds reminders about a secondary approval or keys when that calling needs them.</p>
+
+    <h3>Name tags</h3>
+    <p>Callings flagged as needing a name tag appear in a dedicated section for the executive secretaries once the calling has been accepted. Marking one ordered stamps <span class="col">col AT</span>.</p>
+
+    <h3>What stays manual</h3>
+    <p>Two things are deliberately left to a person: recording the ordinance on <strong>LCR</strong>, and the ratification step on ordinations. The dashboard tracks that they need doing but never claims they're done on its own.</p>
+  </section>
+
+  <!-- ============ RELEASE ============ -->
+  <section id="release">
+    <div class="sec-head"><span class="sec-num">R</span><h2 class="sec-title">The release-only path</h2></div>
+    <p class="sec-sub">A release with no replacement takes a deliberately short route — one approver, no requirements, no interview.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 170" role="img" aria-label="A release-only submission is approved by the stake president alone, then a release is extended, then it goes to stake business and is read as a release on Sunday. No setting apart follows.">
+        <defs>
+          <marker id="ar8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <rect x="20" y="56" width="140" height="52" rx="8" class="nd-acc"/>
+        <text x="90" y="79" text-anchor="middle" class="t t-acc">Submitted</text>
+        <text x="90" y="96" text-anchor="middle" class="t-mono">col G = Released</text>
+
+        <line x1="160" y1="82" x2="200" y2="82" class="ln" marker-end="url(#ar8)"/>
+        <rect x="204" y="56" width="150" height="52" rx="8" class="nd-acc"/>
+        <text x="279" y="79" text-anchor="middle" class="t t-acc">Stake president</text>
+        <text x="279" y="96" text-anchor="middle" class="t-sm">the only approver</text>
+
+        <line x1="354" y1="82" x2="394" y2="82" class="ln" marker-end="url(#ar8)"/>
+        <rect x="398" y="56" width="150" height="52" rx="8" class="nd-acc"/>
+        <text x="473" y="79" text-anchor="middle" class="t t-acc">Release extended</text>
+        <text x="473" y="96" text-anchor="middle" class="t-mono">col AL</text>
+
+        <line x1="548" y1="82" x2="588" y2="82" class="ln" marker-end="url(#ar8)"/>
+        <rect x="592" y="56" width="150" height="52" rx="8" class="nd-soft"/>
+        <text x="667" y="79" text-anchor="middle" class="t">Stake business</text>
+        <text x="667" y="96" text-anchor="middle" class="t-sm">read as a release</text>
+
+        <line x1="742" y1="82" x2="782" y2="82" class="ln" marker-end="url(#ar8)"/>
+        <rect x="786" y="56" width="94" height="52" rx="8" class="nd-go"/>
+        <text x="833" y="86" text-anchor="middle" class="t t-go">Done</text>
+
+        <text x="592" y="140" class="t-sm">No setting apart follows a release.</text>
+        <path d="M204 56 V 30 H 279" class="ln ln-dash" marker-end="url(#ar8)"/>
+        <text x="290" y="34" class="t-sm">if he already approved verbally, no one is polled at all</text>
+      </svg>
+      </div>
+      <figcaption><b>Answering "yes, he already approved" on the form removes the polling step entirely.</b> Because nobody will be notified, the form also stops asking whether the release is urgent — the question has no meaning on that path.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ ORDINATION ============ -->
+  <section id="ordination">
+    <div class="sec-head"><span class="sec-num">O</span><h2 class="sec-title">The ordination path</h2></div>
+    <p class="sec-sub">Ordinations run on their own sheet and in a different order — the interview comes first, and a certificate chain follows at the end.</p>
+
+    <p>The important structural difference: a calling is approved and <em>then</em> extended, but a brother is <strong>interviewed first</strong> and only sustained afterward. That's why the ordination form never asks about presidency approval — at submission there is nothing to pre-record.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 400" role="img" aria-label="Ordination path: submitted after a ward interview, a secretary schedules an interview with one presidency member, that interview is held, then the presidency and high council sustain, it goes to stake business, is sustained on Sunday, the ordination is performed and reported, then a four step certificate chain runs.">
+        <defs>
+          <marker id="ar9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar9o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="var(--ord)"/>
+          </marker>
+        </defs>
+
+        <!-- row 1 -->
+        <rect x="20" y="40" width="150" height="54" rx="8" class="nd-ord"/>
+        <text x="95" y="63" text-anchor="middle" class="t t-ord">Submitted</text>
+        <text x="95" y="80" text-anchor="middle" class="t-sm">after the ward interview</text>
+
+        <line x1="170" y1="67" x2="210" y2="67" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="214" y="40" width="160" height="54" rx="8" class="nd-acc"/>
+        <text x="294" y="63" text-anchor="middle" class="t t-acc">Secretary schedules</text>
+        <text x="294" y="80" text-anchor="middle" class="t-sm">with one presidency member</text>
+
+        <line x1="374" y1="67" x2="414" y2="67" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="418" y="40" width="150" height="54" rx="8" class="nd-acc"/>
+        <text x="493" y="63" text-anchor="middle" class="t t-acc">Interview held</text>
+        <text x="493" y="80" text-anchor="middle" class="t-sm">that member only</text>
+
+        <line x1="568" y1="67" x2="608" y2="67" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="612" y="40" width="180" height="54" rx="8" class="nd-acc"/>
+        <text x="702" y="63" text-anchor="middle" class="t t-acc">Presidency + council</text>
+        <text x="702" y="80" text-anchor="middle" class="t-sm">sustain him</text>
+
+        <path d="M792 94 V 122 H 95 V 150" class="ln ln-ord" marker-end="url(#ar9o)"/>
+
+        <!-- row 2 -->
+        <rect x="20" y="154" width="150" height="54" rx="8" class="nd-soft"/>
+        <text x="95" y="177" text-anchor="middle" class="t">Stake business</text>
+        <text x="95" y="194" text-anchor="middle" class="t-sm">"Sustain &amp; Ordain"</text>
+
+        <line x1="170" y1="181" x2="210" y2="181" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="214" y="154" width="160" height="54" rx="8" class="nd-acc"/>
+        <text x="294" y="177" text-anchor="middle" class="t t-acc">Sustained Sunday</text>
+        <text x="294" y="194" text-anchor="middle" class="t-sm">in his ward</text>
+
+        <line x1="374" y1="181" x2="414" y2="181" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="418" y="154" width="150" height="54" rx="8" class="nd-acc"/>
+        <text x="493" y="177" text-anchor="middle" class="t t-acc">Ordained</text>
+        <text x="493" y="194" text-anchor="middle" class="t-sm">HC coordinates a time</text>
+
+        <line x1="568" y1="181" x2="608" y2="181" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="612" y="154" width="180" height="54" rx="8" class="nd-acc"/>
+        <text x="702" y="177" text-anchor="middle" class="t t-acc">Reported</text>
+        <text x="702" y="194" text-anchor="middle" class="t-sm">details submitted</text>
+
+        <path d="M792 208 V 236 H 95 V 264" class="ln ln-ord" marker-end="url(#ar9o)"/>
+
+        <!-- certificate chain -->
+        <rect x="20" y="264" width="856" height="104" rx="10" class="lane"/>
+        <text x="36" y="288" class="t">The certificate chain <tspan class="t-sm">— each step creates the next; membership clerk is primary, stake clerk and the assigned HC are CC'd</tspan></text>
+
+        <rect x="36" y="300" width="180" height="50" rx="6" class="nd-ord"/>
+        <text x="126" y="322" text-anchor="middle" class="t-sm t-ord">1 · Recorded on LCR</text>
+        <text x="126" y="338" text-anchor="middle" class="t-mono">manual step</text>
+
+        <line x1="216" y1="325" x2="252" y2="325" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="256" y="300" width="180" height="50" rx="6" class="nd-ord"/>
+        <text x="346" y="329" text-anchor="middle" class="t-sm t-ord">2 · Certificate printed</text>
+
+        <line x1="436" y1="325" x2="472" y2="325" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="476" y="300" width="180" height="50" rx="6" class="nd-ord"/>
+        <text x="566" y="329" text-anchor="middle" class="t-sm t-ord">3 · Certificate signed</text>
+
+        <line x1="656" y1="325" x2="692" y2="325" class="ln ln-ord" marker-end="url(#ar9o)"/>
+        <rect x="696" y="300" width="164" height="50" rx="6" class="nd-go"/>
+        <text x="778" y="322" text-anchor="middle" class="t-sm t-go">4 · Delivered</text>
+        <text x="778" y="338" text-anchor="middle" class="t-sm">to him</text>
+      </svg>
+      </div>
+      <figcaption><b>Each certificate step creates the next one only when it's marked complete.</b> A safety net re-creates any missing link, so a step done directly in the sheet still moves the chain along. Ratification, the final record step, stays entirely manual.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ CONTROLS ============ -->
+  <section id="controls">
+    <div class="sec-head"><span class="sec-num">✻</span><h2 class="sec-title">Pause, hold, cancel — and undo</h2></div>
+    <p class="sec-sub">Three different ways to stop something, which are easy to confuse. They stop different amounts of the pipeline.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>What it stops</th><th>What keeps running</th><th>Undoing it</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="role">Pause</td>
+            <td>Everything. Approvals, extends, stake business, tasks — all hidden and halted.</td>
+            <td>Nothing.</td>
+            <td>Resume puts it back exactly where it was.</td>
+          </tr>
+          <tr>
+            <td class="role">Hold</td>
+            <td>Only entry into stake business.</td>
+            <td>Approvals and extending continue normally.</td>
+            <td>Release hold — it joins the next stake business run.</td>
+          </tr>
+          <tr>
+            <td class="role">Cancel</td>
+            <td>Everything, and signals the calling isn't happening.</td>
+            <td>Nothing.</td>
+            <td>Resume is still possible; nothing is deleted.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>All three surface in the <strong>Paused / Held / Canceled Callings</strong> section, which is where you go to bring something back. Nothing is ever deleted — a paused calling's tasks disappear from view and reappear intact when it resumes.</p>
+
+    <div class="note">
+      <span class="lbl">Undo</span>
+      <p>Most actions — approvals, accepts, sustainings, setting aparts — are logged and can be reversed from <strong>Recent Actions</strong> on the dashboard. Undo reverses the record and cancels whatever downstream tasks that action created. The one thing it can't clean up automatically is a stake-wide "wards reported" entry; it warns you when that's the case.</p>
+    </div>
+  </section>
+
+  <!-- ============ CLOCK ============ -->
+  <section id="clock">
+    <div class="sec-head"><span class="sec-num">⏱</span><h2 class="sec-title">What runs on a clock</h2></div>
+    <p class="sec-sub">Nothing here needs a person to press a button. Knowing the cadence explains most "why hasn't it moved yet" questions.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>When</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="role">Every hour</td><td>New submissions start polling · approvals are reconciled · ward clerk summary emails go out · duplicate tasks are cleaned up</td></tr>
+          <tr><td class="role">Thursday</td><td>High councilors are asked to confirm availability · the stake business document is created and posted to the high council channel</td></tr>
+          <tr><td class="role">Sunday, 8am</td><td>Sustaining reports are built and assigned to whoever is conducting in each ward</td></tr>
+          <tr><td class="role">Monday morning</td><td>Anything left unmarked from Sunday becomes an unconfirmed-sustainings review for the clerks</td></tr>
+          <tr><td class="role">Nightly</td><td>Old completed and acknowledged tasks are purged on their retention schedules</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <details>
+      <summary>Why an approval sometimes takes an hour to appear</summary>
+      <div class="body">
+        <p>Voting is instant for the person voting. But a vote that <em>completes</em> a row — the last approval, say — triggers work that is deliberately deferred a couple of seconds so the tap returns quickly, and some reconciliation only runs on the hourly job.</p>
+        <p>So an extend task might appear a few seconds after the final approval, or on the next hour if something was interrupted. If an item looks stuck for more than an hour, that's worth investigating; a few minutes is normal.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Urgent vs standard</summary>
+      <div class="body">
+        <p>Every submission carries a priority. <strong>Standard</strong> follows each approver's own notification preferences — some want an immediate message, some a daily digest. <strong>Urgent</strong> overrides that and notifies everyone immediately.</p>
+        <p>Use urgent for callings that genuinely can't wait. Its value comes from being rare.</p>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    <p>Reference for the Orem YSA 5th Stake calling and ordination dashboard. Column codes refer to the Calling Approvals sheet unless stated otherwise.</p>
+  </footer>
+
+  </main>
+</div>
+</div>
+</body>
+</html>
