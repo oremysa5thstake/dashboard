@@ -431,13 +431,134 @@
       <figcaption><b>Calling and release share one sheet; the marker in <span class="col">col G</span> is what separates them.</b> Nearly every later rule keys off that single value — a release-only row is detected by <span class="col">col G = "Released"</span>, not by a separate sheet or flag.</figcaption>
     </figure>
 
-    <h3>What the form asks, and why</h3>
+    <h3>Who can fill it out</h3>
+    <p>The second page asks <strong>"Your Calling."</strong> That list is fixed, but it is not the same for every submission type — a release or an ordination offers a shorter list than a calling recommendation.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Your calling</th><th>Calling</th><th>Release</th><th>Ordination</th></tr></thead>
+        <tbody>
+          <tr><td class="role">Bishop</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td class="role">Ward Clerk / Secretary</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td class="role">High Councilor</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td class="role">Stake Presidency</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td class="role">Stake Clerk / Secretary</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td class="role">Elders Quorum President</td><td>✓</td><td>—</td><td>—</td></tr>
+          <tr><td class="role">Stake Organization President</td><td>✓</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="lbl">One question can change the whole path</span>
+      <p>The release flow opens with a pre-flight: <strong>is someone being called to replace them?</strong> Answer yes and the form quietly switches to a calling recommendation — the longer submitter list comes back, and the release is handled as part of that calling rather than on its own. You only stay on the release path when nobody is replacing them.</p>
+    </div>
+
+    <p>Picking your calling doesn't just label the submission — it decides <em>which callings you may recommend at all</em>, and whether you're offered the "on behalf of" page. Both come from the Callings Chart, per calling, so the form adapts without anyone editing it.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 900 320" role="img" aria-label="Your selected calling is matched against two Callings Chart columns: the may-recommend column builds the list of callings you can pick, and the on-behalf column decides whether the on-behalf page appears. Once a calling is picked, its own columns decide which requirement questions are asked.">
+        <defs>
+          <marker id="ar10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar10a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,1 L9,5 L0,9 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+
+        <rect x="20" y="126" width="140" height="58" rx="8" class="nd-acc"/>
+        <text x="90" y="150" text-anchor="middle" class="t t-acc">"Your Calling"</text>
+        <text x="90" y="168" text-anchor="middle" class="t-sm">e.g. Bishop</text>
+
+        <path d="M160 144 H 200 V 68 H 244" class="ln" marker-end="url(#ar10)"/>
+        <path d="M160 166 H 200 V 244 H 244" class="ln" marker-end="url(#ar10)"/>
+
+        <rect x="248" y="44" width="180" height="48" rx="8" class="nd-soft"/>
+        <text x="338" y="65" text-anchor="middle" class="t-sm">Is your calling listed in</text>
+        <text x="338" y="82" text-anchor="middle" class="t-mono">"who may recommend"?</text>
+
+        <rect x="248" y="220" width="180" height="48" rx="8" class="nd-soft"/>
+        <text x="338" y="241" text-anchor="middle" class="t-sm">Is it listed in</text>
+        <text x="338" y="258" text-anchor="middle" class="t-mono">"may submit on behalf"?</text>
+
+        <path d="M428 68 H 486" class="ln" marker-end="url(#ar10)"/>
+        <path d="M428 244 H 486" class="ln" marker-end="url(#ar10)"/>
+
+        <rect x="490" y="44" width="196" height="48" rx="8" class="nd-acc"/>
+        <text x="588" y="65" text-anchor="middle" class="t-sm t-acc">That calling joins your</text>
+        <text x="588" y="82" text-anchor="middle" class="t-sm t-acc">pick-list</text>
+
+        <rect x="490" y="220" width="196" height="48" rx="8" class="nd-acc"/>
+        <text x="588" y="241" text-anchor="middle" class="t-sm t-acc">The "on behalf of" page</text>
+        <text x="588" y="258" text-anchor="middle" class="t-sm t-acc">is added to your flow</text>
+
+        <!-- once a calling is picked -->
+        <path d="M588 92 V 128 H 700" class="ln ln-acc" marker-end="url(#ar10a)"/>
+        <rect x="704" y="104" width="176" height="48" rx="8" class="nd-acc"/>
+        <text x="792" y="125" text-anchor="middle" class="t-sm t-acc">You pick one calling</text>
+        <text x="792" y="142" text-anchor="middle" class="t-sm t-acc">from that list</text>
+
+        <path d="M792 152 V 176" class="ln ln-acc" marker-end="url(#ar10a)"/>
+        <rect x="704" y="180" width="176" height="88" rx="8" class="nd-soft"/>
+        <text x="792" y="201" text-anchor="middle" class="t-sm">Its own row then decides:</text>
+        <text x="716" y="220" class="t-sm">· consultation needed?</text>
+        <text x="716" y="237" class="t-sm">· temple recommend?</text>
+        <text x="716" y="254" class="t-sm">· priesthood office?</text>
+
+        <text x="20" y="296" class="t-sm">Matching is a substring check, so one chart entry reading "Bishop, Stake Presidency" satisfies both roles.</text>
+      </svg>
+      </div>
+      <figcaption><b>Nothing about who-can-submit-what lives in the form's code.</b> It is all read from the Callings Chart at load time, which means adding a calling — or letting a new role recommend one — is a spreadsheet edit, not a code change.</figcaption>
+    </figure>
+
+    <h3>The questions about the member</h3>
+    <p>Two requirement questions can appear, and only when that specific calling requires them. Every answer is recorded, including the uncertain ones — <strong>"Unsure" is a valid answer</strong>, and routing it to a clerk is the whole point.</p>
+
+    <h4 style="margin-top:26px">Temple recommend <span style="font-weight:400;color:var(--muted);font-size:13.5px">— asked only if the calling requires one</span></h4>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Answer</th><th>Recorded as</th><th>What happens next</th></tr></thead>
+        <tbody>
+          <tr><td class="role">Yes</td><td><span class="col">col H = Yes</span></td><td>Nothing blocks it — polls on the next hourly run.</td></tr>
+          <tr><td class="role">Unsure</td><td><span class="col">col H = Unsure</span></td><td>Polling is held and a clerk is asked to verify the recommend.</td></tr>
+          <tr><td class="role">No</td><td><span class="col">col H = No</span></td><td>Polling is held, <em>and</em> a separate <strong>requirements not met</strong> review is created. The row is marked "Awaiting Requirements Review" rather than being polled.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:26px">Priesthood office <span style="font-weight:400;color:var(--muted);font-size:13.5px">— asked only if the calling requires the priesthood</span></h4>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Answer</th><th>Recorded as</th><th>What happens next</th></tr></thead>
+        <tbody>
+          <tr><td class="role">High Priest</td><td><span class="col">col I = High Priest</span></td><td>Meets any priesthood requirement — polls.</td></tr>
+          <tr><td class="role">Elder</td><td><span class="col">col I = Elder</span></td><td>Polls. If the calling requires a <em>High Priest</em>, the ordination is folded into the sustaining rather than blocking it — see below.</td></tr>
+          <tr><td class="role">Aaronic Priesthood</td><td><span class="col">col I = Aaronic</span></td><td>Polling is held and a clerk is asked to confirm the office. If the calling requires an Elder, a <strong>requirements not met</strong> review is created too.</td></tr>
+          <tr><td class="role">Unsure</td><td><span class="col">col I = Unsure</span></td><td>Polling is held and a clerk is asked to look up the office.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="lbl">When no priesthood question is asked</span>
+      <p>For callings with no priesthood requirement, that same column records <strong>gender</strong> instead — the form asks when it needs to, and a Relief Society calling is set to Female automatically without asking at all. One column, two meanings, depending on the calling.</p>
+    </div>
+
+    <div class="note warn">
+      <span class="lbl">The High Priest case</span>
+      <p>A calling that requires a High Priest never fails the requirement check, even when the member is currently an Elder. Instead the ordination rides along with the calling: approvers see the note <em>"By approving you also sustain them to be ordained a High Priest,"</em> and the item is read in stake business as <strong>Sustain &amp; Ordain</strong>.</p>
+      <p>This is why a high council calling for a brother who isn't yet a High Priest moves through the pipeline normally rather than stalling.</p>
+    </div>
+
+    <h3>The other questions</h3>
     <ul>
-      <li><strong>Your name and calling</strong> — determines whether you may submit on behalf of someone else, and whether you see the stake-presidency options page at the end.</li>
-      <li><strong>Consultation check</strong> — some callings require consulting a specific leader first. If you aren't that leader, the form asks you to confirm you consulted them.</li>
-      <li><strong>Requirements</strong> — temple recommend and priesthood office, asked only when the calling requires them. Answering <em>Unsure</em> is fine; it routes to a clerk rather than blocking you.</li>
+      <li><strong>Consultation</strong> — some callings name a leader who must be consulted first. If you are not that leader, the form asks you to confirm you consulted them before it lets you continue.</li>
+      <li><strong>Stake interview</strong> — asked when the calling requires one. Answering <em>Needs to be scheduled</em> or <em>Unsure</em> creates a task for the executive secretaries, but unlike the requirement questions it does <strong>not</strong> hold polling — approval and interview scheduling proceed in parallel.</li>
+      <li><strong>Who is being released</strong> — naming a person here is what creates the matching release task later. A second, unrelated release can also be added from the same page.</li>
       <li><strong>Comments</strong> — free text. A comment normally holds polling for a clerk to read first.</li>
-      <li><strong>Stake presidency options</strong> — shown only to the stake president, presidency, clerks and executive secretaries. This is where an already-given verbal approval gets recorded so those members aren't polled again.</li>
+      <li><strong>Stake presidency options</strong> — shown only to the stake president, presidency, clerks and executive secretaries. On a calling you tick <em>each</em> presidency member who has already approved, so only the rest are polled; on a release it's a single yes/no about the stake president.</li>
     </ul>
 
     <div class="note">
