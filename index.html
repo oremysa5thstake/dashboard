@@ -198,6 +198,10 @@
     .ms-step .btn-cc.danger{border-color:#c0392b;color:#c0392b}
     .ms-empty{color:#999;font-size:13px;padding:20px;text-align:center}
     .ms-ward-label{flex:1;min-width:140px;padding:9px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:14px;color:#333;display:flex;align-items:center}
+    .assign-table{border-collapse:collapse;width:100%;min-width:720px;font-size:13px}
+    .assign-table th{text-align:left;padding:8px 10px;border-bottom:2px solid #eee;color:#666;font-size:11px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+    .assign-table td{padding:8px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+    .assign-table tr:last-child td{border-bottom:none}
     .ms-canceled-section{margin-top:18px;border-top:1px solid #ddd;padding-top:10px}
     .ms-canceled-header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#fafafa;border-radius:8px;cursor:pointer;font-weight:600;color:#666;font-size:13px}
     .ms-canceled-header:hover{background:#f0f0f0}
@@ -1111,6 +1115,16 @@
 
       if (data.pausedCanceledCallings && data.pausedCanceledCallings.length > 0) {
         html += renderPausedCanceledSection(data.pausedCanceledCallings);
+      }
+
+      // Stake Business Assignments — clerks/secretaries/presidency. Lazily loaded.
+      if (!DEMO_MODE && data.canReassign) {
+        html += renderAssignmentsSection();
+      }
+
+      // Out-of-town dates — anyone who can be asked to conduct stake business.
+      if (!DEMO_MODE) {
+        html += renderAwaySection();
       }
 
       // Recent Actions (Undo) — everyone gets it, above Admin Tools. Hidden in
@@ -2346,6 +2360,189 @@
 
     let _undoListLoaded = false;
 
+    // ── Stake Business Assignments ──────────────────────────────
+    // A dashboard view of the assignments sheet so clerks don't have to open Sheets.
+    // Collapsed and lazily fetched — it is reference data, not a task.
+    let _assignmentsLoaded = false;
+
+    function renderAssignmentsSection() {
+      let html = '<div class="section"><div class="section-header" onclick="toggleAssignments()"><div class="section-title">🗓️ Stake Business Assignments</div><div class="section-meta">' + helpBtn('assignments') + '<span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-assignments"><div class="section-inner" id="assignmentsBody">';
+      html += '<div class="item-meta">Loading…</div>';
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function toggleAssignments() {
+      toggleSection('assignments');
+      if (!_assignmentsLoaded) { _assignmentsLoaded = true; loadAssignments(); }
+    }
+
+    async function loadAssignments() {
+      const box = document.getElementById('assignmentsBody');
+      if (!box) return;
+      try {
+        const d = await performAction('getStakeBusinessAssignments', {});
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not load assignments');
+        box.innerHTML = renderAssignmentsBody(d);
+      } catch (e) {
+        box.innerHTML = '<div class="item-meta">Couldn\'t load the assignments: ' + escapeHtmlDisplay(e.message) + '</div>';
+      }
+    }
+
+    function renderAssignmentsBody(d) {
+      const rows = d.rows || [];
+      const anyShuffled = rows.some(r => r.shuffled);
+      let h = '<div class="item-meta" style="margin-bottom:10px;">Conducting assignments for <b>' + escapeHtmlDisplay(d.sunday) + '</b>. Edit a name to change who is asked on Thursday.</div>';
+
+      if (anyShuffled) {
+        h += '<div class="item" style="border-left:3px solid #856404;">'
+          + '<div class="item-meta" style="color:#856404;"><b>Some wards differ from the standing assignments.</b> That is expected on a third Sunday — restore them once that week is past.</div>'
+          + '<div class="item-actions"><button class="btn btn-secondary btn-sm" onclick="restoreAssignments(this)">↺ Restore standing assignments</button></div></div>';
+      }
+
+      h += '<div style="overflow-x:auto;"><table class="assign-table"><thead><tr>'
+        + '<th>Ward</th><th>Meeting</th><th>Conducting</th><th>Ward HC</th><th>Backup HC</th><th>Checked</th><th>Notes</th>'
+        + '</tr></thead><tbody>';
+
+      rows.forEach(r => {
+        const awayTag = ' <span style="color:#b42318;font-size:11px;white-space:nowrap;">(away)</span>';
+        h += '<tr>'
+          + '<td><b>' + escapeHtmlDisplay(r.ward) + '</b><div class="item-meta" style="font-size:11px;">' + escapeHtmlDisplay(r.building) + (r.room ? ' · ' + escapeHtmlDisplay(r.room) : '') + '</div></td>'
+          + '<td style="white-space:nowrap;">' + escapeHtmlDisplay(r.meeting) + '</td>'
+          + '<td>' + escapeHtmlDisplay(r.conducting || '—') + '</td>'
+          + '<td>' + assignCell(r.row, 'wardHC', r.wardHC) + (r.wardHCAway ? awayTag : '')
+            + (r.shuffled ? '<div class="item-meta" style="font-size:11px;">normally ' + escapeHtmlDisplay(r.normalWardHC) + '</div>' : '') + '</td>'
+          + '<td>' + assignCell(r.row, 'backupHC', r.backupHC) + (r.backupHCAway ? awayTag : '') + '</td>'
+          + '<td style="white-space:nowrap;font-size:12px;color:#888;">' + escapeHtmlDisplay(r.availabilityCheck || '—') + '</td>'
+          + '<td>' + assignCell(r.row, 'notes', r.notes, true) + '</td>'
+          + '</tr>';
+      });
+      h += '</tbody></table></div>';
+
+      const away = d.away || [];
+      h += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #eee;">';
+      h += '<div class="settings-label">🌴 Away over the next while</div>';
+      if (!away.length) h += '<div class="item-meta">Nobody has recorded time away.</div>';
+      else {
+        h += '<div style="margin-top:6px;">';
+        away.forEach(a => {
+          h += '<div class="item-meta">· <b>' + escapeHtmlDisplay(a.name) + '</b> — ' + escapeHtmlDisplay(a.startDisplay)
+             + (a.end !== a.start ? ' to ' + escapeHtmlDisplay(a.endDisplay) : '')
+             + (a.comment ? ' <span style="color:#888;">(' + escapeHtmlDisplay(a.comment) + ')</span>' : '') + '</div>';
+        });
+        h += '</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    function assignCell(row, field, value, wide) {
+      const id = 'assign_' + row + '_' + field;
+      return '<input id="' + id + '" class="form-input" style="font-size:13px;padding:5px 7px;min-width:' + (wide ? '160px' : '110px') + ';"'
+        + ' value="' + escapeHtml(value || '') + '"'
+        + ' onchange="saveAssignment(' + row + ', \'' + field + '\', this)">';
+    }
+
+    async function saveAssignment(row, field, input) {
+      const original = input.defaultValue;
+      input.disabled = true;
+      setSyncing(true);
+      try {
+        await performAction('updateStakeBusinessAssignment', { row: row, field: field, value: input.value });
+        input.defaultValue = input.value;
+        showToast('Saved', 'success');
+      } catch (e) {
+        input.value = original;
+        showToast('Error: ' + e.message, 'error');
+      } finally { input.disabled = false; setSyncing(false); }
+    }
+
+    async function restoreAssignments(btn) {
+      if (!confirm('Copy the standing Ward HC / Backup HC values back over the current ones for every ward?')) return;
+      if (btn) btn.disabled = true;
+      setSyncing(true);
+      try {
+        const d = await performAction('restoreNormalAssignments', {});
+        showToast('Restored ' + (d.changed || 0) + ' field(s)', 'success');
+        loadAssignments();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      } finally { setSyncing(false); }
+    }
+
+    // ── My out-of-town dates ────────────────────────────────────
+    // Anyone who might be asked to conduct can record dates they'll be gone; the Thursday
+    // availability check then skips them and asks the ward's backup instead.
+    let _awayLoaded = false;
+
+    function renderAwaySection() {
+      let html = '<div class="section"><div class="section-header" onclick="toggleAway()"><div class="section-title">🌴 When I\'m Out of Town</div><div class="section-meta">' + helpBtn('away') + '<span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-away"><div class="section-inner" id="awayBody"><div class="item-meta">Loading…</div></div></div></div>';
+      return html;
+    }
+
+    function toggleAway() {
+      toggleSection('away');
+      if (!_awayLoaded) { _awayLoaded = true; loadAway(); }
+    }
+
+    async function loadAway() {
+      const box = document.getElementById('awayBody');
+      if (!box) return;
+      try {
+        const d = await performAction('getMyAwayPeriods', {});
+        const list = (d && d.periods) || [];
+        let h = '<div class="item-meta" style="margin-bottom:10px;">Record dates you\'ll be away. On those Sundays the stake business availability check skips you and asks your ward\'s backup instead.</div>';
+        h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">'
+          + '<input type="date" id="awayStart" class="form-input" style="width:auto;font-size:12px;">'
+          + '<span style="font-size:13px;color:#666;">to</span>'
+          + '<input type="date" id="awayEnd" class="form-input" style="width:auto;font-size:12px;">'
+          + '<input type="text" id="awayComment" class="form-input" placeholder="Optional note" style="flex:1 1 180px;min-width:150px;font-size:13px;">'
+          + '<button class="btn btn-primary btn-sm" onclick="addAway(this)">Add</button></div>';
+        if (!list.length) h += '<div class="item-meta">Nothing recorded.</div>';
+        else list.forEach(a => {
+          h += '<div class="item" style="' + (a.past ? 'opacity:.55;' : '') + '">'
+            + '<div class="item-header"><div class="item-title">' + escapeHtmlDisplay(a.startDisplay)
+            + (a.end !== a.start ? ' – ' + escapeHtmlDisplay(a.endDisplay) : '') + (a.past ? ' (past)' : '') + '</div></div>'
+            + (a.comment ? '<div class="item-meta">' + escapeHtmlDisplay(a.comment) + '</div>' : '')
+            + '<div class="item-actions"><button class="btn btn-secondary btn-sm" onclick="removeAway(\'' + a.id + '\', this)">Remove</button></div></div>';
+        });
+        box.innerHTML = h;
+      } catch (e) {
+        box.innerHTML = '<div class="item-meta">Couldn\'t load your dates: ' + escapeHtmlDisplay(e.message) + '</div>';
+      }
+    }
+
+    async function addAway(btn) {
+      const start = document.getElementById('awayStart').value;
+      const end = document.getElementById('awayEnd').value;
+      const comment = document.getElementById('awayComment').value;
+      if (!start) { showToast('Pick a start date', 'error'); return; }
+      if (btn) btn.disabled = true;
+      setSyncing(true);
+      try {
+        await performAction('addAwayPeriod', { start: start, end: end || start, comment: comment });
+        showToast('Added', 'success');
+        loadAway();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally { if (btn) btn.disabled = false; setSyncing(false); }
+    }
+
+    async function removeAway(id, btn) {
+      if (btn) btn.disabled = true;
+      setSyncing(true);
+      try {
+        await performAction('removeAwayPeriod', { id: id });
+        loadAway();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      } finally { setSyncing(false); }
+    }
+
     function renderUndoSection() {
       _undoListLoaded = false; // fresh DOM — refetch on next expand
       let html = '<div class="section"><div class="section-header" onclick="toggleUndoSection()"><div class="section-title">↩️ Recent Actions</div><div class="section-meta">' + helpBtn('undo') + '<span class="chevron">▼</span></div></div>';
@@ -2617,6 +2814,24 @@
           '<ul>' +
           '<li>Notifications or emails that already went out can\'t be recalled — where possible a correction email is sent, otherwise you\'ll see a note about what to double-check.</li>' +
           '<li>Clerks, executive secretaries, and the Stake Presidency can also undo other users\' actions if needed.</li>' +
+          '</ul>'
+      },
+      assignments: {
+        title: 'Stake Business Assignments',
+        body: '<p>The conducting assignments sheet, editable here so you don\'t have to open Sheets. Visible to stake clerks, executive secretaries and the Stake Presidency.</p>' +
+          '<ul>' +
+          '<li><b>Ward HC / Backup HC:</b> Who gets asked on Thursday to conduct that ward\'s stake business. Edit a name and it saves as soon as you tab away.</li>' +
+          '<li><b>(away):</b> That person recorded time off covering this Sunday. The Thursday check skips them and asks the backup instead.</li>' +
+          '<li><b>↺ Restore standing assignments:</b> Copies the standing Ward HC / Backup HC columns back over the current ones — use after a third-Sunday speaking shuffle.</li>' +
+          '</ul>'
+      },
+      away: {
+        title: 'When I\'m Out of Town',
+        body: '<p>Record dates you will be away. On Sundays inside a range you have recorded, the stake business availability check skips you and asks your ward\'s backup high councilor instead.</p>' +
+          '<ul>' +
+          '<li>Leave the end date blank for a single Sunday.</li>' +
+          '<li>The optional note is visible to the stake clerks alongside your dates.</li>' +
+          '<li>If both you and the backup are away, the ward is marked as needing a replacement rather than being asked.</li>' +
           '</ul>'
       },
       pausedCanceled: {
