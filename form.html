@@ -784,7 +784,11 @@
     function updateSubmitterCallingDropdown() {
       var s = document.getElementById('submitterCalling');
       s.innerHTML = '<option value="">Select your calling...</option>';
-      var opts = formData.type === 'calling' ? callingSubmitterOptions : ordinationSubmitterOptions;
+      // A release is a release FROM a calling, so anyone who may submit that calling may
+      // submit its release — same list. (The calling dropdown itself is already filtered by
+      // "who may submit this calling", so the pair stays consistent.) Ordinations are not
+      // callings and keep their own shorter list.
+      var opts = (formData.type === 'ordination') ? ordinationSubmitterOptions : callingSubmitterOptions;
       opts.forEach(function(o) { s.add(new Option(o, o)); });
     }
 
