@@ -1131,15 +1131,12 @@
       }
 
       // Out-of-town dates — anyone who can be asked to conduct stake business.
-      if (!DEMO_MODE) {
-        html += renderAwaySection();
-      }
+      // The demo has its own in-browser copy so the section can be shown there too.
+      html += renderAwaySection();
 
-      // Recent Actions (Undo) — everyone gets it, above Admin Tools. Hidden in
-      // demo mode (demo actions live only in the browser).
-      if (!DEMO_MODE) {
-        html += renderUndoSection();
-      }
+      // Recent Actions (Undo) — everyone gets it, above Admin Tools. In demo mode it
+      // replays the scenario's own action log, so undo is demonstrable without a backend.
+      html += renderUndoSection();
 
       // Admin Tools section — admins and the Stake Presidency. The presidency sees the
       // scripts + demos; "View Another User's Dashboard" stays admin-only.
@@ -4953,8 +4950,8 @@
 
     const DEMO_ROLES = {
       hc:    { label: 'High Councilor',              who: 'Bro. Demoson',    badge: 'Demo HC' },
-      sp:    { label: 'Stake President',             who: 'Pres. Whitfield', badge: 'Demo Stake President' },
-      spc:   { label: 'Counselor in the Presidency', who: 'Pres. Lofgran',   badge: 'Demo Counselor' },
+      sp:    { label: 'Stake President',             who: 'Pres. Smith', badge: 'Demo Stake President' },
+      spc:   { label: 'Counselor in the Presidency', who: 'Pres. Plothow',   badge: 'Demo Counselor' },
       clerk: { label: 'Stake Clerk (Membership)',    who: 'Bro. Ledger',     badge: 'Demo Membership Clerk' },
       sec:   { label: 'Stake Executive Secretary',   who: 'Bro. Penrose',    badge: 'Demo Executive Secretary' }
     };
@@ -4980,7 +4977,7 @@
       tanner:  'Tanner Holbrook',    // called High Councilor (32nd Ward) — needs HP sustaining
       dallin:  'Dallin Whitmer'      // ordination to Elder, 6-7th Ward
     };
-    const DEMO_SP = ['Pres. Whitfield', 'Pres. Lofgran', 'Pres. Barlowe'];
+    const DEMO_SP = ['Pres. Smith', 'Pres. Plothow', 'Pres. Nielsen'];
     const DEMO_HC_NAMES = ['Bro. Ainsworth', 'Bro. Bellview', 'Bro. Corbridge', 'Bro. Duffin', 'Bro. Eastman',
       'Bro. Fenwick', 'Bro. Garner', 'Bro. Highsmith', 'Bro. Ivory', 'Bro. Justesen', 'Bro. Kimballton'];
 
@@ -5014,7 +5011,9 @@
         certLcr: false, certPrinted: false, certSigned: false, certDelivered: false,
         // Clerk odds and ends
         nameTagOrdered: false,
-        ccAcked: {}                               // CC cards this viewer has acknowledged
+        ccAcked: {},                              // CC cards this viewer has acknowledged
+        away: [],                                 // "When I'm Out of Town" entries
+        log: []                                   // action log behind Recent Actions / undo
       };
     }
 
@@ -5355,6 +5354,20 @@
      * A presidency seat nobody is playing counts as already voted, so an HC-only demo still
      * moves; with a president and counselor in the session, the high council genuinely waits.
      */
+    /**
+     * A step owned by a role nobody is playing (solo as someone else, or a session without
+     * that role) has already happened off-screen — otherwise the viewer waits on a card that
+     * will never appear on their dashboard.
+     */
+    function demoOwnedElsewhere(owner) {
+      return demoSession.code ? !demoRolePresent(owner) : DEMO_ROLE !== owner;
+    }
+
+    /** The ordination interview must happen before anyone sustains him. */
+    function demoOrdinationInterviewDone() {
+      return !!demoState.ordInterview || demoOwnedElsewhere('sec');
+    }
+
     function demoPhase1Done(key) {
       const s = demoState;
       const seats = [['sp', s.spVote], ['spc', s.spcVote]];
@@ -5423,6 +5436,7 @@
       const out = [];
       rows.forEach(function (r) {
         if (!demoPolled(r.key)) return;                // held for clerk review — not polled yet
+        if (r.key === 'o1' && !demoOrdinationInterviewDone()) return;   // interview comes first
         if (demoItemApproved(r.key)) return;           // fully recorded — drops off the list
         const approvedBy = [], waitingOn = [];
         bodies.forEach(function (b) {
@@ -5507,6 +5521,14 @@
         assignedToNames: DEMO_SP[0] + ' + assigned HC', callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
       });
 
+      // 5b · Schedule the ordination interview — the secretary's; clerks and the presidency
+      //      are CC'd, and the interview must happen before anyone sustains him.
+      if (!s.ordInterview && !mine('sec') && !mine('hc')) add({
+        actionId: 'DEMO_ORDINT', actionType: 'ordination-interview-schedule',
+        displayText: 'Schedule ordination interview: ' + DEMO_CAST.dallin + ' — Elder (' + DEMO_WARD + ')',
+        assignedToNames: DEMO_ROLES.sec.who, isCC: true
+      });
+
       // 6 · The ordination itself — coordinated and reported by the assigned HC
       if (demoItemApproved('o1') && !s.ordSustainReported && !mine('hc')) add({
         actionId: 'DEMO_ORDNOTIF', actionType: 'ordination-notification',
@@ -5569,7 +5591,7 @@
       if (!s.approved.c2 && demoPolled('c2') && demoPhase1Done('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!s.approved.c3 && demoPhase1Done('c3')) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
-      if (!s.approved.o1 && demoPhase1Done('o1')) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
+      if (!s.approved.o1 && demoOrdinationInterviewDone() && demoPhase1Done('o1')) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 2: extend tasks for the 6-7th Ward, assigned to the demo HC ──
       // In a shared session this also waits for the presidency to finish voting.
@@ -5660,7 +5682,8 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
-      data.approvalStatus = demoApprovalStatus();
+      // Presidency / clerks / secretaries only — a high councilor has no such section.
+      if (DEMO_ROLE !== 'hc') data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5686,7 +5709,7 @@
       if (!mine.c2 && demoPolled('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!mine.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
-      if (!mine.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
+      if (!mine.o1 && demoOrdinationInterviewDone()) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
       const assignedToMe = !isPresident;
@@ -5706,7 +5729,8 @@
         displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)  ·  Assigned to: Stake Presidency + assigned HC'
       });
 
-      data.approvalStatus = demoApprovalStatus();
+      // Presidency / clerks / secretaries only — a high councilor has no such section.
+      if (DEMO_ROLE !== 'hc') data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5764,7 +5788,8 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
-      data.approvalStatus = demoApprovalStatus();
+      // Presidency / clerks / secretaries only — a high councilor has no such section.
+      if (DEMO_ROLE !== 'hc') data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5791,17 +5816,10 @@
         });
       }
 
-      // ── Appointment for the ward calling the high councilor is extending ──
-      if (demoPre(demoAllCallingsApproved()) && !s.appt && !s.porterAccepted) {
-        data.appointmentItems.push({
-          actionId: 'DEMO_APPT_PORTER', actionType: 'appointment-scheduling',
-          displayText: 'Schedule appointment: ' + DEMO_CAST.porter + ' with ' + DEMO_SP[2] + ' — Calling as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
-          notes: 'For: ' + DEMO_SP[2]
-        });
-      }
-
       // ── Ordination interview with one member of the presidency ──
-      if (demoPre(demoItemApproved('o1')) && !s.ordInterview) {
+      // The interview comes FIRST — before anyone sustains him — so this is not gated on
+      // approvals. It is available as soon as the ordination is submitted.
+      if (!s.ordInterview) {
         data.ordinationInterviewSchedules.push({
           actionId: 'DEMO_ORDINT', actionType: 'ordination-interview-schedule',
           displayText: 'Schedule ordination interview: ' + DEMO_CAST.dallin + ' — Elder (' + DEMO_WARD + ')',
@@ -5809,16 +5827,51 @@
         });
       }
 
-      data.approvalStatus = demoApprovalStatus();
+      // Presidency / clerks / secretaries only — a high councilor has no such section.
+      if (DEMO_ROLE !== 'hc') data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
 
     // Demo replacement for the backend API. Mutates state, saves, and lets the
     // normal scheduleSilentRefresh path re-render from the new state.
+    // Actions that only read — never logged, never undoable.
+    const DEMO_READ_ONLY = { getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1 };
+
+    /** A short human description for the Recent Actions list. */
+    function demoActionLabel(action, params, id) {
+      const map = {
+        approve: 'Approved an item', concern: 'Raised a concern', approveAll: 'Approved everything waiting',
+        sustainAll: 'Sustained the ordination', recordVote: 'Recorded an approval on someone\'s behalf',
+        ctrReview: 'Answered a temple-recommend review', priesthoodReview: 'Answered a priesthood review',
+        reviewComplete: 'Cleared a comment for polling', markNameTagOrdered: 'Marked a name tag ordered',
+        assignExtendCall: 'Assigned someone to extend a calling',
+        recordExtendAssignResponse: 'Recorded the member\'s response',
+        scheduleAppointment: 'Scheduled an appointment', rescheduleAppointment: 'Rescheduled an appointment',
+        dismissAppointment: 'Dismissed an appointment task',
+        assignOrdinationInterview: 'Scheduled an ordination interview',
+        accepted: 'Marked a calling accepted', declined: 'Marked a calling declined',
+        extended: 'Marked a release extended', sbConfirm: 'Confirmed conducting stake business',
+        sustainingReportMark: 'Marked a sustaining', sustainingReportAll: 'Marked all remaining sustained',
+        setApart: 'Marked someone set apart', submitOutOfUnitRecord: 'Submitted an out-of-unit record',
+        saveOrdinationDate: 'Saved an ordination date', reportSustaining: 'Reported an ordination sustaining',
+        submitOrdinationReport: 'Reported an ordination',
+        markOrdinationLcrRecorded: 'Recorded an ordinance on LCR',
+        markCertificatePrinted: 'Marked a certificate printed',
+        markCertificateSigned: 'Marked a certificate signed',
+        markCertificateDelivered: 'Marked a certificate delivered',
+        acknowledge: 'Acknowledged a CC\'d item', ccComplete: 'Completed a CC\'d item',
+        addAwayPeriod: 'Added time out of town', removeAwayPeriod: 'Removed time out of town'
+      };
+      return map[action] || ('Recorded: ' + action);
+    }
+
     async function demoPerformAction(action, params) {
       const s = demoState;
       const id = String(params.itemId || '');
+      // Snapshot first so Recent Actions can put the scenario back exactly as it was.
+      const _snapshot = DEMO_READ_ONLY[action] ? null
+        : JSON.stringify(Object.assign({}, demoState, { log: undefined }));
 
       switch (action) {
         case 'approve':
@@ -5846,9 +5899,14 @@
           break;
         }
         case 'scheduleAppointment':
-        case 'rescheduleAppointment':
-          s.appt = demoFormatDateTime(params.appointmentDate + 'T' + params.appointmentTime);
+        case 'rescheduleAppointment': {
+          // Which appointment depends on WHICH task — scheduling Sadie's used to overwrite
+          // Porter's because the id was ignored.
+          const when = demoFormatDateTime(params.appointmentDate + 'T' + params.appointmentTime);
+          if (id === 'DEMO_EXT_SADIE' || id === 'DEMO_ASSIGN_SADIE') s.assignedAppt = when;
+          else s.appt = when;
           break;
+        }
         case 'accepted':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast(DEMO_CAST.porter.split(' ')[0] + ' accepted! He\'s now scheduled for stake business this Sunday.', 'success'); }
           if (id === 'DEMO_EXT_SADIE') { s.sadieAccepted = true; showToast(DEMO_CAST.sadie.split(' ')[0] + ' accepted! She goes on this Sunday\'s stake business.', 'success'); }
@@ -5944,12 +6002,53 @@
           s.ccAcked[id] = true;
           break;
 
+        // ── When I'm Out of Town (demo copy, in-browser only) ──
+        case 'getMyAwayPeriods':
+          return { success: true, periods: (s.away || []).slice() };
+        case 'addAwayPeriod': {
+          const fmt = (d) => demoFormatDateTime(d);
+          const st = params.start, en = params.end || params.start;
+          s.away = s.away || [];
+          s.away.push({ id: 'AWAY_' + Date.now(), userId: 'DEMO', name: DEMO_ROLE_INFO.who,
+                        start: st, end: en, startDisplay: fmt(st), endDisplay: fmt(en),
+                        comment: String(params.comment || ''), past: false });
+          break;
+        }
+        case 'removeAwayPeriod':
+          s.away = (s.away || []).filter(a => a.id !== params.id);
+          break;
+
+        // ── Recent Actions / undo, replayed from the scenario's own log ──
+        case 'getRecentActions':
+          return { success: true, actions: (s.log || []).slice().reverse().slice(0, 10) };
+        case 'undoAction': {
+          const entry = (s.log || []).find(e => e.logId === params.logId);
+          if (!entry || entry.status === 'Undone') throw new Error('That action has already been undone.');
+          const restored = JSON.parse(entry.snapshot);
+          restored.log = s.log;                       // keep the history itself
+          restored.away = s.away;
+          demoState = restored;
+          entry.status = 'Undone';
+          demoSave();
+          return { success: true };
+        }
+
         case 'getMemberStatus':
           return demoBuildMemberStatus();
         default:
           throw new Error('That button isn\'t part of this demo.');
       }
 
+      if (_snapshot) {
+        s.log = s.log || [];
+        s.log.push({
+          logId: 'LOG_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+          description: demoActionLabel(action, params, id),
+          when: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+          status: 'Active', snapshot: _snapshot
+        });
+        if (s.log.length > 30) s.log = s.log.slice(-30);
+      }
       demoSave();
       return { success: true };
     }
