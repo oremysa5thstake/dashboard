@@ -5278,6 +5278,7 @@
      */
     function demoItemApproved(key) {
       const s = demoState;
+      if (!demoPolled(key)) return false;   // still held for clerk review
       const need = [['sp', s.spVote], ['spc', s.spcVote], ['hc', s.approved]];
       return need.every(function (pair) {
         // Solo every body must be recorded (a single vote fills them together, below).
@@ -5285,6 +5286,25 @@
         return demoRolePresent(pair[0]) ? !!pair[1][key] : true;
       });
     }
+    /**
+     * Has this item actually started polling? A calling held for clerk review has no approval
+     * columns filled yet, so it must not appear in anyone's approvals list or in the
+     * Approval / Sustaining Status roll-up until the clerk answers — same as the real sheet,
+     * where col R (Poll?) gates the hourly poller.
+     *
+     * Porter is held by the temple-recommend question, Sadie by the comment. When nobody is
+     * playing the clerk, the review is treated as having happened off-screen so the other
+     * roles aren't stuck behind a step they can't see.
+     */
+    function demoPolled(key) {
+      const s = demoState;
+      const heldBy = { c1: 'clerkCtrReviewed', c2: 'clerkCommentReviewed' };
+      const flag = heldBy[key];
+      if (!flag) return true;            // nothing was flagged on this one
+      if (s[flag]) return true;          // the clerk has answered
+      return demoSession.code ? !demoRolePresent('clerk') : DEMO_ROLE !== 'clerk';
+    }
+
     /** The vote map for whichever role is viewing. */
     function demoMyVotes() {
       const s = demoState;
@@ -5343,6 +5363,7 @@
       ];
       const out = [];
       rows.forEach(function (r) {
+        if (!demoPolled(r.key)) return;                // held for clerk review — not polled yet
         if (demoItemApproved(r.key)) return;           // fully recorded — drops off the list
         const approvedBy = [], waitingOn = [];
         bodies.forEach(function (b) {
@@ -5482,8 +5503,8 @@
           : '🎓 DEMO — a training walkthrough with fictional people. Work top to bottom; each completed task unlocks the next step, exactly like the real dashboard.');
 
       // ── Stage 1: HC approvals (SP has already fully approved everything) ──
-      if (!s.approved.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
-      if (!s.approved.c2) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
+      if (!s.approved.c1 && demoPolled('c1')) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
+      if (!s.approved.c2 && demoPolled('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!s.approved.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
       if (!s.approved.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
@@ -5599,8 +5620,8 @@
       data.highCouncilors = DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n }));
 
       // ── Stage 1: your approvals ──
-      if (!mine.c1) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
-      if (!mine.c2) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
+      if (!mine.c1 && demoPolled('c1')) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
+      if (!mine.c2 && demoPolled('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!mine.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
       if (!mine.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
