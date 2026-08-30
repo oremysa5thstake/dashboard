@@ -2659,7 +2659,7 @@
       // ── Training demos ──
       let demos = '<div class="item-meta" style="margin-bottom:10px;">Training walkthroughs with fictional people — they never touch real data. Open one each and <b>start a shared session</b> to walk the same scenario together, each in your own role.</div>';
       demos += '<div style="display:flex;flex-direction:column;gap:6px;">';
-      [['sp', '👔 Stake President'], ['spc', '👔 Counselor in the Presidency'], ['sec', '🗓️ Stake Executive Secretary'],
+      [['sp', '👔 Stake President'], ['spc1', '👔 First Counselor'], ['spc2', '👔 Second Counselor'], ['sec', '🗓️ Stake Executive Secretary'],
        ['clerk', '🗃️ Stake Clerk (Membership)'], ['hc', '🎓 High Councilor']].forEach(function (r) {
         demos += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
           + '<button class="btn btn-secondary btn-sm" style="min-width:250px;text-align:left;" onclick="window.open(location.pathname + \'?demo=' + r[0] + '\', \'_blank\')">' + r[1] + ' Demo</button>'
@@ -4951,12 +4951,14 @@
     const DEMO_ROLES = {
       hc:    { label: 'High Councilor',              who: 'Bro. Demoson',    badge: 'Demo HC' },
       sp:    { label: 'Stake President',             who: 'Pres. Smith', badge: 'Demo Stake President' },
-      spc:   { label: 'Counselor in the Presidency', who: 'Pres. Plothow',   badge: 'Demo Counselor' },
+      spc1:  { label: 'First Counselor',             who: 'Pres. Plothow',   badge: 'Demo First Counselor' },
+      spc2:  { label: 'Second Counselor',            who: 'Pres. Nielsen',   badge: 'Demo Second Counselor' },
       clerk: { label: 'Stake Clerk (Membership)',    who: 'Bro. Ledger',     badge: 'Demo Membership Clerk' },
       sec:   { label: 'Stake Executive Secretary',   who: 'Bro. Penrose',    badge: 'Demo Executive Secretary' }
     };
     const DEMO_ROLE = (function () {
-      const r = new URLSearchParams(window.location.search).get('demo');
+      let r = new URLSearchParams(window.location.search).get('demo');
+      if (r === 'spc') r = 'spc1';        // links shared before the counselors were split
       return (r && DEMO_ROLES[r]) ? r : null;
     })();
     const DEMO_MODE = !!DEMO_ROLE;
@@ -4995,7 +4997,8 @@
         // Stage 1 — votes, tracked per voting role
         approved: { c1: false, c2: false, c3: false, o1: false },   // high councilor (legacy key)
         spVote:   { c1: false, c2: false, c3: false, o1: false },   // stake president
-        spcVote:  { c1: false, c2: false, c3: false, o1: false },   // counselor
+        spc1Vote: { c1: false, c2: false, c3: false, o1: false },   // first counselor
+        spc2Vote: { c1: false, c2: false, c3: false, o1: false },   // second counselor
         // Stage 2 — secretary assigns/schedules who extends the stake calling
         assignedTo: '', assignedAppt: '',
         // Stage 3 — extending
@@ -5285,7 +5288,7 @@
     }
     /** The counselor's extends — skipped when nobody is playing that seat. */
     function demoOtherExtendsDone() {
-      return demoState.tannerAccepted || demoOwnedElsewhere('spc');
+      return demoState.tannerAccepted || demoOwnedElsewhere('spc2');
     }
 
     /** The stake president's own extends — skipped when nobody is playing him. */
@@ -5297,7 +5300,7 @@
       const s = demoState;
       return demoAllCallingsApproved() && demoItemApproved('o1') && s.porterAccepted && s.marcusExtended &&
         (s.emmettAccepted || demoOwnedElsewhere('sp')) && (s.desmondExtended || demoOwnedElsewhere('sp')) &&
-        (s.tannerAccepted || demoOwnedElsewhere('spc')) &&
+        (s.tannerAccepted || demoOwnedElsewhere('spc2')) &&
         s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie && s.oouDone &&
         (s.saEmmett || demoOwnedElsewhere('sp')) &&
         s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
@@ -5326,12 +5329,22 @@
       return !!cond;
     }
 
+    /** The vote map belonging to a role. Anything that isn't a presidency seat is the council. */
+    function demoVoteMap(role) {
+      const s = demoState;
+      return role === 'sp' ? s.spVote
+           : role === 'spc1' ? s.spc1Vote
+           : role === 'spc2' ? s.spc2Vote
+           : s.approved;
+    }
+
     /** Record the viewer's vote. Solo, the other voting bodies are filled in automatically. */
     function demoRecordVote(key) {
       const s = demoState;
-      const mine = DEMO_ROLE === 'sp' ? 'spVote' : (DEMO_ROLE === 'spc' ? 'spcVote' : 'approved');
-      s[mine][key] = true;
-      if (!demoSession.code) { s.spVote[key] = true; s.spcVote[key] = true; s.approved[key] = true; }
+      demoVoteMap(DEMO_ROLE)[key] = true;
+      if (!demoSession.code) {
+        s.spVote[key] = true; s.spc1Vote[key] = true; s.spc2Vote[key] = true; s.approved[key] = true;
+      }
     }
     /**
      * Approved once every voting body that is actually in the room has recorded this item.
@@ -5345,7 +5358,7 @@
       // columns stay empty and are never counted against it.
       const need = (key === 'r1')
         ? [['sp', s.spVote]]
-        : [['sp', s.spVote], ['spc', s.spcVote], ['hc', s.approved]];
+        : [['sp', s.spVote], ['spc1', s.spc1Vote], ['spc2', s.spc2Vote], ['hc', s.approved]];
       return need.every(function (pair) {
         // Solo every body must be recorded (a single vote fills them together, below).
         if (!demoSession.code) return !!pair[1][key];
@@ -5394,7 +5407,7 @@
 
     function demoPhase1Done(key) {
       const s = demoState;
-      const seats = [['sp', s.spVote], ['spc', s.spcVote]];
+      const seats = [['sp', s.spVote], ['spc1', s.spc1Vote], ['spc2', s.spc2Vote]];
       return seats.every(function (pair) {
         const playing = demoSession.code ? demoRolePresent(pair[0]) : (DEMO_ROLE === pair[0]);
         return playing ? !!pair[1][key] : true;
@@ -5402,10 +5415,7 @@
     }
 
     /** The vote map for whichever role is viewing. */
-    function demoMyVotes() {
-      const s = demoState;
-      return DEMO_ROLE === 'sp' ? s.spVote : (DEMO_ROLE === 'spc' ? s.spcVote : s.approved);
-    }
+    function demoMyVotes() { return demoVoteMap(DEMO_ROLE); }
 
     /** Shared empty payload every role builder fills in. */
     function demoBaseData(message) {
@@ -5456,7 +5466,8 @@
       ];
       const allBodies = [
         { name: DEMO_SP[0], column: 20, map: s.spVote },
-        { name: DEMO_SP[1], column: 21, map: s.spcVote },
+        { name: DEMO_SP[1], column: 21, map: s.spc1Vote },
+        { name: DEMO_SP[2], column: 22, map: s.spc2Vote },
         { name: 'High Council', column: 23, map: s.approved }
       ];
       const out = [];
@@ -5507,7 +5518,7 @@
       }
 
       // 2 · Extend the stake calling — the counselor's, once a secretary has assigned it
-      if (s.assignedTo && !s.sadieAccepted && !mine('spc')) add({
+      if (s.assignedTo && !s.sadieAccepted && s.assignedTo !== DEMO_ROLE_INFO.who) add({
         actionId: 'DEMO_EXT_SADIE', actionType: 'extend-calling', type: 'extend-calling',
         displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
         assignedToNames: s.assignedTo, appointmentStatus: s.assignedAppt || 'Pending'
@@ -5545,14 +5556,14 @@
         displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
         assignedToNames: hcName, callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD
       });
-      if (s.sus[3] === true && !s.saSadie && !mine('sp', 'spc')) add({
+      if (s.sus[3] === true && !s.saSadie && !mine('sp', 'spc1', 'spc2')) add({
         actionId: 'DEMO_SA_SADIE', actionType: 'setting-apart', sourceRow: 0,
         displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)',
         assignedToNames: DEMO_SP[0] + ' + assigned HC', callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
       });
 
       // 2a · The high council calling, extended by the counselor
-      if (demoItemApproved('c3') && !s.tannerAccepted && !mine('spc')) add({
+      if (demoItemApproved('c3') && !s.tannerAccepted && !mine('spc2')) add({
         actionId: 'DEMO_EXT_TANNER', actionType: 'extend-calling', type: 'extend-calling',
         displayText: 'Extend calling to ' + DEMO_CAST.tanner + ' as High Councilor (32nd Ward)',
         assignedToNames: DEMO_SP[1]
@@ -5624,8 +5635,9 @@
     // Dispatcher — each role sees its own slice of the one shared scenario.
     function demoBuildData() {
       switch (DEMO_ROLE) {
-        case 'sp':    return demoBuildDataPresidency(true);
-        case 'spc':   return demoBuildDataPresidency(false);
+        case 'sp':    return demoBuildDataPresidency('sp');
+        case 'spc1':  return demoBuildDataPresidency('spc1');
+        case 'spc2':  return demoBuildDataPresidency('spc2');
         case 'clerk': return demoBuildDataClerk();
         case 'sec':   return demoBuildDataSecretary();
         default:      return demoBuildDataHC();
@@ -5752,10 +5764,11 @@
     // Both vote on everything; the president also carries the setting-apart authority and
     // sees the approval-status roll-up. In a shared session the counselor is the one the
     // secretary assigns the stake calling to.
-    function demoBuildDataPresidency(isPresident) {
+    function demoBuildDataPresidency(roleKey) {
       const s = demoState;
+      const isPresident = roleKey === 'sp';
       const sunday = demoSundayText();
-      const mine = isPresident ? s.spVote : s.spcVote;
+      const mine = demoVoteMap(roleKey);
       const data = demoBaseData(demoComplete()
         ? '🎉 Demo complete! The whole pipeline ran: approvals → assign → extend → stake business → sustaining → setting apart → ordination.'
         : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', ' + DEMO_ROLE_INFO.label + '. Vote on what is waiting for you, then watch the work move to the secretary, clerk and high council.');
@@ -5775,7 +5788,7 @@
       if (!mine.o1 && demoOrdinationInterviewDone()) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
-      const assignedToMe = !isPresident;
+      const assignedToMe = !isPresident && s.assignedTo === DEMO_ROLE_INFO.who;
       if (assignedToMe && demoPre(s.assignedTo, 'sec') && !s.sadieAccepted) {
         data.extendItems.push({
           actionId: 'DEMO_EXT_SADIE', type: 'extend-calling', actionType: 'extend-calling',
@@ -5786,7 +5799,7 @@
       }
 
       // The counselor also extends the high council calling.
-      if (!isPresident && demoItemApproved('c3') && !s.tannerAccepted) data.extendItems.push({
+      if (roleKey === 'spc2' && demoItemApproved('c3') && !s.tannerAccepted) data.extendItems.push({
         actionId: 'DEMO_EXT_TANNER', type: 'extend-calling', actionType: 'extend-calling',
         displayText: 'Extend calling to ' + DEMO_CAST.tanner + ' as High Councilor (32nd Ward)',
         assignedToNames: DEMO_SP[1]
@@ -5996,7 +6009,8 @@
             // One button, one approver — solo included. The per-person buttons say whose
             // approval you're recording, so recording one must not stand in for the rest.
             if (col === 20) s.spVote[key] = true;
-            else if (col === 21) s.spcVote[key] = true;
+            else if (col === 21) s.spc1Vote[key] = true;
+            else if (col === 22) s.spc2Vote[key] = true;
             else s.approved[key] = true;
           }
           break;
@@ -6198,8 +6212,8 @@
       function spPhase(key) {
         return { phase: 1, title: 'Stake Presidency', steps: [
           stp(DEMO_SP[0], seatDone('sp', s.spVote, key),   { appr: true, body: 'SP', col: 20, date: today, assignee: DEMO_SP[0] }),
-          stp(DEMO_SP[1], seatDone('spc', s.spcVote, key), { appr: true, body: 'SP', col: 21, date: today, assignee: DEMO_SP[1] }),
-          stp(DEMO_SP[2], demoPhase1Done(key),             { appr: true, body: 'SP', col: 22, date: today, assignee: DEMO_SP[2] })
+          stp(DEMO_SP[1], seatDone('spc1', s.spc1Vote, key), { appr: true, body: 'SP', col: 21, date: today, assignee: DEMO_SP[1] }),
+          stp(DEMO_SP[2], seatDone('spc2', s.spc2Vote, key), { appr: true, body: 'SP', col: 22, date: today, assignee: DEMO_SP[2] })
         ]};
       }
 
