@@ -889,6 +889,8 @@
     }
 
     // Data handling
+    let _dashboardDrawnOnce = false;
+
     function onDataLoaded(data) {
       currentData = data;
       userData = {
@@ -905,7 +907,13 @@
       document.getElementById('userInfo').textContent = userData.name;
       var msBtn = document.getElementById('memberStatusBtn');
       if (msBtn) msBtn.style.display = userData.canMemberStatus ? '' : 'none';
+      const _scrollY = window.scrollY;
       renderDashboard(data);
+      restoreSectionState();
+      // Re-rendering resets scroll; put the reader back where they were. Only for a refresh
+      // of an already-drawn dashboard, so the first load still starts at the top.
+      if (_dashboardDrawnOnce && _scrollY > 0) window.scrollTo(0, _scrollY);
+      _dashboardDrawnOnce = true;
       restoreModalDraft();   // reopen an in-progress modal if the tab was reloaded (runs once)
     }
 
@@ -2997,6 +3005,11 @@
     }
 
     // UI Functions
+    // Sections the user has explicitly opened or closed this session. A silent refresh
+    // re-renders the whole dashboard, which would otherwise snap every section back to its
+    // default and lose the reader's place — so we replay these afterwards.
+    const _sectionState = {};
+
     function toggleSection(id, forceOpen) {
       const section = document.getElementById('section-' + id);
       if (!section) return;
@@ -3010,6 +3023,23 @@
         section.classList.toggle('expanded');
         header.classList.toggle('expanded');
       }
+      _sectionState[id] = section.classList.contains('expanded');
+    }
+
+    /** Re-apply remembered open/closed states after a re-render. */
+    function restoreSectionState() {
+      Object.keys(_sectionState).forEach(function (id) {
+        const section = document.getElementById('section-' + id);
+        if (!section) return;
+        const header = section.previousElementSibling;
+        const want = _sectionState[id];
+        section.classList.toggle('expanded', want);
+        if (header) header.classList.toggle('expanded', want);
+      });
+      // These two fetch their contents on first open; after a re-render their bodies are
+      // back to the "Loading…" placeholder, so refill them if they're still open.
+      if (_sectionState.assignments) { _assignmentsLoaded = true; loadAssignments(); }
+      if (_sectionState.away) { _awayLoaded = true; loadAway(); }
     }
 
     function scrollToSection(id) {
