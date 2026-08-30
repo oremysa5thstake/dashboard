@@ -5256,7 +5256,10 @@
      * Pass no owner to require the condition whenever any session is active.
      */
     function demoPre(cond, owner) {
-      if (!demoSession.code) return true;
+      // Solo: require it for real. The viewer drives other roles' steps from their CC'd
+      // cards, so the scenario steps through one stage at a time instead of showing
+      // every stage of the same calling at once.
+      if (!demoSession.code) return !!cond;
       if (owner && !demoRolePresent(owner)) return true;
       return !!cond;
     }
@@ -5277,6 +5280,8 @@
       const s = demoState;
       const need = [['sp', s.spVote], ['spc', s.spcVote], ['hc', s.approved]];
       return need.every(function (pair) {
+        // Solo every body must be recorded (a single vote fills them together, below).
+        if (!demoSession.code) return !!pair[1][key];
         return demoRolePresent(pair[0]) ? !!pair[1][key] : true;
       });
     }
@@ -5319,48 +5324,88 @@
     }
 
     /**
-     * CC'd items for the viewing role. Mirrors the real CC rules: an extend task CCs the whole
-     * presidency, the clerks and the secretaries; a setting apart CCs the same plus the
-     * conducting high councilor; the certificate chain CCs the stake clerk and the assigned HC.
-     * These are the cards a person sees for work that is someone ELSE's to do — visible, and
-     * actionable if they need to step in.
+     * 📊 Approval / Sustaining Status — the roll-up of who has and hasn't voted. Everyone gets
+     * it; clerks and secretaries additionally get the per-person "Record approval" buttons,
+     * which is how a role that doesn't vote moves the scenario past the approval stage.
+     */
+    function demoApprovalStatus() {
+      const s = demoState;
+      const rows = [
+        { key: 'c1', idx: 1, type: 'calling', member: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', ward: DEMO_WARD },
+        { key: 'c2', idx: 2, type: 'calling', member: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', ward: '24th Ward' },
+        { key: 'c3', idx: 3, type: 'calling', member: DEMO_CAST.tanner, calling: 'High Councilor', ward: '32nd Ward' },
+        { key: 'o1', idx: 1, type: 'ordination', member: DEMO_CAST.dallin, calling: 'Ordination to Elder', ward: DEMO_WARD }
+      ];
+      const bodies = [
+        { name: DEMO_SP[0], column: 20, map: s.spVote },
+        { name: DEMO_SP[1], column: 21, map: s.spcVote },
+        { name: 'High Council', column: 23, map: s.approved }
+      ];
+      const out = [];
+      rows.forEach(function (r) {
+        if (demoItemApproved(r.key)) return;           // fully recorded — drops off the list
+        const approvedBy = [], waitingOn = [];
+        bodies.forEach(function (b) {
+          (b.map[r.key] ? approvedBy : waitingOn).push({ name: b.name, column: b.column, userId: 'DEMO' + b.column, rowIndex: r.idx });
+        });
+        out.push({ type: r.type, member: r.member, calling: r.calling, ward: r.ward,
+                   rowIndex: r.idx, approvedBy: approvedBy, waitingOn: waitingOn, opposed: [] });
+      });
+      return out;
+    }
+
+    /**
+     * CC'd items — the cards for work that is someone ELSE'S right now.
+     *
+     * These are emitted in pipeline order and only for the step the scenario has actually
+     * reached, so a calling appears at exactly one stage at a time. A step the viewer owns
+     * as a primary section is skipped here (it already has its own section). Because a CC'd
+     * person can genuinely complete the task in the real dashboard, these cards are also how
+     * a solo viewer walks the scenario through the roles they aren't playing.
      */
     function demoCcItems() {
       const s = demoState;
-      const out = [];
       const R = DEMO_ROLE;
-      const isPresidency = (R === 'sp' || R === 'spc');
-      const ccAll = isPresidency || R === 'clerk' || R === 'sec';   // everyone CC'd on extends
-
+      const out = [];
+      const hcName = DEMO_CAST.hcYou.replace(' (you)', '');
       const add = (o) => out.push(Object.assign({ status: 'Open' }, o));
+      const mine = (...roles) => roles.indexOf(R) !== -1;
 
-      // ── The ward extend, owned by the high councilor ──
-      if (ccAll && demoPre(demoAllCallingsApproved())) {
+      // 1 · Extend the ward calling + release — the high councilor's
+      if (demoAllCallingsApproved() && !mine('hc')) {
         if (!s.porterAccepted) add({
-          actionId: 'DEMO_CC_EXT_PORTER', actionType: 'extend-calling', type: 'extend-calling',
+          actionId: 'DEMO_EXT_PORTER', actionType: 'extend-calling', type: 'extend-calling',
           displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
-          assignedToNames: DEMO_CAST.hcYou.replace(' (you)', ''),
-          appointmentStatus: s.appt || 'Pending'
+          assignedToNames: hcName, appointmentStatus: s.appt || 'Pending'
         });
         if (!s.marcusExtended) add({
-          actionId: 'DEMO_CC_EXT_MARCUS', actionType: 'extend-release', type: 'extend-release',
+          actionId: 'DEMO_EXT_MARCUS', actionType: 'extend-release', type: 'extend-release',
           displayText: 'Extend release to ' + DEMO_CAST.marcus + ' from Elders Quorum Second Counselor (' + DEMO_WARD + ')',
-          assignedToNames: DEMO_CAST.hcYou.replace(' (you)', '')
+          assignedToNames: hcName
         });
       }
 
-      // ── The stake calling extend, owned by a counselor ──
-      if (s.assignedTo && !s.sadieAccepted && R !== 'spc') add({
-        actionId: 'DEMO_CC_EXT_SADIE', actionType: 'extend-calling', type: 'extend-calling',
+      // 2 · Extend the stake calling — the counselor's, once a secretary has assigned it
+      if (s.assignedTo && !s.sadieAccepted && !mine('spc')) add({
+        actionId: 'DEMO_EXT_SADIE', actionType: 'extend-calling', type: 'extend-calling',
         displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
         assignedToNames: s.assignedTo, appointmentStatus: s.assignedAppt || 'Pending'
       });
 
-      // ── Sunday sustaining report, owned by whoever conducts ──
-      if ((R === 'clerk' || isPresidency) && demoPre(s.sbConfirmed, 'hc') && !demoAllSustained()) add({
-        actionId: 'DEMO_CC_SUSREP', actionType: 'sustaining-report',
+      // 3 · Confirm who conducts on Sunday — the high councilor's; clerks are CC'd for real
+      if (s.porterAccepted && s.marcusExtended && !s.sbConfirmed && !mine('hc')) add({
+        actionId: 'DEMO_SB', actionType: 'stake-business-confirm',
+        displayText: 'Confirm availability to conduct stake business on ' + demoSundayText() + ' in the ' + DEMO_WARD,
+        assignedToNames: hcName,
+        notes: 'Ward: ' + DEMO_WARD + '\nDate: ' + demoSundayText(),
+        meetingTime: '10:15 AM', backupHC: '', isReassigned: true
+      });
+
+      // 4 · Sunday sustaining report — the conductor's
+      if (s.sbConfirmed && !demoAllSustained() && !mine('hc')) add({
+        actionId: 'DEMO_SUSREP', actionType: 'sustaining-report',
         displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + demoSundayText() + ' (DEMO)',
-        assignedToNames: DEMO_CAST.hcYou.replace(' (you)', ''),
+        assignedToNames: hcName,
         sustainingReportWard: DEMO_WARD, sustainingReportDocUrl: DEMO_DOC_URL,
         sustainingReportItems: [
           { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
@@ -5370,40 +5415,49 @@
         ]
       });
 
-      // ── Setting aparts: the presidency, clerks and secretaries are all CC'd ──
-      if ((R === 'clerk' || R === 'sec') && s.sus[1] === true && !s.saPorter) add({
-        actionId: 'DEMO_CC_SA_PORTER', actionType: 'setting-apart',
+      // 5 · Setting apart — routed to the HC and the presidency; clerks and secretaries CC'd
+      if (s.sus[1] === true && !s.saPorter && !mine('hc')) add({
+        actionId: 'DEMO_SA_PORTER', actionType: 'setting-apart', sourceRow: 0,
         displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
-        assignedToNames: DEMO_CAST.hcYou.replace(' (you)', ''), sourceRow: 0,
-        callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD
+        assignedToNames: hcName, callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD
       });
-      if (R === 'sec' && demoPre(s.sus[3] === true, 'hc') && !s.saSadie) add({
-        actionId: 'DEMO_CC_SA_SADIE', actionType: 'setting-apart',
+      if (s.sus[3] === true && !s.saSadie && !mine('sp', 'spc')) add({
+        actionId: 'DEMO_SA_SADIE', actionType: 'setting-apart', sourceRow: 0,
         displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)',
-        assignedToNames: DEMO_SP[0] + ' + assigned HC', sourceRow: 0,
-        callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
+        assignedToNames: DEMO_SP[0] + ' + assigned HC', callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
       });
 
-      // ── Certificate chain: the stake clerk and the assigned HC ride along ──
-      if ((R === 'hc' || isPresidency) && demoPre(s.ordReported, 'hc')) {
-        const step = !s.certLcr ? ['DEMO_CC_CERT_LCR', 'ordination-record-lcr', 'record the Elder ordination on LCR']
-                   : !s.certPrinted ? ['DEMO_CC_CERT_PRINT', 'ordination-print-certificate', 'print the ordination certificate']
-                   : !s.certSigned ? ['DEMO_CC_CERT_SIGN', 'ordination-sign-certificate', 'get the certificate signed']
-                   : !s.certDelivered ? ['DEMO_CC_CERT_DELIVER', 'ordination-deliver-certificate', 'deliver the certificate'] : null;
+      // 6 · The ordination itself — coordinated and reported by the assigned HC
+      if (demoItemApproved('o1') && !s.ordSustainReported && !mine('hc')) add({
+        actionId: 'DEMO_ORDNOTIF', actionType: 'ordination-notification',
+        displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained to be ordained an Elder. Coordinate a time to be present for the ordination.',
+        assignedToNames: hcName, preferredOrdinationDate: s.ordDate || ''
+      });
+      if (s.ordSustainReported && !s.ordReported && !mine('hc')) add({
+        actionId: 'DEMO_ORDREPORT', actionType: 'ordination-report',
+        displayText: 'Report ordination: ' + DEMO_CAST.dallin + ' — Elder (' + DEMO_WARD + ')',
+        assignedToNames: hcName, preferredOrdinationDate: s.ordDate || ''
+      });
+
+      // 7 · Certificate chain — the membership clerk's, with the stake clerk and HC CC'd
+      if (s.ordReported && !mine('clerk')) {
+        const step = !s.certLcr ? ['DEMO_CERT_LCR', 'ordination-record-lcr', 'record the Elder ordination on LCR']
+                   : !s.certPrinted ? ['DEMO_CERT_PRINT', 'ordination-print-certificate', 'print the ordination certificate']
+                   : !s.certSigned ? ['DEMO_CERT_SIGN', 'ordination-sign-certificate', 'get the certificate signed']
+                   : !s.certDelivered ? ['DEMO_CERT_DELIVER', 'ordination-deliver-certificate', 'deliver the certificate'] : null;
         if (step) add({
           actionId: step[0], actionType: step[1],
           displayText: DEMO_CAST.dallin + ' — ' + step[2] + ' (' + DEMO_WARD + ')',
-          assignedToNames: DEMO_ROLES.clerk.who,
-          notes: 'You are CC\'d so you can follow the certificate through — and complete a step yourself if you need to.'
+          assignedToNames: DEMO_ROLES.clerk.who
         });
       }
 
-      // ── One finished item, so the acknowledge flow is visible too ──
-      if (s.porterAccepted && (R === 'clerk' || isPresidency || R === 'sec')) add({
+      // One finished card, so acknowledging is part of the walkthrough too.
+      if (s.porterAccepted && !mine('hc')) add({
         actionId: 'DEMO_CC_DONE_PORTER', actionType: 'extend-calling', type: 'extend-calling',
-        status: 'Completed', completedBy: DEMO_CAST.hcYou.replace(' (you)', ''),
+        status: 'Completed', completedBy: hcName,
         displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
-        assignedToNames: DEMO_CAST.hcYou.replace(' (you)', '')
+        assignedToNames: hcName
       });
 
       return out.filter(i => !(s.ccAcked || {})[i.actionId]);
@@ -5523,6 +5577,7 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
+      data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5550,23 +5605,6 @@
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
       if (!mine.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
-      // ── Who is still outstanding (the president watches this roll-up) ──
-      if (isPresident) {
-        [['c1', DEMO_CAST.porter, 'Elders Quorum Second Counselor', DEMO_WARD],
-         ['c2', DEMO_CAST.sadie, 'Stake Relief Society Secretary', '24th Ward'],
-         ['c3', DEMO_CAST.tanner, 'High Councilor', '32nd Ward']].forEach(function (row, idx) {
-          if (demoItemApproved(row[0])) return;
-          const pending = [];
-          if (!s.spVote[row[0]])  pending.push({ name: DEMO_SP[0], userId: 'DEMOSP0', column: 20, rowIndex: idx + 1 });
-          if (!s.spcVote[row[0]]) pending.push({ name: DEMO_SP[1], userId: 'DEMOSP1', column: 21, rowIndex: idx + 1 });
-          if (!s.approved[row[0]]) pending.push({ name: 'High Council', userId: 'DEMOHC0', column: 23, rowIndex: idx + 1 });
-          data.approvalStatus.push({
-            type: 'calling', rowIndex: idx + 1, memberName: row[1], calling: row[2], ward: row[3],
-            approved: [], pending: pending
-          });
-        });
-      }
-
       // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
       const assignedToMe = !isPresident;
       if (assignedToMe && demoPre(s.assignedTo, 'sec') && !s.sadieAccepted) {
@@ -5585,6 +5623,7 @@
         displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)  ·  Assigned to: Stake Presidency + assigned HC'
       });
 
+      data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5642,6 +5681,7 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
+      data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5686,6 +5726,7 @@
         });
       }
 
+      data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
@@ -5711,11 +5752,18 @@
         case 'recordVote': {
           // Clerk/secretary recording a vote on someone's behalf, from Approval Status.
           const col = parseInt(params.column, 10);
-          const key = { 1: 'c1', 2: 'c2', 3: 'c3' }[parseInt(params.rowIndex, 10)];
+          const key = (params.type === 'ordination') ? 'o1' : { 1: 'c1', 2: 'c2', 3: 'c3' }[parseInt(params.rowIndex, 10)];
           if (key) {
-            if (col === 20) s.spVote[key] = true;
-            else if (col === 21) s.spcVote[key] = true;
-            else s.approved[key] = true;
+            if (demoSession.code) {
+              if (col === 20) s.spVote[key] = true;
+              else if (col === 21) s.spcVote[key] = true;
+              else s.approved[key] = true;
+            } else {
+              // Solo there is nobody else to record, so one click stands in for the whole
+              // body — otherwise you'd click twelve times to get past the approval stage.
+              s.spVote[key] = true; s.spcVote[key] = true; s.approved[key] = true;
+              showToast('Recorded. In real life you record each approver separately — the demo takes the whole item at once.', 'success');
+            }
           }
           break;
         }
@@ -5760,7 +5808,9 @@
           return { success: true, savedDate: s.ordDate };
         }
         case 'reportSustaining':
-          if (!s.ordDate) { throw new Error('Save the ordination date first (pick any future date), then report sustained.'); }
+          // The high councilor picks a date first from their own card; a CC'd viewer has no
+          // date picker, so stand one in rather than dead-ending the walkthrough.
+          if (!s.ordDate) s.ordDate = demoSundayText();
           s.ordSustainReported = true;
           break;
         case 'transferOrdinationNotification':
