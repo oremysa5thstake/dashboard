@@ -5348,6 +5348,22 @@
       return demoSession.code ? !demoRolePresent('clerk') : DEMO_ROLE !== 'clerk';
     }
 
+    /**
+     * Phase 1 is the stake presidency; Phase 2 is the high council, and the council is not
+     * asked until the presidency has finished — this stake polls the two phases separately.
+     *
+     * A presidency seat nobody is playing counts as already voted, so an HC-only demo still
+     * moves; with a president and counselor in the session, the high council genuinely waits.
+     */
+    function demoPhase1Done(key) {
+      const s = demoState;
+      const seats = [['sp', s.spVote], ['spc', s.spcVote]];
+      return seats.every(function (pair) {
+        const playing = demoSession.code ? demoRolePresent(pair[0]) : (DEMO_ROLE === pair[0]);
+        return playing ? !!pair[1][key] : true;
+      });
+    }
+
     /** The vote map for whichever role is viewing. */
     function demoMyVotes() {
       const s = demoState;
@@ -5541,16 +5557,19 @@
     function demoBuildDataHC() {
       const s = demoState;
       const sunday = demoSundayText();
+      const waitingOnPhase1 = ['c1', 'c2', 'c3', 'o1'].some(function (k) { return !s.approved[k] && !demoPhase1Done(k); });
       const data = demoBaseData(demoComplete()
           ? '🎉 Demo complete! You walked the full pipeline: approvals → extend → stake business → sustaining → setting apart → ordination → certificate. Tap "Restart" below to run it again.'
+          : waitingOnPhase1
+          ? '🎓 DEMO — the stake presidency is still voting. This stake polls in two phases, so the high council isn\'t asked until the presidency has finished. Items will appear here as they clear.'
           : '🎓 DEMO — a training walkthrough with fictional people. Work top to bottom; each completed task unlocks the next step, exactly like the real dashboard.');
 
       // ── Stage 1: HC approvals (SP has already fully approved everything) ──
-      if (!s.approved.c1 && demoPolled('c1')) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
-      if (!s.approved.c2 && demoPolled('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
-      if (!s.approved.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
+      if (!s.approved.c1 && demoPolled('c1') && demoPhase1Done('c1')) data.approvals.push({ type: 'calling', rowIndex: 1, memberName: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', unit: DEMO_WARD });
+      if (!s.approved.c2 && demoPolled('c2') && demoPhase1Done('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
+      if (!s.approved.c3 && demoPhase1Done('c3')) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
-      if (!s.approved.o1) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
+      if (!s.approved.o1 && demoPhase1Done('o1')) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 2: extend tasks for the 6-7th Ward, assigned to the demo HC ──
       // In a shared session this also waits for the presidency to finish voting.
