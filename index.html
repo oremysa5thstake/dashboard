@@ -4975,7 +4975,9 @@
       marcus:  'Marcus Fielding',    // released as EQ President, 6-7th Ward
       sadie:   'Sadie Larkspur',     // called Stake Relief Society Secretary (24th Ward)
       tanner:  'Tanner Holbrook',    // called High Councilor (32nd Ward) — needs HP sustaining
-      dallin:  'Dallin Whitmer'      // ordination to Elder, 6-7th Ward
+      dallin:  'Dallin Whitmer',     // ordination to Elder, 6-7th Ward
+      emmett:  'Emmett Rowe',        // called Stake Young Men President — the PRESIDENT extends
+      delphine:'Delphine Marchetti'  // released as Stake Primary Secretary — release-only
     };
     const DEMO_SP = ['Pres. Smith', 'Pres. Plothow', 'Pres. Nielsen'];
     const DEMO_HC_NAMES = ['Bro. Ainsworth', 'Bro. Bellview', 'Bro. Corbridge', 'Bro. Duffin', 'Bro. Eastman',
@@ -5000,6 +5002,10 @@
         appt: '',
         porterAccepted: false, marcusExtended: false,
         sadieAccepted: false,                     // the stake calling the counselor extends
+        // The stake president's own pair: a calling he extends after a secretary books the
+        // appointment, and a release-only that needs nobody but him.
+        emmettAppt: '', emmettAccepted: false, saEmmett: false,
+        delphineExtended: false,
         // Stage 4 — stake business + sustainings
         sbConfirmed: false,
         sus: {},                                  // sustaining-report marks, keyed by numeric item id
@@ -5274,11 +5280,17 @@
       return v.c1 && v.c2 && v.c3 && v.o1;
     }
     function demoAllSustained() {
-      return [1, 2, 3, 4].every(i => typeof demoState.sus[i] !== 'undefined');
+      return [1, 2, 3, 4, 5, 6].every(i => typeof demoState.sus[i] !== 'undefined');
+    }
+    /** The stake president's own extends — skipped when nobody is playing him. */
+    function demoSpExtendsDone() {
+      const s = demoState;
+      return (s.emmettAccepted && s.delphineExtended) || demoOwnedElsewhere('sp');
     }
     function demoComplete() {
       const s = demoState;
       return demoAllCallingsApproved() && demoItemApproved('o1') && s.porterAccepted && s.marcusExtended &&
+        (s.emmettAccepted || demoOwnedElsewhere('sp')) && (s.delphineExtended || demoOwnedElsewhere('sp')) &&
         s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie && s.oouDone &&
         s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
     }
@@ -5321,7 +5333,11 @@
     function demoItemApproved(key) {
       const s = demoState;
       if (!demoPolled(key)) return false;   // still held for clerk review
-      const need = [['sp', s.spVote], ['spc', s.spcVote], ['hc', s.approved]];
+      // A release-only row is approved by the stake president alone — the other twelve
+      // columns stay empty and are never counted against it.
+      const need = (key === 'r1')
+        ? [['sp', s.spVote]]
+        : [['sp', s.spVote], ['spc', s.spcVote], ['hc', s.approved]];
       return need.every(function (pair) {
         // Solo every body must be recorded (a single vote fills them together, below).
         if (!demoSession.code) return !!pair[1][key];
@@ -5426,9 +5442,11 @@
         { key: 'c1', idx: 1, type: 'calling', member: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', ward: DEMO_WARD },
         { key: 'c2', idx: 2, type: 'calling', member: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', ward: '24th Ward' },
         { key: 'c3', idx: 3, type: 'calling', member: DEMO_CAST.tanner, calling: 'High Councilor', ward: '32nd Ward' },
+        { key: 'c4', idx: 4, type: 'calling', member: DEMO_CAST.emmett, calling: 'Stake Young Men President', ward: '19th Ward' },
+        { key: 'r1', idx: 5, type: 'release-only', member: DEMO_CAST.delphine, calling: 'Stake Primary Secretary', ward: '27th Ward' },
         { key: 'o1', idx: 1, type: 'ordination', member: DEMO_CAST.dallin, calling: 'Ordination to Elder', ward: DEMO_WARD }
       ];
-      const bodies = [
+      const allBodies = [
         { name: DEMO_SP[0], column: 20, map: s.spVote },
         { name: DEMO_SP[1], column: 21, map: s.spcVote },
         { name: 'High Council', column: 23, map: s.approved }
@@ -5439,6 +5457,7 @@
         if (r.key === 'o1' && !demoOrdinationInterviewDone()) return;   // interview comes first
         if (demoItemApproved(r.key)) return;           // fully recorded — drops off the list
         const approvedBy = [], waitingOn = [];
+        const bodies = (r.key === 'r1') ? allBodies.slice(0, 1) : allBodies;   // release: SP only
         bodies.forEach(function (b) {
           (b.map[r.key] ? approvedBy : waitingOn).push({ name: b.name, column: b.column, userId: 'DEMO' + b.column, rowIndex: r.idx });
         });
@@ -5496,7 +5515,7 @@
       });
 
       // 4 · Sunday sustaining report — the conductor's
-      if (s.sbConfirmed && !demoAllSustained() && !mine('hc')) add({
+      if (s.sbConfirmed && demoSpExtendsDone() && !demoAllSustained() && !mine('hc')) add({
         actionId: 'DEMO_SUSREP', actionType: 'sustaining-report',
         displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + demoSundayText() + ' (DEMO)',
         assignedToNames: hcName,
@@ -5505,7 +5524,9 @@
           { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
           { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
           { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '24th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
-          { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] }
+          { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] },
+          { i: 5, m: DEMO_CAST.emmett, c: 'Stake Young Men President', w: '19th Ward', where: 'Stake', a: 'Sustain', s: s.sus[5] },
+          { i: 6, m: DEMO_CAST.delphine, c: 'Stake Primary Secretary', w: '27th Ward', where: 'Stake', a: 'Release', s: s.sus[6] }
         ]
       });
 
@@ -5520,6 +5541,25 @@
         displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)',
         assignedToNames: DEMO_SP[0] + ' + assigned HC', callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
       });
+
+      // 2b · The president's own extends — everyone else is CC'd on them
+      if (!mine('sp')) {
+        if (demoItemApproved('c4') && !s.emmettAccepted) add({
+          actionId: 'DEMO_EXT_EMMETT', actionType: 'extend-calling', type: 'extend-calling',
+          displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Stake Young Men President (19th Ward)',
+          assignedToNames: DEMO_SP[0], appointmentStatus: s.emmettAppt || 'Pending'
+        });
+        if (demoItemApproved('r1') && !s.delphineExtended) add({
+          actionId: 'DEMO_EXT_DELPHINE', actionType: 'extend-release', type: 'extend-release',
+          displayText: 'Extend release to ' + DEMO_CAST.delphine + ' from Stake Primary Secretary (27th Ward)',
+          assignedToNames: DEMO_SP[0]
+        });
+        if (s.sus[5] === true && !s.saEmmett) add({
+          actionId: 'DEMO_SA_EMMETT', actionType: 'setting-apart', sourceRow: 0,
+          displayText: DEMO_CAST.emmett + ' — set apart as Stake Young Men President (19th Ward)',
+          assignedToNames: DEMO_SP[0], callingMember: DEMO_CAST.emmett, callingWard: '19th Ward'
+        });
+      }
 
       // 5b · Schedule the ordination interview — the secretary's; clerks and the presidency
       //      are CC'd, and the interview must happen before anyone sustains him.
@@ -5591,6 +5631,7 @@
       if (!s.approved.c2 && demoPolled('c2') && demoPhase1Done('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!s.approved.c3 && demoPhase1Done('c3')) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
+      if (!s.approved.c4 && demoPhase1Done('c4')) data.approvals.push({ type: 'calling', rowIndex: 4, memberName: DEMO_CAST.emmett, calling: 'Stake Young Men President', unit: '19th Ward' });
       if (!s.approved.o1 && demoOrdinationInterviewDone() && demoPhase1Done('o1')) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 2: extend tasks for the 6-7th Ward, assigned to the demo HC ──
@@ -5618,7 +5659,7 @@
       }
 
       // ── Stage 4: Sunday sustaining report ──
-      if (s.sbConfirmed && !demoAllSustained()) {
+      if (s.sbConfirmed && demoSpExtendsDone() && !demoAllSustained()) {
         data.sustainingReports.push({
           actionId: 'DEMO_SUSREP',
           displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + sunday + ' (DEMO)',
@@ -5628,7 +5669,9 @@
             { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
             { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
             { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '24th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
-            { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] }
+            { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] },
+            { i: 5, m: DEMO_CAST.emmett, c: 'Stake Young Men President', w: '19th Ward', where: 'Stake', a: 'Sustain', s: s.sus[5] },
+            { i: 6, m: DEMO_CAST.delphine, c: 'Stake Primary Secretary', w: '27th Ward', where: 'Stake', a: 'Release', s: s.sus[6] }
           ]
         });
       }
@@ -5709,6 +5752,9 @@
       if (!mine.c2 && demoPolled('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!mine.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
+      if (!mine.c4) data.approvals.push({ type: 'calling', rowIndex: 4, memberName: DEMO_CAST.emmett, calling: 'Stake Young Men President', unit: '19th Ward' });
+      // A release needs only the stake president — the counselor never sees it.
+      if (isPresident && !s.spVote.r1) data.approvals.push({ type: 'release-only', rowIndex: 5, memberName: DEMO_CAST.delphine, calling: 'Stake Primary Secretary', unit: '27th Ward' });
       if (!mine.o1 && demoOrdinationInterviewDone()) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
@@ -5722,7 +5768,27 @@
         });
       }
 
+      // ── The president's own extends. Emmett's calling routes to him, so a secretary books
+      //    the appointment first; the release needs nobody else at all. ──
+      if (isPresident) {
+        if (demoItemApproved('c4') && !s.emmettAccepted) data.extendItems.push({
+          actionId: 'DEMO_EXT_EMMETT', type: 'extend-calling', actionType: 'extend-calling',
+          displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Stake Young Men President (19th Ward)',
+          appointmentStatus: s.emmettAppt || 'Pending', assignedToNames: DEMO_SP[0]
+        });
+        if (demoItemApproved('r1') && !s.delphineExtended) data.extendItems.push({
+          actionId: 'DEMO_EXT_DELPHINE', type: 'extend-release', actionType: 'extend-release',
+          displayText: 'Extend release to ' + DEMO_CAST.delphine + ' from Stake Primary Secretary (27th Ward)',
+          assignedToNames: DEMO_SP[0]
+        });
+      }
+
       // ── Stage 5: setting apart (the presidency sets apart stake callings) ──
+      if (isPresident && demoPre(s.sus[5] === true, 'hc') && !s.saEmmett) data.settingAparts.push({
+        actionId: 'DEMO_SA_EMMETT', sourceRow: 0,
+        callingMember: DEMO_CAST.emmett, callingWard: '19th Ward',
+        displayText: DEMO_CAST.emmett + ' — set apart as Stake Young Men President (19th Ward)  ·  Assigned to: ' + DEMO_SP[0]
+      });
       if (demoPre(s.sus[3] === true, 'hc') && !s.saSadie) data.settingAparts.push({
         actionId: 'DEMO_SA_SADIE', sourceRow: 0,
         callingMember: DEMO_CAST.sadie, callingWard: '24th Ward',
@@ -5816,6 +5882,16 @@
         });
       }
 
+      // ── Appointment for the calling the PRESIDENT extends. Real behaviour: appointment
+      //    tasks are created only for a stake-presidency assignment. ──
+      if (demoItemApproved('c4') && !s.emmettAppt && !s.emmettAccepted) {
+        data.appointmentItems.push({
+          actionId: 'DEMO_APPT_EMMETT', actionType: 'appointment-scheduling',
+          displayText: 'Schedule appointment: ' + DEMO_CAST.emmett + ' with ' + DEMO_SP[0] + ' — Calling as Stake Young Men President (19th Ward)',
+          notes: 'For: ' + DEMO_SP[0]
+        });
+      }
+
       // ── Ordination interview with one member of the presidency ──
       // The interview comes FIRST — before anyone sustains him — so this is not gated on
       // approvals. It is available as soon as the ordination is submitted.
@@ -5876,19 +5952,22 @@
       switch (action) {
         case 'approve':
         case 'concern': {
-          const map = { calling_1: 'c1', calling_2: 'c2', calling_3: 'c3', ordination_1: 'o1' };
+          const map = { calling_1: 'c1', calling_2: 'c2', calling_3: 'c3', calling_4: 'c4',
+                        release_5: 'r1', ordination_1: 'o1' };
           if (map[id]) demoRecordVote(map[id]);
           if (action === 'concern') showToast('In the real dashboard, ⚠️ Concerns pauses this item and notifies the clerks. The demo moves on as if approved.', 'success');
           else if (id === 'ordination_1') showToast('You were the last to sustain — coordinating the ordination is now your task (see 📋 Ordination Sustaining below).', 'success');
           else if (demoAllCallingsApproved() && s.approved.o1) showToast('All approvals in! Watch for the extend tasks assigned to you.', 'success');
           break;
         }
-        case 'approveAll': ['c1','c2','c3','o1'].forEach(demoRecordVote); break;
+        case 'approveAll': ['c1','c2','c3','c4','r1','o1'].forEach(demoRecordVote); break;
         case 'sustainAll': demoRecordVote('o1'); break;
         case 'recordVote': {
           // Clerk/secretary recording a vote on someone's behalf, from Approval Status.
           const col = parseInt(params.column, 10);
-          const key = (params.type === 'ordination') ? 'o1' : { 1: 'c1', 2: 'c2', 3: 'c3' }[parseInt(params.rowIndex, 10)];
+          const key = (params.type === 'ordination') ? 'o1'
+            : (params.type === 'release-only') ? 'r1'
+            : { 1: 'c1', 2: 'c2', 3: 'c3', 4: 'c4' }[parseInt(params.rowIndex, 10)];
           if (key) {
             // One button, one approver — solo included. The per-person buttons say whose
             // approval you're recording, so recording one must not stand in for the rest.
@@ -5904,18 +5983,21 @@
           // Porter's because the id was ignored.
           const when = demoFormatDateTime(params.appointmentDate + 'T' + params.appointmentTime);
           if (id === 'DEMO_EXT_SADIE' || id === 'DEMO_ASSIGN_SADIE') s.assignedAppt = when;
+          else if (id === 'DEMO_EXT_EMMETT' || id === 'DEMO_APPT_EMMETT') s.emmettAppt = when;
           else s.appt = when;
           break;
         }
         case 'accepted':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast(DEMO_CAST.porter.split(' ')[0] + ' accepted! He\'s now scheduled for stake business this Sunday.', 'success'); }
           if (id === 'DEMO_EXT_SADIE') { s.sadieAccepted = true; showToast(DEMO_CAST.sadie.split(' ')[0] + ' accepted! She goes on this Sunday\'s stake business.', 'success'); }
+          if (id === 'DEMO_EXT_EMMETT') { s.emmettAccepted = true; showToast(DEMO_CAST.emmett.split(' ')[0] + ' accepted — a stake calling, so every ward sustains him.', 'success'); }
           break;
         case 'declined':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast('In real life, declining ends the process and notifies the Stake Presidency. For the demo, let\'s pretend he said yes 😉', 'success'); }
           break;
         case 'extended':
           if (id === 'DEMO_EXT_MARCUS') s.marcusExtended = true;
+          if (id === 'DEMO_EXT_DELPHINE') { s.delphineExtended = true; showToast('Release extended. Nothing follows a release — no setting apart.', 'success'); }
           break;
         case 'sbConfirm': s.sbConfirmed = true; break;
         case 'sbNeedReplacement':
@@ -5924,15 +6006,16 @@
           throw new Error('In this demo, tap "✓ Yes, I\'ll Be There". (In real life this would notify the clerks or another high councilor.)');
         case 'sustainingReportMark': {
           const i = parseInt(params.sbRow, 10);
-          if (i >= 1 && i <= 4) s.sus[i] = (params.sustained === 'true' || params.sustained === true);
+          if (i >= 1 && i <= 6) s.sus[i] = (params.sustained === 'true' || params.sustained === true);
           break;
         }
         case 'sustainingReportAll':
-          [1, 2, 3, 4].forEach(i => { if (typeof s.sus[i] === 'undefined') s.sus[i] = true; });
+          [1, 2, 3, 4, 5, 6].forEach(i => { if (typeof s.sus[i] === 'undefined') s.sus[i] = true; });
           break;
         case 'setApart':
           if (id.indexOf('DEMO_SA_PORTER') === 0) s.saPorter = true;
           if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
+          if (id.indexOf('DEMO_SA_EMMETT') === 0) s.saEmmett = true;
           break;
         case 'submitOutOfUnitRecord':
           if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
@@ -6196,6 +6279,34 @@
         ]}
       ]);
 
+      // Emmett — a stake calling the PRESIDENT extends, after a secretary books the time.
+      const emmett = finish([
+        spPhase('c4'), hcPhase('c4'),
+        { phase: 3, title: 'Extend the Call', steps: [
+          stp('Appointment', s.emmettAppt || false, { ph: 3, col: 0, date: today, assignee: DEMO_ROLES.sec.who }),
+          stp('Accepted?', s.emmettAccepted, { req: true, ph: 3, col: 35, date: today, assignee: DEMO_SP[0] })
+        ]},
+        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+          stp('Sustained (every ward)', s.sus[5] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
+        ]},
+        { phase: 5, title: 'Setting Apart', steps: [
+          stp('Set Apart', s.saEmmett, { req: true, ph: 5, col: 43, date: today, assignee: DEMO_SP[0] })
+        ]}
+      ]);
+
+      // Delphine — release only: the stake president alone, and nothing follows.
+      const delphine = finish([
+        { phase: 1, title: 'Stake President', steps: [
+          stp(DEMO_SP[0], seatDone('sp', s.spVote, 'r1'), { appr: true, body: 'SP', col: 20, date: today, assignee: DEMO_SP[0] })
+        ]},
+        { phase: 3, title: 'Extend the Release', steps: [
+          stp('Release Extended?', s.delphineExtended, { req: true, ph: 3, col: 37, date: today, assignee: DEMO_SP[0] })
+        ]},
+        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+          stp('Released (every ward)', s.sus[6] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
+        ]}
+      ]);
+
       const mk = (name, ward, callingEntry, ordEntry) => ({
         name: name, ward: ward,
         callings: callingEntry ? [callingEntry] : [],
@@ -6209,7 +6320,7 @@
       return {
         success: true, seeAll: true,
         assignedWards: [DEMO_WARD],
-        wards: [DEMO_WARD, '24th Ward', '32nd Ward'],
+        wards: [DEMO_WARD, '19th Ward', '24th Ward', '27th Ward', '32nd Ward'],
         members: [
           mk(DEMO_CAST.dallin, DEMO_WARD, null,
             track('o1', { office: 'Elder', interview: { scheduled: s.ordInterview || '(demo) completed' },
@@ -6225,7 +6336,13 @@
                              phases: sadie.phases, currentPhase: sadie.currentPhase }), null),
           mk(DEMO_CAST.tanner, '32nd Ward',
             track('tanner', { calling: 'High Councilor', action: 'Called',
-                              phases: tanner.phases, currentPhase: tanner.currentPhase }), null)
+                              phases: tanner.phases, currentPhase: tanner.currentPhase }), null),
+          mk(DEMO_CAST.emmett, '19th Ward',
+            track('emmett', { calling: 'Stake Young Men President', action: 'Called',
+                              phases: emmett.phases, currentPhase: emmett.currentPhase }), null),
+          mk(DEMO_CAST.delphine, '27th Ward',
+            track('delphine', { calling: 'Stake Primary Secretary', action: 'Released',
+                                phases: delphine.phases, currentPhase: delphine.currentPhase }), null)
         ]
       };
     }
