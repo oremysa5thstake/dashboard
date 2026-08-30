@@ -5104,6 +5104,16 @@
         : '<span style="opacity:.85;">Walking through as a group?</span>'
           + '<button class="btn btn-secondary btn-sm" onclick="demoSessionStart()">Start shared session</button>'
           + '<button class="btn btn-secondary btn-sm" onclick="demoPromptJoin()">Join with a code</button>';
+      demoSyncBarPadding();   // the roster line changes the bar's height
+    }
+
+    // Reserve exactly as much room as the fixed demo bar actually takes. It wraps to two or
+    // three lines on a narrow phone, so a hard-coded value left the end of the page
+    // unreachable — you couldn't scroll to the last card or a modal's submit button.
+    function demoSyncBarPadding() {
+      const bar = document.getElementById('demoBar');
+      if (!bar) return;
+      document.body.style.paddingBottom = (bar.offsetHeight + 16) + 'px';
     }
 
     function demoPromptJoin() {
@@ -5190,7 +5200,7 @@
       // Fixed demo control bar: identity + restart/exit on top, session controls beneath.
       const bar = document.createElement('div');
       bar.id = 'demoBar';
-      bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a2e;color:#fff;padding:8px 14px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px;box-shadow:0 -2px 8px rgba(0,0,0,.25);';
+      bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1a2e;color:#fff;padding:8px 14px calc(8px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px;box-shadow:0 -2px 8px rgba(0,0,0,.25);';
       bar.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;">' +
           '<span>🎓 <strong>DEMO</strong> — you are <strong>' + escapeHtmlDisplay(DEMO_ROLE_INFO.who) + '</strong>, ' + escapeHtmlDisplay(DEMO_ROLE_INFO.label) + '</span>' +
@@ -5199,8 +5209,11 @@
         '</div>' +
         '<div id="demoSessionBar" style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;font-size:13px;"></div>';
       document.body.appendChild(bar);
-      document.body.style.paddingBottom = '86px';
       demoUpdateSessionBar();
+      demoSyncBarPadding();
+      window.addEventListener('resize', demoSyncBarPadding);
+      window.addEventListener('orientationchange', demoSyncBarPadding);
+      if (window.ResizeObserver) { try { new ResizeObserver(demoSyncBarPadding).observe(bar); } catch (e) {} }
 
       // ?s=CODE → join that shared session (and adopt its state) before first render.
       const joinCode = new URLSearchParams(window.location.search).get('s');
@@ -5775,16 +5788,11 @@
           const col = parseInt(params.column, 10);
           const key = (params.type === 'ordination') ? 'o1' : { 1: 'c1', 2: 'c2', 3: 'c3' }[parseInt(params.rowIndex, 10)];
           if (key) {
-            if (demoSession.code) {
-              if (col === 20) s.spVote[key] = true;
-              else if (col === 21) s.spcVote[key] = true;
-              else s.approved[key] = true;
-            } else {
-              // Solo there is nobody else to record, so one click stands in for the whole
-              // body — otherwise you'd click twelve times to get past the approval stage.
-              s.spVote[key] = true; s.spcVote[key] = true; s.approved[key] = true;
-              showToast('Recorded. In real life you record each approver separately — the demo takes the whole item at once.', 'success');
-            }
+            // One button, one approver — solo included. The per-person buttons say whose
+            // approval you're recording, so recording one must not stand in for the rest.
+            if (col === 20) s.spVote[key] = true;
+            else if (col === 21) s.spcVote[key] = true;
+            else s.approved[key] = true;
           }
           break;
         }
