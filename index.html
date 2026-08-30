@@ -4936,7 +4936,7 @@
     const DEMO_ROLE_INFO = DEMO_ROLE ? DEMO_ROLES[DEMO_ROLE] : null;
 
     // Shared-session state (null = solo/localStorage).
-    let demoSession = { code: null, rev: 0, timer: null, pushing: false, dirty: false };
+    let demoSession = { code: null, rev: 0, timer: null, pushing: false, dirty: false, roles: [] };
     const DEMO_DOC_URL = 'https://docs.google.com/document/d/1GEFkw7OUvQ2D8iv6RRvCMfewAjEG_99vrv2mdRp6s2o/edit';
     const DEMO_STATE_KEY = 'hcDemoState_v1';
     const DEMO_WARD = '6-7th Ward';
@@ -4983,7 +4983,8 @@
         ordDate: '', ordSustainReported: false, ordReported: false,
         certLcr: false, certPrinted: false, certSigned: false, certDelivered: false,
         // Clerk odds and ends
-        nameTagOrdered: false
+        nameTagOrdered: false,
+        ccAcked: {}                               // CC cards this viewer has acknowledged
       };
     }
 
@@ -5007,7 +5008,7 @@
         setSyncing(true);
         const r = await demoApi('demoSessionCreate', {});
         if (!r || !r.success) throw new Error((r && r.error) || 'Could not start a session');
-        demoSession.code = r.code; demoSession.rev = r.rev || 0;
+        demoSession.code = r.code; demoSession.rev = r.rev || 0; demoSession.roles = [DEMO_ROLE];
         await demoSessionPush();               // seed it with the current scenario state
         demoSessionStartPolling();
         demoUpdateSessionBar();
@@ -5023,9 +5024,10 @@
       if (!code) { showToast('Enter a session code', 'error'); return false; }
       try {
         setSyncing(true);
-        const r = await demoApi('demoSessionGet', { code: code });
+        const r = await demoApi('demoSessionGet', { code: code, role: DEMO_ROLE });
         if (!r || !r.success) throw new Error((r && r.error) || 'Session not found');
         demoSession.code = code; demoSession.rev = r.rev || 0;
+        demoSession.roles = r.roles || [];
         if (r.state && Object.keys(r.state).length) demoState = Object.assign(demoFreshState(), r.state);
         demoSessionStartPolling();
         demoUpdateSessionBar();
@@ -5040,7 +5042,7 @@
     }
 
     function demoSessionLeave() {
-      demoSession.code = null; demoSession.rev = 0;
+      demoSession.code = null; demoSession.rev = 0; demoSession.roles = [];
       if (demoSession.timer) { clearInterval(demoSession.timer); demoSession.timer = null; }
       demoUpdateSessionBar();
       history.replaceState(null, '', location.pathname + '?demo=' + DEMO_ROLE);
@@ -5053,7 +5055,7 @@
       if (demoSession.pushing) { demoSession.dirty = true; return; }
       demoSession.pushing = true;
       try {
-        const r = await demoApi('demoSessionUpdate', { code: demoSession.code, state: JSON.stringify(demoState) });
+        const r = await demoApi('demoSessionUpdate', { code: demoSession.code, state: JSON.stringify(demoState), role: DEMO_ROLE });
         if (r && r.success) demoSession.rev = r.rev;
         else if (r && r.notFound) { showToast('That session expired — continuing on your own copy.', 'error'); demoSessionLeave(); }
       } catch (e) {
@@ -5072,12 +5074,18 @@
     async function demoSessionPoll() {
       if (!demoSession.code || demoSession.pushing) return;
       try {
-        const r = await demoApi('demoSessionGet', { code: demoSession.code, rev: demoSession.rev });
+        const r = await demoApi('demoSessionGet', { code: demoSession.code, rev: demoSession.rev, role: DEMO_ROLE });
         if (!r || !r.success) { if (r && r.notFound) demoSessionLeave(); return; }
+        const rosterChanged = r.roles && r.roles.join(',') !== demoSession.roles.join(',');
+        if (r.roles) demoSession.roles = r.roles;
         if (r.changed && r.state) {
           demoSession.rev = r.rev;
           demoState = Object.assign(demoFreshState(), r.state);
           onDataLoaded(demoBuildData());       // someone else moved the scenario forward
+        } else if (rosterChanged) {
+          // Someone joined or dropped out — the gates adapt, so re-render.
+          demoUpdateSessionBar();
+          onDataLoaded(demoBuildData());
         } else if (r.rev) demoSession.rev = r.rev;
       } catch (e) { /* transient */ }
     }
@@ -5085,9 +5093,12 @@
     function demoUpdateSessionBar() {
       const el = document.getElementById('demoSessionBar');
       if (!el) return;
+      const roster = (demoSession.roles || []).map(r => (DEMO_ROLES[r] || {}).label || r);
       el.innerHTML = demoSession.code
         ? '<span style="font-weight:600;">🔗 Session ' + escapeHtmlDisplay(demoSession.code) + '</span>'
-          + '<span style="opacity:.85;">everyone in this session moves together</span>'
+          + '<span style="opacity:.85;">' + (roster.length
+              ? 'In the room: ' + escapeHtmlDisplay(roster.join(' · ')) + (roster.length < 5 ? ' — absent roles are auto-advanced' : '')
+              : 'everyone in this session moves together') + '</span>'
           + '<button class="btn btn-secondary btn-sm" onclick="demoCopySessionLink()">Copy link</button>'
           + '<button class="btn btn-secondary btn-sm" onclick="demoSessionLeave()">Leave</button>'
         : '<span style="opacity:.85;">Walking through as a group?</span>'
@@ -5230,10 +5241,25 @@
         s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
     }
 
-    // A cross-role prerequisite. SOLO: assume the other roles already did their part, so any
-    // role can be explored end-to-end alone (this is how the HC demo always behaved).
-    // IN A SHARED SESSION: require it for real, so the group actually hands off to each other.
-    function demoPre(cond) { return demoSession.code ? !!cond : true; }
+    // Is a role actually in the room? Solo, nobody else is — every cross-role prerequisite is
+    // assumed done. In a session, only roles someone has open count as present, so a group of
+    // two walks the same scenario without stalling on the three roles nobody is playing.
+    function demoRolePresent(role) {
+      if (!demoSession.code) return false;
+      return demoSession.roles.indexOf(role) !== -1;
+    }
+
+    /**
+     * A cross-role prerequisite, owned by `owner`.
+     *   · solo, or owner not in the session → treated as already done
+     *   · owner is present                  → they really have to do it
+     * Pass no owner to require the condition whenever any session is active.
+     */
+    function demoPre(cond, owner) {
+      if (!demoSession.code) return true;
+      if (owner && !demoRolePresent(owner)) return true;
+      return !!cond;
+    }
 
     /** Record the viewer's vote. Solo, the other voting bodies are filled in automatically. */
     function demoRecordVote(key) {
@@ -5242,10 +5268,17 @@
       s[mine][key] = true;
       if (!demoSession.code) { s.spVote[key] = true; s.spcVote[key] = true; s.approved[key] = true; }
     }
-    /** True once every voting body (SP, counselor, high council) has recorded this item. */
+    /**
+     * Approved once every voting body that is actually in the room has recorded this item.
+     * Solo (or in a session where nobody is playing that body) the absent bodies are treated
+     * as already voted, so the scenario keeps moving.
+     */
     function demoItemApproved(key) {
       const s = demoState;
-      return !!(s.spVote[key] && s.spcVote[key] && s.approved[key]);
+      const need = [['sp', s.spVote], ['spc', s.spcVote], ['hc', s.approved]];
+      return need.every(function (pair) {
+        return demoRolePresent(pair[0]) ? !!pair[1][key] : true;
+      });
     }
     /** The vote map for whichever role is viewing. */
     function demoMyVotes() {
@@ -5283,6 +5316,97 @@
         myTasks: 0, ccItems: 0
       };
       return data;
+    }
+
+    /**
+     * CC'd items for the viewing role. Mirrors the real CC rules: an extend task CCs the whole
+     * presidency, the clerks and the secretaries; a setting apart CCs the same plus the
+     * conducting high councilor; the certificate chain CCs the stake clerk and the assigned HC.
+     * These are the cards a person sees for work that is someone ELSE's to do — visible, and
+     * actionable if they need to step in.
+     */
+    function demoCcItems() {
+      const s = demoState;
+      const out = [];
+      const R = DEMO_ROLE;
+      const isPresidency = (R === 'sp' || R === 'spc');
+      const ccAll = isPresidency || R === 'clerk' || R === 'sec';   // everyone CC'd on extends
+
+      const add = (o) => out.push(Object.assign({ status: 'Open' }, o));
+
+      // ── The ward extend, owned by the high councilor ──
+      if (ccAll && demoPre(demoAllCallingsApproved())) {
+        if (!s.porterAccepted) add({
+          actionId: 'DEMO_CC_EXT_PORTER', actionType: 'extend-calling', type: 'extend-calling',
+          displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
+          assignedToNames: DEMO_CAST.hcYou.replace(' (you)', ''),
+          appointmentStatus: s.appt || 'Pending'
+        });
+        if (!s.marcusExtended) add({
+          actionId: 'DEMO_CC_EXT_MARCUS', actionType: 'extend-release', type: 'extend-release',
+          displayText: 'Extend release to ' + DEMO_CAST.marcus + ' from Elders Quorum Second Counselor (' + DEMO_WARD + ')',
+          assignedToNames: DEMO_CAST.hcYou.replace(' (you)', '')
+        });
+      }
+
+      // ── The stake calling extend, owned by a counselor ──
+      if (s.assignedTo && !s.sadieAccepted && R !== 'spc') add({
+        actionId: 'DEMO_CC_EXT_SADIE', actionType: 'extend-calling', type: 'extend-calling',
+        displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
+        assignedToNames: s.assignedTo, appointmentStatus: s.assignedAppt || 'Pending'
+      });
+
+      // ── Sunday sustaining report, owned by whoever conducts ──
+      if ((R === 'clerk' || isPresidency) && demoPre(s.sbConfirmed, 'hc') && !demoAllSustained()) add({
+        actionId: 'DEMO_CC_SUSREP', actionType: 'sustaining-report',
+        displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + demoSundayText() + ' (DEMO)',
+        assignedToNames: DEMO_CAST.hcYou.replace(' (you)', ''),
+        sustainingReportWard: DEMO_WARD, sustainingReportDocUrl: DEMO_DOC_URL,
+        sustainingReportItems: [
+          { i: 1, m: DEMO_CAST.porter, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[1] },
+          { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
+          { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '24th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
+          { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] }
+        ]
+      });
+
+      // ── Setting aparts: the presidency, clerks and secretaries are all CC'd ──
+      if ((R === 'clerk' || R === 'sec') && s.sus[1] === true && !s.saPorter) add({
+        actionId: 'DEMO_CC_SA_PORTER', actionType: 'setting-apart',
+        displayText: DEMO_CAST.porter + ' — set apart as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
+        assignedToNames: DEMO_CAST.hcYou.replace(' (you)', ''), sourceRow: 0,
+        callingMember: DEMO_CAST.porter, callingWard: DEMO_WARD
+      });
+      if (R === 'sec' && demoPre(s.sus[3] === true, 'hc') && !s.saSadie) add({
+        actionId: 'DEMO_CC_SA_SADIE', actionType: 'setting-apart',
+        displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)',
+        assignedToNames: DEMO_SP[0] + ' + assigned HC', sourceRow: 0,
+        callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
+      });
+
+      // ── Certificate chain: the stake clerk and the assigned HC ride along ──
+      if ((R === 'hc' || isPresidency) && demoPre(s.ordReported, 'hc')) {
+        const step = !s.certLcr ? ['DEMO_CC_CERT_LCR', 'ordination-record-lcr', 'record the Elder ordination on LCR']
+                   : !s.certPrinted ? ['DEMO_CC_CERT_PRINT', 'ordination-print-certificate', 'print the ordination certificate']
+                   : !s.certSigned ? ['DEMO_CC_CERT_SIGN', 'ordination-sign-certificate', 'get the certificate signed']
+                   : !s.certDelivered ? ['DEMO_CC_CERT_DELIVER', 'ordination-deliver-certificate', 'deliver the certificate'] : null;
+        if (step) add({
+          actionId: step[0], actionType: step[1],
+          displayText: DEMO_CAST.dallin + ' — ' + step[2] + ' (' + DEMO_WARD + ')',
+          assignedToNames: DEMO_ROLES.clerk.who,
+          notes: 'You are CC\'d so you can follow the certificate through — and complete a step yourself if you need to.'
+        });
+      }
+
+      // ── One finished item, so the acknowledge flow is visible too ──
+      if (s.porterAccepted && (R === 'clerk' || isPresidency || R === 'sec')) add({
+        actionId: 'DEMO_CC_DONE_PORTER', actionType: 'extend-calling', type: 'extend-calling',
+        status: 'Completed', completedBy: DEMO_CAST.hcYou.replace(' (you)', ''),
+        displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
+        assignedToNames: DEMO_CAST.hcYou.replace(' (you)', '')
+      });
+
+      return out.filter(i => !(s.ccAcked || {})[i.actionId]);
     }
 
     // Dispatcher — each role sees its own slice of the one shared scenario.
@@ -5372,7 +5496,7 @@
       // ── Stage 6: ordination pipeline for Dallin. The notification appears the
       // moment the demo user casts their sustaining vote — as though they were
       // the last of the presidency + high council to sustain. ──
-      if (s.approved.o1 && demoPre(demoItemApproved('o1')) && !s.ordSustainReported) {
+      if (s.approved.o1 && demoItemApproved('o1') && !s.ordSustainReported) {
         data.ordinationNotifications.push({
           actionId: 'DEMO_ORDNOTIF',
           displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained by the Stake Presidency and High Council to be ordained an Elder. He can be ordained AFTER he has been sustained in sacrament meeting. Please coordinate a time with them when you can be present for their ordination.',
@@ -5399,6 +5523,7 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
+      data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
 
@@ -5444,7 +5569,7 @@
 
       // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
       const assignedToMe = !isPresident;
-      if (assignedToMe && demoPre(s.assignedTo) && !s.sadieAccepted) {
+      if (assignedToMe && demoPre(s.assignedTo, 'sec') && !s.sadieAccepted) {
         data.extendItems.push({
           actionId: 'DEMO_EXT_SADIE', type: 'extend-calling', actionType: 'extend-calling',
           displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
@@ -5454,12 +5579,13 @@
       }
 
       // ── Stage 5: setting apart (the presidency sets apart stake callings) ──
-      if (demoPre(s.sus[3] === true) && !s.saSadie) data.settingAparts.push({
+      if (demoPre(s.sus[3] === true, 'hc') && !s.saSadie) data.settingAparts.push({
         actionId: 'DEMO_SA_SADIE', sourceRow: 0,
         callingMember: DEMO_CAST.sadie, callingWard: '24th Ward',
         displayText: DEMO_CAST.sadie + ' — set apart as Stake Relief Society Secretary (24th Ward)  ·  Assigned to: Stake Presidency + assigned HC'
       });
 
+      data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
 
@@ -5495,7 +5621,7 @@
       });
 
       // ── Monday review of anything not marked on Sunday ──
-      if (demoPre(s.sbConfirmed) && !demoAllSustained() && Object.keys(s.sus).length > 0) {
+      if (demoPre(s.sbConfirmed, 'hc') && !demoAllSustained() && Object.keys(s.sus).length > 0) {
         data.unconfirmedSustainings.push({
           actionId: 'DEMO_UNCONF',
           displayText: 'Unconfirmed sustainings/releasings — ' + demoSundayText(),
@@ -5504,7 +5630,7 @@
       }
 
       // ── Stage 6: records + certificate chain (this is the clerk's own queue) ──
-      if (demoPre(s.ordReported)) {
+      if (demoPre(s.ordReported, 'hc')) {
         if (!s.certLcr) data.ordinationCertificates.push({ actionId: 'DEMO_CERT_LCR', actionType: 'ordination-record-lcr',
           displayText: DEMO_CAST.dallin + ' — record Elder ordination on LCR (' + DEMO_WARD + ')',
           notes: 'You are the primary on every certificate step; the Stake Clerk is CC\'d, and so is the assigned high councilor.' });
@@ -5516,6 +5642,7 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
+      data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
 
@@ -5559,6 +5686,7 @@
         });
       }
 
+      data.ccItems = demoCcItems();
       return demoFinishCounts(data);
     }
 
@@ -5680,6 +5808,12 @@
         case 'assignOrdinationInterview':
           s.ordInterview = params.appointmentDateTime ? demoFormatDateTime(params.appointmentDateTime) : 'scheduled';
           showToast('Interview scheduled with ' + DEMO_SP[0] + '. After it passes, the rest of the presidency and high council sustain.', 'success');
+          break;
+
+        case 'acknowledge':
+        case 'ccComplete':
+          s.ccAcked = s.ccAcked || {};
+          s.ccAcked[id] = true;
           break;
 
         case 'getMemberStatus':
