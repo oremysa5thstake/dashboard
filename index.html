@@ -5957,6 +5957,9 @@
     // ── Demo Member Status ──────────────────────────────────────
     function demoBuildMemberStatus() {
       const s = demoState;
+      const today = demoTodayText();
+      const sunday = demoSundayText();
+      const hcName = DEMO_CAST.hcYou.replace(' (you)', '');
 
       function stp(label, done, o) {
         o = o || {};
@@ -5967,92 +5970,130 @@
           required: !!o.req, skippable: false, applicable: true, editable: false,
           type: 'boolean', isApprover: !!o.appr, isMultiPhase: false,
           lastPhase: o.ph || 1, body: o.body || '', col: o.col || 0,
-          doneDate: o.doneDate || undefined, assignee: o.assignee || undefined
+          // The real dashboard borrows a completion date from the action item that closed the
+          // step, and shows who a still-open step is waiting on. Mirror both.
+          doneDate: (done && o.date) ? o.date : undefined,
+          assignee: (!done && o.assignee) ? o.assignee : undefined
         };
       }
-      function spPhase() {
-        return { phase: 1, title: 'Stake Presidency', steps: DEMO_SP.map(n => stp(n, true, { appr: true, body: 'SP' })) };
+
+      // Phase 1 — the stake presidency. Two seats are played in the demo; the third moves
+      // with the phase so the roll-up stays honest without inventing a third participant.
+      // A seat someone is playing tracks that person's own vote; a seat nobody is playing
+      // resolves with the phase, so the three never disagree with each other.
+      function seatDone(role, map, key) {
+        const playing = demoSession.code ? demoRolePresent(role) : (DEMO_ROLE === role);
+        return playing ? !!map[key] : demoPhase1Done(key);
       }
-      function hcPhase(voted) {
-        const steps = DEMO_HC_NAMES.map(n => stp(n, true, { appr: true, body: 'HC' }));
-        steps.push(stp(DEMO_CAST.hcYou, !!voted, { appr: true, body: 'HC' }));
+      function spPhase(key) {
+        return { phase: 1, title: 'Stake Presidency', steps: [
+          stp(DEMO_SP[0], seatDone('sp', s.spVote, key),   { appr: true, body: 'SP', col: 20, date: today, assignee: DEMO_SP[0] }),
+          stp(DEMO_SP[1], seatDone('spc', s.spcVote, key), { appr: true, body: 'SP', col: 21, date: today, assignee: DEMO_SP[1] }),
+          stp(DEMO_SP[2], demoPhase1Done(key),             { appr: true, body: 'SP', col: 22, date: today, assignee: DEMO_SP[2] })
+        ]};
+      }
+
+      // Phase 2 — the high council, which isn't asked until phase 1 closes.
+      function hcPhase(key) {
+        const voted = !!s.approved[key];
+        const steps = DEMO_HC_NAMES.map(function (n) {
+          return stp(n, voted, { appr: true, body: 'HC', date: today, assignee: n });
+        });
+        steps.push(stp(DEMO_CAST.hcYou, voted, { appr: true, body: 'HC', date: today, assignee: hcName }));
         return { phase: 2, title: 'High Council', steps: steps };
       }
+
+      // A calling held for clerk review hasn't started polling at all.
+      function pollPhase(key) {
+        return { phase: 0, title: 'Ready to Poll', steps: [
+          stp('Clerk review complete', demoPolled(key),
+              { req: true, ph: 0, col: 17, date: today, assignee: DEMO_ROLES.clerk.who })
+        ]};
+      }
+
       function finish(phases) {
-        phases.forEach(ph => { ph.complete = ph.steps.every(x => x.done || x.skipped); });
+        phases.forEach(function (ph) { ph.complete = ph.steps.every(function (x) { return x.done || x.skipped; }); });
         let cur = null;
         for (const ph of phases) { if (!ph.complete) { cur = ph.phase; break; } }
-        phases.forEach(ph => { ph.current = ph.phase === cur; });
+        phases.forEach(function (ph) { ph.current = ph.phase === cur; });
         return { phases: phases, currentPhase: cur };
       }
-      const today = demoTodayText();
-      const sunday = demoSundayText();
 
-      // Porter — called, extended by the demo HC, sustained, set apart
+      // Porter — held for a temple-recommend review, then called, extended by the HC,
+      // sustained in his ward, set apart, plus the out-of-unit record.
       const porter = finish([
-        spPhase(), hcPhase(s.approved.c1),
+        pollPhase('c1'), spPhase('c1'), hcPhase('c1'),
         { phase: 3, title: 'Extend the Call', steps: [
-          stp('Extend Task Created', demoAllCallingsApproved() ? today : false, { ph: 3, col: 34 }),
-          stp('Accepted?', s.porterAccepted, { req: true, ph: 3, col: 35, assignee: 'Bro. Demoson' }),
-          stp('Release Extended?', s.marcusExtended, { ph: 3, col: 37, assignee: 'Bro. Demoson' })
+          stp('Accepted?', s.porterAccepted, { req: true, ph: 3, col: 35, date: today, assignee: hcName }),
+          stp('Appointment', s.appt || false, { ph: 3, col: 0, date: today, assignee: DEMO_ROLES.sec.who })
         ]},
         { phase: 4, title: 'Stake Business / Sustaining', steps: [
-          stp('Preferred Stake Business Date', s.porterAccepted ? sunday : false, { ph: 4, col: 38 }),
-          stp('Added to Stake Business', s.porterAccepted, { ph: 4, col: 39 }),
-          stp('Sustained', s.sus[1] === true, { req: true, ph: 4, col: 40 })
+          stp('Added to Stake Business', s.porterAccepted, { req: true, ph: 4, col: 39, date: today }),
+          stp('Conducting confirmed', s.sbConfirmed, { ph: 4, col: 0, date: today, assignee: hcName }),
+          stp('Sustained', s.sus[1] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
         ]},
         { phase: 5, title: 'Setting Apart', steps: [
-          stp('Set Apart', s.saPorter, { req: true, ph: 5, col: 43, assignee: 'Bro. Demoson' })
+          stp('Set Apart', s.saPorter, { req: true, ph: 5, col: 43, date: today, assignee: hcName }),
+          stp('Out-of-unit record sent', s.oouDone, { req: true, ph: 5, col: 0, date: today, assignee: hcName })
         ]}
       ]);
 
-      // Marcus — release-only
+      // Marcus — released from the calling Porter is taking.
       const marcus = finish([
-        { phase: 1, title: 'Stake Presidency', steps: [stp(DEMO_SP[0], true, { appr: true, body: 'SP' })] },
+        { phase: 1, title: 'Stake Presidency', steps: [stp(DEMO_SP[0], true, { appr: true, body: 'SP', date: today })] },
         { phase: 3, title: 'Extend the Release', steps: [
-          stp('Release Extended?', s.marcusExtended, { req: true, ph: 3, col: 37, assignee: 'Bro. Demoson' })
+          stp('Release Extended?', s.marcusExtended, { req: true, ph: 3, col: 37, date: today, assignee: hcName })
         ]},
         { phase: 4, title: 'Stake Business / Sustaining', steps: [
-          stp('Released in Stake Business', s.sus[2] === true, { req: true, ph: 4, col: 40 })
+          stp('Released in Stake Business', s.sus[2] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
         ]}
       ]);
 
-      // Sadie — stake calling (extended by SP, set apart involves you)
+      // Sadie — a stake calling: held for a comment review, then assigned by a secretary
+      // before a counselor extends it.
       const sadie = finish([
-        spPhase(), hcPhase(s.approved.c2),
+        pollPhase('c2'), spPhase('c2'), hcPhase('c2'),
         { phase: 3, title: 'Extend the Call', steps: [
-          stp('Accepted?', demoAllCallingsApproved(), { req: true, ph: 3, col: 35, assignee: DEMO_SP[0] })
+          stp('Assigned to extend', s.assignedTo || false, { req: true, ph: 3, col: 0, date: today, assignee: DEMO_ROLES.sec.who }),
+          stp('Appointment', s.assignedAppt || false, { ph: 3, col: 0, date: today, assignee: DEMO_ROLES.sec.who }),
+          stp('Accepted?', s.sadieAccepted, { req: true, ph: 3, col: 35, date: today, assignee: s.assignedTo || DEMO_SP[1] })
         ]},
         { phase: 4, title: 'Stake Business / Sustaining', steps: [
-          stp('Sustained', s.sus[3] === true, { req: true, ph: 4, col: 40 })
+          stp('Sustained (every ward)', s.sus[3] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
         ]},
         { phase: 5, title: 'Setting Apart', steps: [
-          stp('Set Apart', s.saSadie, { req: true, ph: 5, col: 43 })
+          stp('Set Apart', s.saSadie, { req: true, ph: 5, col: 43, date: today, assignee: DEMO_SP[0] })
+        ]},
+        { phase: 6, title: 'Records', steps: [
+          stp('Name tag ordered', s.nameTagOrdered, { ph: 6, col: 45, date: today, assignee: DEMO_ROLES.sec.who })
         ]}
       ]);
 
-      // Tanner — HC calling with HP sustaining
+      // Tanner — a high council calling that carries a High Priest ordination.
       const tanner = finish([
-        spPhase(), hcPhase(s.approved.c3),
+        spPhase('c3'), hcPhase('c3'),
         { phase: 4, title: 'Stake Business / Sustaining', steps: [
-          stp('Sustained (and to be ordained a High Priest)', s.sus[4] === true, { req: true, ph: 4, col: 40 })
+          stp('Sustained (and to be ordained a High Priest)', s.sus[4] === true,
+              { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
         ]}
       ]);
 
-      // Dallin — Elder ordination
+      // Dallin — an Elder ordination: interview first, then sustaining, then the certificate.
       const dallin = finish([
-        { phase: 1, title: 'Stake Presidency', steps: DEMO_SP.map(n => stp(n, true, { appr: true, body: 'SP' })) },
-        hcPhase(s.approved.o1),
+        { phase: 0, title: 'Interview', steps: [
+          stp('Interview scheduled', s.ordInterview || false, { req: true, ph: 0, col: 0, date: today, assignee: DEMO_ROLES.sec.who })
+        ]},
+        spPhase('o1'), hcPhase('o1'),
         { phase: 3, title: 'Ordination', steps: [
-          stp('Ordination Date Coordinated', s.ordDate || false, { ph: 3, col: 28 }),
-          stp('Sustained', s.ordSustainReported, { req: true, ph: 3, col: 30 }),
-          stp('Date Ordained', s.ordReported ? (s.ordDate || '✓') : false, { req: true, ph: 3, col: 31 })
+          stp('Ordination Date Coordinated', s.ordDate || false, { ph: 3, col: 28, date: today, assignee: hcName }),
+          stp('Sustained', s.ordSustainReported, { req: true, ph: 3, col: 30, date: sunday, assignee: hcName }),
+          stp('Date Ordained', s.ordReported ? (s.ordDate || '✓') : false, { req: true, ph: 3, col: 31, date: today, assignee: hcName })
         ]},
         { phase: 4, title: 'Certificate & Records', steps: [
-          stp('Ordinance Recorded on LCR', s.certLcr, { req: true, ph: 4, col: 38 }),
-          stp('Certificate Printed', s.certPrinted, { req: true, ph: 4, col: 39 }),
-          stp('Certificate Signed', s.certSigned, { req: true, ph: 4, col: 40 }),
-          stp('Certificate Delivered', s.certDelivered, { req: true, ph: 4, col: 41 })
+          stp('Ordinance Recorded on LCR', s.certLcr, { req: true, ph: 4, col: 38, date: today, assignee: DEMO_ROLES.clerk.who }),
+          stp('Certificate Printed', s.certPrinted, { req: true, ph: 4, col: 39, date: today, assignee: DEMO_ROLES.clerk.who }),
+          stp('Certificate Signed', s.certSigned, { req: true, ph: 4, col: 40, date: today, assignee: DEMO_ROLES.clerk.who }),
+          stp('Certificate Delivered', s.certDelivered, { req: true, ph: 4, col: 41, date: today, assignee: DEMO_ROLES.clerk.who })
         ]}
       ]);
 
@@ -6062,6 +6103,9 @@
         ordinations: ordEntry ? [ordEntry] : []
       });
       const submitted = demoTodayText();
+      const track = (t, extra) => Object.assign({
+        timestamp: 'demo-' + t, submittedDate: submitted, status: '', phaseStarted: submitted
+      }, extra);
 
       return {
         success: true, seeAll: true,
@@ -6069,15 +6113,20 @@
         wards: [DEMO_WARD, '24th Ward', '32nd Ward'],
         members: [
           mk(DEMO_CAST.dallin, DEMO_WARD, null,
-            { timestamp: 'demo-o1', submittedDate: submitted, office: 'Elder', interview: { scheduled: '(demo) completed' }, phaseStarted: '', phases: dallin.phases, currentPhase: dallin.currentPhase }),
+            track('o1', { office: 'Elder', interview: { scheduled: s.ordInterview || '(demo) completed' },
+                          phases: dallin.phases, currentPhase: dallin.currentPhase })),
           mk(DEMO_CAST.marcus, DEMO_WARD,
-            { timestamp: 'demo-marcus', submittedDate: submitted, calling: 'Elders Quorum Second Counselor', action: 'Released', status: '', phaseStarted: '', phases: marcus.phases, currentPhase: marcus.currentPhase }, null),
+            track('marcus', { calling: 'Elders Quorum Second Counselor', action: 'Released',
+                              phases: marcus.phases, currentPhase: marcus.currentPhase }), null),
           mk(DEMO_CAST.porter, DEMO_WARD,
-            { timestamp: 'demo-porter', submittedDate: submitted, calling: 'Elders Quorum Second Counselor', action: 'Called', status: '', phaseStarted: '', phases: porter.phases, currentPhase: porter.currentPhase }, null),
+            track('porter', { calling: 'Elders Quorum Second Counselor', action: 'Called',
+                              phases: porter.phases, currentPhase: porter.currentPhase }), null),
           mk(DEMO_CAST.sadie, '24th Ward',
-            { timestamp: 'demo-sadie', submittedDate: submitted, calling: 'Stake Relief Society Secretary', action: 'Called', status: '', phaseStarted: '', phases: sadie.phases, currentPhase: sadie.currentPhase }, null),
+            track('sadie', { calling: 'Stake Relief Society Secretary', action: 'Called',
+                             phases: sadie.phases, currentPhase: sadie.currentPhase }), null),
           mk(DEMO_CAST.tanner, '32nd Ward',
-            { timestamp: 'demo-tanner', submittedDate: submitted, calling: 'High Councilor', action: 'Called', status: '', phaseStarted: '', phases: tanner.phases, currentPhase: tanner.currentPhase }, null)
+            track('tanner', { calling: 'High Councilor', action: 'Called',
+                              phases: tanner.phases, currentPhase: tanner.currentPhase }), null)
         ]
       };
     }
