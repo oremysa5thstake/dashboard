@@ -4976,7 +4976,7 @@
       sadie:   'Sadie Larkspur',     // called Stake Relief Society Secretary (24th Ward)
       tanner:  'Tanner Holbrook',    // called High Councilor (32nd Ward) — needs HP sustaining
       dallin:  'Dallin Whitmer',     // ordination to Elder, 6-7th Ward
-      emmett:  'Emmett Rowe',        // called Bishopric Second Counselor — the PRESIDENT extends
+      emmett:  'Emmett Rowe',        // called Stake Institute Representative — the PRESIDENT extends
       desmond: 'Desmond Marchetti'   // released as Ward Clerk — release-only
     };
     const DEMO_SP = ['Pres. Smith', 'Pres. Plothow', 'Pres. Nielsen'];
@@ -5002,6 +5002,7 @@
         appt: '',
         porterAccepted: false, marcusExtended: false,
         sadieAccepted: false,                     // the stake calling the counselor extends
+        tannerAccepted: false,                    // the high council calling the counselor extends
         // The stake president's own pair: a calling he extends after a secretary books the
         // appointment, and a release-only that needs nobody but him.
         emmettAppt: '', emmettAccepted: false, saEmmett: false,
@@ -5280,8 +5281,13 @@
       return v.c1 && v.c2 && v.c3 && v.o1;
     }
     function demoAllSustained() {
-      return [1, 2, 3, 4, 5, 6].every(i => typeof demoState.sus[i] !== 'undefined');
+      return [1, 2, 3, 4, 5, 6, 7].every(i => typeof demoState.sus[i] !== 'undefined');
     }
+    /** The counselor's extends — skipped when nobody is playing that seat. */
+    function demoOtherExtendsDone() {
+      return demoState.tannerAccepted || demoOwnedElsewhere('spc');
+    }
+
     /** The stake president's own extends — skipped when nobody is playing him. */
     function demoSpExtendsDone() {
       const s = demoState;
@@ -5291,7 +5297,9 @@
       const s = demoState;
       return demoAllCallingsApproved() && demoItemApproved('o1') && s.porterAccepted && s.marcusExtended &&
         (s.emmettAccepted || demoOwnedElsewhere('sp')) && (s.desmondExtended || demoOwnedElsewhere('sp')) &&
+        (s.tannerAccepted || demoOwnedElsewhere('spc')) &&
         s.sbConfirmed && demoAllSustained() && s.saPorter && s.saSadie && s.oouDone &&
+        (s.saEmmett || demoOwnedElsewhere('sp')) &&
         s.ordSustainReported && s.ordReported && s.certLcr && s.certPrinted && s.certSigned && s.certDelivered;
     }
 
@@ -5442,7 +5450,7 @@
         { key: 'c1', idx: 1, type: 'calling', member: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', ward: DEMO_WARD },
         { key: 'c2', idx: 2, type: 'calling', member: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', ward: '24th Ward' },
         { key: 'c3', idx: 3, type: 'calling', member: DEMO_CAST.tanner, calling: 'High Councilor', ward: '32nd Ward' },
-        { key: 'c4', idx: 4, type: 'calling', member: DEMO_CAST.emmett, calling: 'Bishopric Second Counselor', ward: DEMO_WARD },
+        { key: 'c4', idx: 4, type: 'calling', member: DEMO_CAST.emmett, calling: 'Stake Institute Representative', ward: DEMO_WARD },
         { key: 'r1', idx: 5, type: 'release-only', member: DEMO_CAST.desmond, calling: 'Ward Clerk', ward: DEMO_WARD },
         { key: 'o1', idx: 1, type: 'ordination', member: DEMO_CAST.dallin, calling: 'Ordination to Elder', ward: DEMO_WARD }
       ];
@@ -5515,7 +5523,7 @@
       });
 
       // 4 · Sunday sustaining report — the conductor's
-      if (s.sbConfirmed && demoSpExtendsDone() && !demoAllSustained() && !mine('hc')) add({
+      if (s.sbConfirmed && demoSpExtendsDone() && demoOtherExtendsDone() && !demoAllSustained() && !mine('hc')) add({
         actionId: 'DEMO_SUSREP', actionType: 'sustaining-report',
         displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + demoSundayText() + ' (DEMO)',
         assignedToNames: hcName,
@@ -5525,8 +5533,9 @@
           { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
           { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '24th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
           { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] },
-          { i: 5, m: DEMO_CAST.emmett, c: 'Bishopric Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[5] },
-          { i: 6, m: DEMO_CAST.desmond, c: 'Ward Clerk', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[6] }
+          { i: 5, m: DEMO_CAST.emmett, c: 'Stake Institute Representative', w: DEMO_WARD, where: 'Stake', a: 'Sustain', s: s.sus[5] },
+          { i: 6, m: DEMO_CAST.desmond, c: 'Ward Clerk', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[6] },
+          { i: 7, m: DEMO_CAST.dallin, c: 'Ordination to Elder', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[7] }
         ]
       });
 
@@ -5542,11 +5551,18 @@
         assignedToNames: DEMO_SP[0] + ' + assigned HC', callingMember: DEMO_CAST.sadie, callingWard: '24th Ward'
       });
 
+      // 2a · The high council calling, extended by the counselor
+      if (demoItemApproved('c3') && !s.tannerAccepted && !mine('spc')) add({
+        actionId: 'DEMO_EXT_TANNER', actionType: 'extend-calling', type: 'extend-calling',
+        displayText: 'Extend calling to ' + DEMO_CAST.tanner + ' as High Councilor (32nd Ward)',
+        assignedToNames: DEMO_SP[1]
+      });
+
       // 2b · The president's own extends — everyone else is CC'd on them
       if (!mine('sp')) {
         if (demoItemApproved('c4') && !s.emmettAccepted) add({
           actionId: 'DEMO_EXT_EMMETT', actionType: 'extend-calling', type: 'extend-calling',
-          displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Bishopric Second Counselor (' + DEMO_WARD + ')',
+          displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Stake Institute Representative (' + DEMO_WARD + ')',
           assignedToNames: DEMO_SP[0], appointmentStatus: s.emmettAppt || 'Pending'
         });
         if (demoItemApproved('r1') && !s.desmondExtended) add({
@@ -5556,7 +5572,7 @@
         });
         if (s.sus[5] === true && !s.saEmmett) add({
           actionId: 'DEMO_SA_EMMETT', actionType: 'setting-apart', sourceRow: 0,
-          displayText: DEMO_CAST.emmett + ' — set apart as Bishopric Second Counselor (' + DEMO_WARD + ')',
+          displayText: DEMO_CAST.emmett + ' — set apart as Stake Institute Representative (' + DEMO_WARD + ')',
           assignedToNames: DEMO_SP[0], callingMember: DEMO_CAST.emmett, callingWard: DEMO_WARD
         });
       }
@@ -5631,7 +5647,7 @@
       if (!s.approved.c2 && demoPolled('c2') && demoPhase1Done('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!s.approved.c3 && demoPhase1Done('c3')) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
-      if (!s.approved.c4 && demoPhase1Done('c4')) data.approvals.push({ type: 'calling', rowIndex: 4, memberName: DEMO_CAST.emmett, calling: 'Bishopric Second Counselor', unit: DEMO_WARD });
+      if (!s.approved.c4 && demoPhase1Done('c4')) data.approvals.push({ type: 'calling', rowIndex: 4, memberName: DEMO_CAST.emmett, calling: 'Stake Institute Representative', unit: DEMO_WARD });
       if (!s.approved.o1 && demoOrdinationInterviewDone() && demoPhase1Done('o1')) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
       // ── Stage 2: extend tasks for the 6-7th Ward, assigned to the demo HC ──
@@ -5659,7 +5675,7 @@
       }
 
       // ── Stage 4: Sunday sustaining report ──
-      if (s.sbConfirmed && demoSpExtendsDone() && !demoAllSustained()) {
+      if (s.sbConfirmed && demoSpExtendsDone() && demoOtherExtendsDone() && !demoAllSustained()) {
         data.sustainingReports.push({
           actionId: 'DEMO_SUSREP',
           displayText: 'Sustainings/Releasings — ' + DEMO_WARD + ' — ' + sunday + ' (DEMO)',
@@ -5670,8 +5686,9 @@
             { i: 2, m: DEMO_CAST.marcus, c: 'Elders Quorum Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[2] },
             { i: 3, m: DEMO_CAST.sadie, c: 'Stake Relief Society Secretary', w: '24th Ward', where: 'Stake', a: 'Sustain', s: s.sus[3] },
             { i: 4, m: DEMO_CAST.tanner, c: 'High Councilor', w: '32nd Ward', where: 'Stake', a: 'Sustain & Ordain', s: s.sus[4] },
-            { i: 5, m: DEMO_CAST.emmett, c: 'Bishopric Second Counselor', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[5] },
-            { i: 6, m: DEMO_CAST.desmond, c: 'Ward Clerk', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[6] }
+            { i: 5, m: DEMO_CAST.emmett, c: 'Stake Institute Representative', w: DEMO_WARD, where: 'Stake', a: 'Sustain', s: s.sus[5] },
+            { i: 6, m: DEMO_CAST.desmond, c: 'Ward Clerk', w: DEMO_WARD, where: 'Ward', a: 'Release', s: s.sus[6] },
+            { i: 7, m: DEMO_CAST.dallin, c: 'Ordination to Elder', w: DEMO_WARD, where: 'Ward', a: 'Sustain', s: s.sus[7] }
           ]
         });
       }
@@ -5752,7 +5769,7 @@
       if (!mine.c2 && demoPolled('c2')) data.approvals.push({ type: 'calling', rowIndex: 2, memberName: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', unit: '24th Ward' });
       if (!mine.c3) data.approvals.push({ type: 'calling', rowIndex: 3, memberName: DEMO_CAST.tanner, calling: 'High Councilor', unit: '32nd Ward',
         hpNote: '⚠️ ' + DEMO_CAST.tanner + ' is not yet a High Priest. In conjunction with this calling he will also be sustained to be ordained a High Priest.' });
-      if (!mine.c4) data.approvals.push({ type: 'calling', rowIndex: 4, memberName: DEMO_CAST.emmett, calling: 'Bishopric Second Counselor', unit: DEMO_WARD });
+      if (!mine.c4) data.approvals.push({ type: 'calling', rowIndex: 4, memberName: DEMO_CAST.emmett, calling: 'Stake Institute Representative', unit: DEMO_WARD });
       // A release needs only the stake president — the counselor never sees it.
       if (isPresident && !s.spVote.r1) data.approvals.push({ type: 'release-only', rowIndex: 5, memberName: DEMO_CAST.desmond, calling: 'Ward Clerk', unit: DEMO_WARD });
       if (!mine.o1 && demoOrdinationInterviewDone()) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
@@ -5768,12 +5785,19 @@
         });
       }
 
+      // The counselor also extends the high council calling.
+      if (!isPresident && demoItemApproved('c3') && !s.tannerAccepted) data.extendItems.push({
+        actionId: 'DEMO_EXT_TANNER', type: 'extend-calling', actionType: 'extend-calling',
+        displayText: 'Extend calling to ' + DEMO_CAST.tanner + ' as High Councilor (32nd Ward)',
+        assignedToNames: DEMO_SP[1]
+      });
+
       // ── The president's own extends. Emmett's calling routes to him, so a secretary books
       //    the appointment first; the release needs nobody else at all. ──
       if (isPresident) {
         if (demoItemApproved('c4') && !s.emmettAccepted) data.extendItems.push({
           actionId: 'DEMO_EXT_EMMETT', type: 'extend-calling', actionType: 'extend-calling',
-          displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Bishopric Second Counselor (' + DEMO_WARD + ')',
+          displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Stake Institute Representative (' + DEMO_WARD + ')',
           appointmentStatus: s.emmettAppt || 'Pending', assignedToNames: DEMO_SP[0]
         });
         if (demoItemApproved('r1') && !s.desmondExtended) data.extendItems.push({
@@ -5787,7 +5811,7 @@
       if (isPresident && demoPre(s.sus[5] === true, 'hc') && !s.saEmmett) data.settingAparts.push({
         actionId: 'DEMO_SA_EMMETT', sourceRow: 0,
         callingMember: DEMO_CAST.emmett, callingWard: DEMO_WARD,
-        displayText: DEMO_CAST.emmett + ' — set apart as Bishopric Second Counselor (' + DEMO_WARD + ')  ·  Assigned to: ' + DEMO_SP[0]
+        displayText: DEMO_CAST.emmett + ' — set apart as Stake Institute Representative (' + DEMO_WARD + ')  ·  Assigned to: ' + DEMO_SP[0]
       });
       if (demoPre(s.sus[3] === true, 'hc') && !s.saSadie) data.settingAparts.push({
         actionId: 'DEMO_SA_SADIE', sourceRow: 0,
@@ -5887,7 +5911,7 @@
       if (demoItemApproved('c4') && !s.emmettAppt && !s.emmettAccepted) {
         data.appointmentItems.push({
           actionId: 'DEMO_APPT_EMMETT', actionType: 'appointment-scheduling',
-          displayText: 'Schedule appointment: ' + DEMO_CAST.emmett + ' with ' + DEMO_SP[0] + ' — Calling as Bishopric Second Counselor (' + DEMO_WARD + ')',
+          displayText: 'Schedule appointment: ' + DEMO_CAST.emmett + ' with ' + DEMO_SP[0] + ' — Calling as Stake Institute Representative (' + DEMO_WARD + ')',
           notes: 'For: ' + DEMO_SP[0]
         });
       }
@@ -5990,7 +6014,8 @@
         case 'accepted':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast(DEMO_CAST.porter.split(' ')[0] + ' accepted! He\'s now scheduled for stake business this Sunday.', 'success'); }
           if (id === 'DEMO_EXT_SADIE') { s.sadieAccepted = true; showToast(DEMO_CAST.sadie.split(' ')[0] + ' accepted! She goes on this Sunday\'s stake business.', 'success'); }
-          if (id === 'DEMO_EXT_EMMETT') { s.emmettAccepted = true; showToast(DEMO_CAST.emmett.split(' ')[0] + ' accepted — his ward sustains him, and the presidency sets him apart.', 'success'); }
+          if (id === 'DEMO_EXT_TANNER') { s.tannerAccepted = true; showToast(DEMO_CAST.tanner.split(' ')[0] + ' accepted — he is sustained AND ordained a High Priest in the same item.', 'success'); }
+          if (id === 'DEMO_EXT_EMMETT') { s.emmettAccepted = true; showToast(DEMO_CAST.emmett.split(' ')[0] + ' accepted — a stake calling, so every ward sustains him.', 'success'); }
           break;
         case 'declined':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast('In real life, declining ends the process and notifies the Stake Presidency. For the demo, let\'s pretend he said yes 😉', 'success'); }
@@ -6007,10 +6032,13 @@
         case 'sustainingReportMark': {
           const i = parseInt(params.sbRow, 10);
           if (i >= 1 && i <= 6) s.sus[i] = (params.sustained === 'true' || params.sustained === true);
+          // Sustaining the ordination in sacrament meeting is what lets him be ordained.
+          if (i === 7) { s.sus[7] = (params.sustained === 'true' || params.sustained === true); if (s.sus[7]) s.ordSustainReported = true; }
           break;
         }
         case 'sustainingReportAll':
-          [1, 2, 3, 4, 5, 6].forEach(i => { if (typeof s.sus[i] === 'undefined') s.sus[i] = true; });
+          [1, 2, 3, 4, 5, 6, 7].forEach(i => { if (typeof s.sus[i] === 'undefined') s.sus[i] = true; });
+          if (s.sus[7]) s.ordSustainReported = true;
           break;
         case 'setApart':
           if (id.indexOf('DEMO_SA_PORTER') === 0) s.saPorter = true;
@@ -6254,6 +6282,9 @@
       // Tanner — a high council calling that carries a High Priest ordination.
       const tanner = finish([
         spPhase('c3'), hcPhase('c3'),
+        { phase: 3, title: 'Extend the Call', steps: [
+          stp('Accepted?', s.tannerAccepted, { req: true, ph: 3, col: 35, date: today, assignee: DEMO_SP[1] })
+        ]},
         { phase: 4, title: 'Stake Business / Sustaining', steps: [
           stp('Sustained (and to be ordained a High Priest)', s.sus[4] === true,
               { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
@@ -6287,7 +6318,7 @@
           stp('Accepted?', s.emmettAccepted, { req: true, ph: 3, col: 35, date: today, assignee: DEMO_SP[0] })
         ]},
         { phase: 4, title: 'Stake Business / Sustaining', steps: [
-          stp('Sustained', s.sus[5] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
+          stp('Sustained (every ward)', s.sus[5] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
         ]},
         { phase: 5, title: 'Setting Apart', steps: [
           stp('Set Apart', s.saEmmett, { req: true, ph: 5, col: 43, date: today, assignee: DEMO_SP[0] })
@@ -6338,7 +6369,7 @@
             track('tanner', { calling: 'High Councilor', action: 'Called',
                               phases: tanner.phases, currentPhase: tanner.currentPhase }), null),
           mk(DEMO_CAST.emmett, DEMO_WARD,
-            track('emmett', { calling: 'Bishopric Second Counselor', action: 'Called',
+            track('emmett', { calling: 'Stake Institute Representative', action: 'Called',
                               phases: emmett.phases, currentPhase: emmett.currentPhase }), null),
           mk(DEMO_CAST.desmond, DEMO_WARD,
             track('desmond', { calling: 'Ward Clerk', action: 'Released',
