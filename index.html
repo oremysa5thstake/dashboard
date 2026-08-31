@@ -198,6 +198,16 @@
     .ms-step .btn-cc.danger{border-color:#c0392b;color:#c0392b}
     .ms-empty{color:#999;font-size:13px;padding:20px;text-align:center}
     .ms-ward-label{flex:1;min-width:140px;padding:9px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:14px;color:#333;display:flex;align-items:center}
+    /* Collapsible sub-groups inside the CC'd / Awaiting Acknowledgement sections */
+    .cc-group{border:1px solid #eee;border-radius:8px;margin-bottom:10px;overflow:hidden;background:#fff}
+    .cc-group-head{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#fafafa;cursor:pointer;user-select:none}
+    .cc-group-head:hover{background:#f2f2f5}
+    .cc-caret{font-size:11px;color:#888;width:10px;flex:none}
+    .cc-group-title{font-weight:600;font-size:14px;color:#333;flex:1;min-width:0}
+    .cc-group-count{font-size:12px;color:#666;background:#eceef4;border-radius:999px;padding:1px 8px;flex:none}
+    .cc-group-ack{flex:none;margin-left:4px}
+    .cc-group-body{padding:10px 12px 4px}
+    .cc-group-body .item:last-child{margin-bottom:6px}
     .assign-table{border-collapse:collapse;width:100%;min-width:720px;font-size:13px}
     .assign-table th{text-align:left;padding:8px 10px;border-bottom:2px solid #eee;color:#666;font-size:11px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
     .assign-table td{padding:8px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
@@ -2202,6 +2212,81 @@
       }
     }
 
+    // ── Grouping for the CC'd / Awaiting Acknowledgement lists ────────────────
+    // Both lists mix every kind of task together. Bucket them by what the task IS, so a long
+    // list can be scanned — and, for acknowledgements, cleared a section at a time.
+    const CC_GROUPS = [
+      { key: 'extend',   label: '📞 Callings &amp; Releases to Extend', types: ['extend-calling', 'extend-release'] },
+      { key: 'assign',   label: '🗂️ To Schedule / Assign',             types: ['extend-assign', 'setting-apart-assign'] },
+      { key: 'appt',     label: '📅 Appointments',                     types: ['appointment-scheduling'] },
+      { key: 'business', label: '⛪ Stake Business',                    types: ['stake-business-confirm', 'sustaining-report'] },
+      { key: 'setapart', label: '🤲 Settings Apart',                   types: ['setting-apart', 'oou-record'] },
+      { key: 'ord',      label: '🙏 Ordinations',                      types: ['coordinate-ordination', 'ordination-notification', 'ordination-report', 'ordination-interview', 'ordination-interview-schedule', 'ordination-record-lcr', 'ordination-print-certificate', 'ordination-sign-certificate', 'ordination-deliver-certificate'] },
+      { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
+      { key: 'tasks',    label: '📋 Tasks &amp; Mentions',              types: ['task', 'task-primary', 'mention'] },
+      { key: 'other',    label: '📎 Everything Else',                  types: [] }
+    ];
+
+    function ccGroupKeyFor(actionType) {
+      const t = String(actionType || '');
+      for (const g of CC_GROUPS) { if (g.types.indexOf(t) !== -1) return g.key; }
+      return 'other';
+    }
+
+    /** Split a list into CC_GROUPS order, dropping empty buckets. */
+    function ccGroupItems(items) {
+      const buckets = {};
+      items.forEach(function (it) {
+        const k = ccGroupKeyFor(it.actionType || it.type);
+        (buckets[k] = buckets[k] || []).push(it);
+      });
+      return CC_GROUPS.filter(g => buckets[g.key] && buckets[g.key].length)
+                      .map(g => ({ group: g, items: buckets[g.key] }));
+    }
+
+    // Open/closed state for the sub-groups, remembered across a silent refresh.
+    const _ccGroupState = {};
+
+    function toggleCcGroup(id) {
+      const box = document.getElementById('ccGroup_' + id);
+      const car = document.getElementById('ccCaret_' + id);
+      if (!box) return;
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      if (car) car.textContent = open ? '▸' : '▾';
+      _ccGroupState[id] = !open;
+    }
+
+    function ccSubGroup(id, title, count, bodyHtml, openByDefault, headerExtraHtml) {
+      const open = (_ccGroupState[id] !== undefined) ? _ccGroupState[id] : !!openByDefault;
+      return '<div class="cc-group">'
+        + '<div class="cc-group-head" onclick="toggleCcGroup(\'' + id + '\')">'
+        +   '<span class="cc-caret" id="ccCaret_' + id + '">' + (open ? '▾' : '▸') + '</span>'
+        +   '<span class="cc-group-title">' + title + '</span>'
+        +   '<span class="cc-group-count">' + count + '</span>'
+        +   (headerExtraHtml || '')
+        + '</div>'
+        + '<div class="cc-group-body" id="ccGroup_' + id + '" style="display:' + (open ? 'block' : 'none') + ';">' + bodyHtml + '</div>'
+        + '</div>';
+    }
+
+    /** Acknowledge every completed CC item in one group — one request, like Acknowledge All. */
+    async function acknowledgeCcGroup(ids, btn, ev) {
+      if (ev) ev.stopPropagation();
+      const list = String(ids || '').split(',').filter(Boolean);
+      if (!list.length) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        await performAction('ackCCGroup', { ids: list.join(',') });
+        showToast('Acknowledged ' + list.length + ' item' + (list.length === 1 ? '' : 's'), 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Acknowledge these'; }
+      } finally { setSyncing(false); }
+    }
+
     function renderCCSection(items, highCouncilors, stakePresidency) {
       const canReassign = userData.canReassign || false;
       highCouncilors = highCouncilors || [];
@@ -2218,7 +2303,12 @@
         html += '<div class="section cc-section"><div class="section-header expanded" onclick="toggleSection(\'ccOpen\')"><div class="section-title">📎 CC\'d Items</div><div class="section-meta">' + helpBtn('ccOpen') + '<span class="section-count">' + openItems.length + '</span><span class="chevron">▼</span></div></div>';
         html += '<div class="section-content expanded" id="section-ccOpen"><div class="section-inner">';
 
-        openItems.forEach(item => {
+        // Grouped by kind of task. Each group renders into `html` via the same code as before;
+        // we just bracket it with the collapsible wrapper.
+        ccGroupItems(openItems).forEach(bucket => {
+          const groupOpenHtml = [];
+          const pushHtml = (frag) => groupOpenHtml.push(frag);
+          bucket.items.forEach(item => {
           const isExtendCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
           const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
           const isExtend = isExtendCalling || isExtendRelease;
@@ -2228,7 +2318,7 @@
           // Sustaining-report CCs get the SAME per-item buttons + doc link + Mark All Remaining
           // as the primary view. Reassign button appears for SP/clerks/secretaries.
           if (isSustainingReport) {
-            html += renderSustainingReportItem(item, { isCC: true, canReassign: canReassign });
+            groupOpenHtml.push( renderSustainingReportItem(item, { isCC: true, canReassign: canReassign }));
             return;
           }
           const ccApptText = item.appointmentStatus || (isExtend ? 'Pending' : '');
@@ -2267,7 +2357,7 @@
                  <button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Neither Available</button>`
               : `<button class="btn btn-danger" onclick="handleSBNeedReplacement('${item.actionId}', this)">✗ Unavailable</button>`;
 
-            html += `<div class="item" id="item-${item.actionId}">
+            groupOpenHtml.push( `<div class="item" id="item-${item.actionId}">
               <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
               ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
               ${sbVisibleNotes ? `<div class="item-meta" style="font-style:italic;">${escapeHtmlDisplay(sbVisibleNotes)}</div>` : ''}
@@ -2287,11 +2377,11 @@
                   <button class="btn btn-success btn-sm" onclick="handleSBAlreadyConfirmed('${item.actionId}', this)">✓ Already Confirmed</button>
                 </div>
               </div>
-            </div>`;
+            </div>`);
             return;
           }
 
-          html += `<div class="item" id="item-${item.actionId}">
+          groupOpenHtml.push( `<div class="item" id="item-${item.actionId}">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
             ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + escapeHtmlDisplay(item.notes) + '</div>' : ''}
@@ -2309,13 +2399,17 @@
                 }
                 ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
                 ${canReassign && isExtend ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${item.actionId}', this)">🗂️ Send to Bin</button>` : ''}
+                ${canReassign && item.actionType === 'setting-apart' ? `<button class="btn btn-secondary btn-sm" onclick="sendSettingApartToBin('${item.actionId}', this)">🤲 Send to Bin</button>` : ''}
                 ${isExtend && item.appointmentStatus && item.appointmentStatus !== 'Pending' ?
                   `<button class="btn btn-secondary btn-sm" onclick="rescheduleAppointment('${item.actionId}', '${escapeHtml(item.displayText)}', '${escapeHtml(item.appointmentStatus || '')}')">📅 Reschedule</button>` : ''}
               </div>
               ${appointmentControls}
             </div>
             ${renderCallingControls(item)}
-          </div>`;
+          </div>`);
+          });
+          html += ccSubGroup('open-' + bucket.group.key, bucket.group.label, bucket.items.length,
+                             groupOpenHtml.join(''), true);
         });
 
         html += '</div></div></div>';
@@ -2333,16 +2427,22 @@
           html += '<div class="bulk-actions" style="margin-bottom:10px;"><button class="btn btn-primary" onclick="acknowledgeAllCC(this)">✓ Acknowledge All (' + completedItems.length + ')</button> <span style="font-size:12px;color:#888;">— faster than one at a time</span></div>';
         }
 
-        completedItems.forEach(item => {
-          html += `<div class="item" id="item-${item.actionId}">
+        // Grouped, and collapsed by default — these are usually just cleared, not read. Each
+        // group's header carries its own Acknowledge button so a section can go without
+        // being expanded.
+        ccGroupItems(completedItems).forEach(bucket => {
+          const rows = bucket.items.map(item => `<div class="item" id="item-${item.actionId}">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
-            ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + item.assignedToNames + '</div>' : ''}
-            <div class="item-meta" style="color:#28a745">✓ Completed by ${item.completedBy || 'Unknown'}</div>
+            ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
+            <div class="item-meta" style="color:#28a745">✓ Completed by ${escapeHtmlDisplay(item.completedBy || 'Unknown')}</div>
             <div class="item-actions">
               <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'acknowledge', this)">✓ Acknowledge</button>
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
             </div>
-          </div>`;
+          </div>`).join('');
+          const ids = bucket.items.map(i => i.actionId).join(',');
+          const ackBtn = `<button class="btn btn-primary btn-sm cc-group-ack" onclick="acknowledgeCcGroup('${ids}', this, event)">✓ Acknowledge these</button>`;
+          html += ccSubGroup('ack-' + bucket.group.key, bucket.group.label, bucket.items.length, rows, false, ackBtn);
         });
 
         html += '</div></div></div>';
