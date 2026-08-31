@@ -1452,6 +1452,10 @@
         }
 
         const actionId = item.actionId + '_SOURCEROW_' + (item.sourceRow || 0);
+        // A combined task also ordains him; PO:/POOffice: are internal markers, not for display.
+        const ordainNote = /\bOrdination:/.test(String(item.notes || ''))
+          ? `<div class="item-meta" style="color:#0F766E;font-weight:600;">🙏 ${escapeHtmlDisplay((String(item.notes).match(/Ordination:\s*(.+)/) || [])[1] || 'Also to be ordained at the same time.')}</div>`
+          : '';
         const oouNote = isOutOfUnitWard(ward)
           ? `<div class="item-meta" style="color:#856404;font-style:italic;">🏠 Out-of-Unit member — don't forget the separate record-form task for them.</div>`
           : '';
@@ -1459,9 +1463,11 @@
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
           ${assignedInfo}
+          ${ordainNote}
           ${oouNote}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">✓ Set Apart</button>
+            <button class="btn btn-success" onclick="handleAction('${actionId}', 'setApart', this)">${ordainNote ? '✓ Set Apart &amp; Ordained' : '✓ Set Apart'}</button>
+            ${userData.canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendSettingApartToBin('${item.actionId}', this)">🤲 Send to Bin</button>` : ''}
           </div>
           ${renderCallingControls(item)}
         </div>`;
@@ -1631,6 +1637,24 @@
       }
     }
 
+    // Push a setting apart back into the Schedule/Assign bin so it can go to someone else.
+    async function sendSettingApartToBin(itemId, btn) {
+      if (!confirm('Send this setting apart back to the Schedule/Assign bin?\n\nThe current assignment is cleared and a secretary picks someone else. Anything it also covers (an ordination) goes with it.')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      const sibs = btn ? Array.from(btn.parentElement.querySelectorAll('button')) : [];
+      sibs.forEach(b => b.disabled = true);
+      setSyncing(true);
+      try {
+        await performAction('sendSettingApartToBin', { itemId: itemId });
+        if (itemEl) itemEl.remove();
+        showToast('Moved to the Schedule/Assign bin', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        sibs.forEach(b => b.disabled = false);
+      } finally { setSyncing(false); }
+    }
+
     // Setting aparts flagged SPB on the Callings Chart (col T): nobody is pre-assigned, so a
     // secretary picks who sets the member apart — a member of the presidency or a high
     // councilor — and optionally sets a time.
@@ -1647,7 +1671,7 @@
         const assignedInfo = item.isCC
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
-        const visibleNotes = String(item.notes || '').split('\n').filter(l => !/^AssignHC:/i.test(l.trim())).join('\n').trim();
+        const visibleNotes = String(item.notes || '').split('\n').filter(l => !/^(AssignHC|PO|POOffice):/i.test(l.trim())).join('\n').trim();
         const notesInfo = visibleNotes ? `<div class="item-meta" style="white-space:pre-wrap;">${escapeHtmlDisplay(visibleNotes)}</div>` : '';
 
         html += `<div class="item">
