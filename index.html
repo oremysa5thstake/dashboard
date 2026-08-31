@@ -1084,6 +1084,9 @@
         html += renderOrdinationInterviewSchedulesSection(data.ordinationInterviewSchedules, data.stakePresidency || []);
       }
 
+      if (data.settingApartAssignItems && data.settingApartAssignItems.length > 0) {
+        html += renderSettingApartAssignSection(data.settingApartAssignItems, data.stakePresidency || [], data.highCouncilors || []);
+      }
       if (data.extendAssignItems && data.extendAssignItems.length > 0) {
         html += renderExtendAssignSection(data.extendAssignItems, data.stakePresidency || [], data.highCouncilors || []);
       }
@@ -1152,7 +1155,7 @@
           data.interviews?.length || data.ordinationInterviewSchedules?.length ||
           data.ordinationInterviews?.length || data.ordinationReports?.length ||
           data.ordinationCertificates?.length ||
-          data.nameTagsToOrder?.length ||
+          data.nameTagsToOrder?.length || data.settingApartAssignItems?.length ||
           data.pausedCanceledCallings?.length ||
           data.myTasks?.length || data.ccItems?.length ||
           data.stakeBusinessItems?.length;
@@ -1626,6 +1629,78 @@
       } finally {
         setSyncing(false);
       }
+    }
+
+    // Setting aparts flagged SPB on the Callings Chart (col T): nobody is pre-assigned, so a
+    // secretary picks who sets the member apart — a member of the presidency or a high
+    // councilor — and optionally sets a time.
+    function renderSettingApartAssignSection(items, stakePresidency, highCouncilors) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingApartAssign\')"><div class="section-title">🤲 Settings Apart to Schedule/Assign</div><div class="section-meta">' + helpBtn('settingApartAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-settingApartAssign"><div class="section-inner">';
+
+      const spOptions = (stakePresidency || []).map(sp =>
+        `<option value="${escapeHtml(sp.id)}">${escapeHtml(sp.name)}</option>`).join('');
+      const hcOptions = (highCouncilors || []).map(hc =>
+        `<option value="${escapeHtml(hc.id)}">${escapeHtml(hc.name)}</option>`).join('');
+
+      items.forEach(item => {
+        const assignedInfo = item.isCC
+          ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
+          : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
+        const notesInfo = item.notes ? `<div class="item-meta" style="white-space:pre-wrap;">${escapeHtmlDisplay(item.notes)}</div>` : '';
+
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${assignedInfo}
+          ${notesInfo}
+          <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <select id="saAssignWho_${item.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
+                <option value="">Who will set them apart?</option>
+                <optgroup label="Stake Presidency">${spOptions}</optgroup>
+                <optgroup label="High Council">${hcOptions}</optgroup>
+              </select>
+              <button class="btn btn-success" onclick="assignSettingApart('${item.actionId}', this, false)">Assign</button>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+              <input type="date" id="saAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="saAssignTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary" onclick="assignSettingApart('${item.actionId}', this, true)">Schedule &amp; Assign</button>
+            </div>
+          </div>
+          ${renderCallingControls(item)}
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    // withSchedule=false → assign with no time set; true → requires a date + time.
+    async function assignSettingApart(actionId, btn, withSchedule) {
+      const select = document.getElementById('saAssignWho_' + actionId);
+      const assigneeId = select ? select.value : '';
+      if (!assigneeId) { showToast('Please choose who will set them apart', 'error'); return; }
+      let appointmentDateTime = '';
+      if (withSchedule) {
+        const d = document.getElementById('saAssignDate_' + actionId);
+        const t = document.getElementById('saAssignTime_' + actionId);
+        const dv = d ? d.value : '', tv = t ? t.value : '';
+        if (!dv || !tv) { showToast('Pick a date and time, or use “Assign” to assign without one', 'error'); return; }
+        appointmentDateTime = dv + 'T' + tv;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('assignSettingApart', { itemId: actionId, assigneeId: assigneeId, appointmentDateTime: appointmentDateTime });
+        if (itemEl) itemEl.remove();
+        showToast(withSchedule ? 'Assigned & scheduled' : 'Assigned', 'success');
+        scheduleSilentRefresh();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
     }
 
     // SPB "Schedule & Assign" — secretaries/clerks pick which SP member extends the
@@ -2779,6 +2854,15 @@
         body: '<p>Ordination-related interviews that still need to be scheduled with a member of the stake presidency.</p>' +
           '<ul>' +
           '<li><b>📅 Schedule:</b> Pick the SP member and date/time for the interview.</li>' +
+          '</ul>'
+      },
+      settingApartAssign: {
+        title: 'Settings Apart to Schedule/Assign',
+        body: '<p>Callings whose Callings Chart set-apart column is flagged <b>SPB</b> — nobody is pre-assigned, so a secretary decides who sets the member apart.</p>' +
+          '<ul>' +
+          '<li><b>Assign:</b> Pick the person and assign them, without setting a time.</li>' +
+          '<li><b>Schedule &amp; Assign:</b> Pick the person and set the date/time; it shows on their task.</li>' +
+          '<li>Either the <b>Stake Presidency</b> or a <b>High Councilor</b> can be chosen.</li>' +
           '</ul>'
       },
       extendAssign: {
@@ -5432,6 +5516,7 @@
         approvals: [], ordinations: [], extendItems: [], stakeBusinessItems: [],
         sustainingReports: [], settingAparts: [], ordinationNotifications: [],
         ordinationReports: [], ordinationCertificates: [], extendAssignItems: [],
+        settingApartAssignItems: [],
         unconfirmedSustainings: [],
         dashboardMessage: message
       };
