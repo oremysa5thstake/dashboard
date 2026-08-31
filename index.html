@@ -1028,7 +1028,7 @@
         if (ccAckCount > 0) {
           html += `<div class="summary-card" onclick="scrollToSection('ccCompleted')">
             <div class="number">${ccAckCount}</div>
-            <div class="label">Awaiting Ack</div>
+            <div class="label">Awaiting Acknowledgement</div>
           </div>`;
         }
 
@@ -1602,7 +1602,7 @@
             </div>
             <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
               <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ordinationInterviewSchedulePassed', this)">Interview Passed</button>
-              <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewScheduleReturnToBishop', this)">Return to Bishop</button>
+              <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewScheduleReturnToBishop', this)">Did Not Pass</button>
             </div>
           </div>
         </div>`;
@@ -1669,7 +1669,7 @@
     // secretary picks who sets the member apart — a member of the presidency or a high
     // councilor — and optionally sets a time.
     function renderSettingApartAssignSection(items, stakePresidency, highCouncilors) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingApartAssign\')"><div class="section-title">🤲 Settings Apart to Schedule/Assign</div><div class="section-meta">' + helpBtn('settingApartAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingApartAssign\')"><div class="section-title">🤲 Setting Aparts to Schedule/Assign</div><div class="section-meta">' + helpBtn('settingApartAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-settingApartAssign"><div class="section-inner">';
 
       const spOptions = (stakePresidency || []).map(sp =>
@@ -1888,7 +1888,7 @@
           ${prefDateInfo}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ordinationInterviewPassed', this)">Interview Passed</button>
-            <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewReturnToBishop', this)">Return to Bishop</button>
+            <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewReturnToBishop', this)">Did Not Pass</button>
           </div>
         </div>`;
       });
@@ -2188,10 +2188,10 @@
           return `<button class="btn btn-primary" onclick="openOrdinationReportModal('${a}')">📝 Report Ordination</button>`;
         case 'ordination-interview':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'ordinationInterviewPassed', this)">Interview Passed</button>
-                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewReturnToBishop', this)">Return to Bishop</button>`;
+                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewReturnToBishop', this)">Did Not Pass</button>`;
         case 'ordination-interview-schedule':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'ordinationInterviewSchedulePassed', this)">Interview Passed</button>
-                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewScheduleReturnToBishop', this)">Return to Bishop</button>`;
+                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewScheduleReturnToBishop', this)">Did Not Pass</button>`;
         case 'clerk-review-ctr':
           return `<button class="btn btn-success" onclick="handleClerkReview('${a}', 'ctrReview', 'yes', this)">✓ Yes — Has CTR</button>
                   <button class="btn btn-danger" onclick="handleClerkReview('${a}', 'ctrReview', 'no', this)">✗ No — No CTR</button>`;
@@ -2220,7 +2220,7 @@
       { key: 'assign',   label: '🗂️ To Schedule / Assign',             types: ['extend-assign', 'setting-apart-assign'] },
       { key: 'appt',     label: '📅 Appointments',                     types: ['appointment-scheduling'] },
       { key: 'business', label: '⛪ Stake Business',                    types: ['stake-business-confirm', 'sustaining-report'] },
-      { key: 'setapart', label: '🤲 Settings Apart',                   types: ['setting-apart', 'oou-record'] },
+      { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record'] },
       { key: 'ord',      label: '🙏 Ordinations',                      types: ['coordinate-ordination', 'ordination-notification', 'ordination-report', 'ordination-interview', 'ordination-interview-schedule', 'ordination-record-lcr', 'ordination-print-certificate', 'ordination-sign-certificate', 'ordination-deliver-certificate'] },
       { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
       { key: 'tasks',    label: '📋 Tasks &amp; Mentions',              types: ['task', 'task-primary', 'mention'] },
@@ -2983,7 +2983,7 @@
           '</ul>'
       },
       settingApartAssign: {
-        title: 'Settings Apart to Schedule/Assign',
+        title: 'Setting Aparts to Schedule/Assign',
         body: '<p>Callings whose Callings Chart set-apart column is flagged <b>SPB</b> — nobody is pre-assigned, so a secretary decides who sets the member apart.</p>' +
           '<ul>' +
           '<li><b>Assign:</b> Pick the person and assign them, without setting a time.</li>' +
