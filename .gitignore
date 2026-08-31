@@ -14,3 +14,10 @@
 !maps/
 !maps/*
 !.gitignore
+
+# --- never commit credentials (both repos) ---
+.env
+.env.*
+*.env
+supabase/.env
+supabase/.secrets*
