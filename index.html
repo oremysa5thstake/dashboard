@@ -5059,14 +5059,26 @@
         showToast('Please fill in every field — the ward clerk needs all of it for the out-of-unit record', 'error');
         return;
       }
+      // closeOutOfUnitModal() clears currentOOUItemId, so keep a copy for the card cleanup.
+      const submittedId = currentOOUItemId;
       setSyncing(true);
       try {
         await performAction('submitOutOfUnitRecord', {
-          itemId: currentOOUItemId,
+          itemId: submittedId,
           memberName: name, dob: dob, phone: phone, email: email, address: address,
           ward: currentOOUWard
         });
         showToast('Out-of-unit record sent to the stake clerks', 'success');
+        // Clear the card straight away. The submit happens in a modal, so unlike every other
+        // action there was no button on the card to disable — it just sat there looking
+        // untouched until the next refresh, and a CC'd copy looked like it hadn't worked.
+        const oouCard = submittedId ? document.getElementById('item-' + submittedId) : null;
+        if (oouCard) {
+          oouCard.style.transition = 'opacity .2s';
+          oouCard.style.opacity = '0.35';
+          oouCard.style.pointerEvents = 'none';
+          setTimeout(function () { if (oouCard.parentElement) oouCard.remove(); }, 250);
+        }
         closeOutOfUnitModal();
         scheduleSilentRefresh(500);
       } catch (e) {
