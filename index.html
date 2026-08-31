@@ -1647,7 +1647,8 @@
         const assignedInfo = item.isCC
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
-        const notesInfo = item.notes ? `<div class="item-meta" style="white-space:pre-wrap;">${escapeHtmlDisplay(item.notes)}</div>` : '';
+        const visibleNotes = String(item.notes || '').split('\n').filter(l => !/^AssignHC:/i.test(l.trim())).join('\n').trim();
+        const notesInfo = visibleNotes ? `<div class="item-meta" style="white-space:pre-wrap;">${escapeHtmlDisplay(visibleNotes)}</div>` : '';
 
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
@@ -1657,8 +1658,9 @@
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <select id="saAssignWho_${item.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
                 <option value="">Who will set them apart?</option>
-                <optgroup label="Stake Presidency">${spOptions}</optgroup>
-                <optgroup label="High Council">${hcOptions}</optgroup>
+                ${item.allowHC
+                  ? `<optgroup label="Stake Presidency">${spOptions}</optgroup><optgroup label="High Council">${hcOptions}</optgroup>`
+                  : spOptions}
               </select>
               <button class="btn btn-success" onclick="assignSettingApart('${item.actionId}', this, false)">Assign</button>
             </div>
@@ -1722,11 +1724,11 @@
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
 
-        // Ward-level callings (CA col M = "Ward") offer high councilors in addition to SP.
-        const assigneeOptions = item.wardLevel
+        // A high councilor may be assigned only when the Callings Chart says SPB/HC.
+        const assigneeOptions = item.allowHC
           ? `<optgroup label="Stake Presidency">${spOptions}</optgroup><optgroup label="High Council">${hcOptions}</optgroup>`
           : spOptions;
-        const selectPrompt = item.wardLevel ? 'Select SP member or HC...' : 'Select SP member...';
+        const selectPrompt = item.allowHC ? 'Select SP member or HC...' : 'Select SP member...';
 
         // Collapsed "record response" drawer — for callings already extended without ever
         // assigning an extender here, so you don't have to assign someone just to mark it.
@@ -2862,7 +2864,7 @@
           '<ul>' +
           '<li><b>Assign:</b> Pick the person and assign them, without setting a time.</li>' +
           '<li><b>Schedule &amp; Assign:</b> Pick the person and set the date/time; it shows on their task.</li>' +
-          '<li>Either the <b>Stake Presidency</b> or a <b>High Councilor</b> can be chosen.</li>' +
+          '<li>Callings marked <b>SPB/HC</b> in the set-apart column offer the <b>High Council</b> as well as the presidency; plain <b>SPB</b> offers the presidency only.</li>' +
           '</ul>'
       },
       extendAssign: {
@@ -2871,7 +2873,7 @@
           '<ul>' +
           '<li><b>Assign:</b> Pick who will extend the call and assign them <i>without</i> scheduling an appointment.</li>' +
           '<li><b>Schedule &amp; Assign:</b> Pick who will extend the call, set the appointment date/time, and assign them with the appointment on the task.</li>' +
-          '<li><b>Ward-level callings</b> (sustained in the ward) can be assigned to a <b>high councilor</b> as well as the Stake Presidency.</li>' +
+          '<li>Callings marked <b>SPB/HC</b> on the Callings Chart can be assigned to a <b>high councilor</b> as well as the Stake Presidency; plain <b>SPB</b> offers the presidency only.</li>' +
           '<li><b>Record response from member:</b> Expand this if the calling was already extended without assigning an extender here. Recording Accepted / Declined completes this task and moves the calling forward exactly as if the assigned extender had reported it.</li>' +
           '</ul>'
       },
@@ -5998,7 +6000,7 @@
       // ── Stage 2: Schedule/Assign the approved stake calling ──
       if (demoPre(demoItemApproved('c2')) && !s.assignedTo) {
         data.extendAssignItems.push({
-          actionId: 'DEMO_ASSIGN_SADIE', actionType: 'extend-assign', scope: 'calling', wardLevel: false,
+          actionId: 'DEMO_ASSIGN_SADIE', actionType: 'extend-assign', scope: 'calling', allowHC: false,
           displayText: 'Schedule & assign — extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
           notes: 'Scope: calling'
         });
