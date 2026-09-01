@@ -2700,10 +2700,10 @@
     let _awayLoaded = false;
 
     // ── Sheet Views ──────────────────────────────────────────────────────────
-    // The grids live in their own page (sheets.html) and open in a real browser
-    // window rather than a modal — they are wide, and clerks work in them for a
-    // while. One named window is reused, so clicking again focuses the existing
-    // one instead of piling up copies.
+    // The grids live in their own page (sheets.html) and open in a new browser TAB
+    // rather than a modal — they are wide, and clerks work in them for a while.
+    // The tab is named, so clicking again focuses the existing one instead of
+    // piling up copies.
     //
     // Nothing about the grids is duplicated here: sheets.html is the only copy.
     function openSheetViews() {
@@ -2714,12 +2714,11 @@
         p.set('userId', userId || '');
         if (userData && userData.userName) p.set('name', String(userData.userName));
       }
-      const w = Math.min(screen.availWidth || 1600, 1900);
-      const h = Math.min(screen.availHeight || 1000, 1200);
-      const win = window.open('sheets.html?' + p.toString(), 'sheetviews',
-        `width=${w},height=${h},left=0,top=0,resizable=yes,scrollbars=yes`);
+      // No window features — passing any makes browsers open a popup window instead
+      // of a tab. A bare name gives a normal tab that is reused on repeat clicks.
+      const win = window.open('sheets.html?' + p.toString(), 'sheetviews');
       if (!win) {
-        showToast('Your browser blocked the window — allow pop-ups for this site.', 'error');
+        showToast('Your browser blocked the tab — allow pop-ups for this site.', 'error');
         return;
       }
       try { win.focus(); } catch (e) {}
@@ -2884,7 +2883,7 @@
       // Clerks and secretaries only; the presidency also sees Admin Tools but has no
       // reason to scan raw tables.
       if (userData && (userData.isClerk || userData.isExecSec)) {
-        tools += '<button class="btn btn-primary" onclick="openSheetViews()">📋 Sheet Views <span style="opacity:.75;">· opens in its own window</span></button>';
+        tools += '<button class="btn btn-primary" onclick="openSheetViews()">📋 Sheet Views <span style="opacity:.75;">· opens in a new tab</span></button>';
       }
       tools += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       tools += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';

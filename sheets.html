@@ -66,6 +66,29 @@
   }
   .banner.demo{background:#e8f5e9;border-bottom-color:#b9dfbc}
   .banner.err{background:#fdecea;border-bottom-color:#f5c2bd;color:#8a1c12}
+  /* Headers wrap onto two lines instead of truncating, so a label is always readable. */
+  .tabulator .tabulator-header .tabulator-col .tabulator-col-title{
+    white-space:normal;text-overflow:clip;overflow:visible;line-height:1.25;
+  }
+  .tabulator .tabulator-header{white-space:normal}
+  .tabulator .tabulator-col{vertical-align:bottom}
+  /* Approver columns are narrow; stand their names up to save width. */
+  .tabulator .tabulator-col.approver .tabulator-col-title{
+    font-size:11px;letter-spacing:-.01em;
+  }
+  /* Column show/hide panel */
+  .colpanel{
+    position:absolute;top:100%;right:0;z-index:50;background:#fff;border:1px solid #ccd1d6;
+    border-radius:7px;box-shadow:0 6px 22px rgba(0,0,0,.16);padding:8px;
+    max-height:min(60vh,460px);overflow:auto;min-width:230px;
+  }
+  .colpanel .row{display:flex;align-items:center;gap:7px;padding:3px 5px;font-size:13px;border-radius:4px}
+  .colpanel .row:hover{background:#f2f4f6}
+  .colpanel label{cursor:pointer;flex:1}
+  .colpanel .grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+    color:#8a929b;padding:8px 5px 3px}
+  .colpanel .acts{display:flex;gap:6px;padding:6px 4px 2px;border-top:1px solid #eee;margin-top:6px}
+  .colwrap{position:relative}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:#666;padding:6px 16px;flex:none;background:#fff;border-bottom:1px solid #e2e5e9}
   .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
   .toast{
@@ -99,6 +122,10 @@
 <div class="toolbar">
   <input type="text" id="search" placeholder="Search this table…" oninput="applyFilter()">
   <select id="statusFilter" onchange="applyFilter()" hidden></select>
+  <span class="colwrap">
+    <button onclick="toggleColPanel(event)" id="colBtn">⚙ Columns</button>
+    <div class="colpanel" id="colPanel" hidden></div>
+  </span>
   <button onclick="reload()" id="reloadBtn">↻ Refresh</button>
   <span class="meta" id="meta"></span>
 </div>
@@ -347,6 +374,56 @@ const tick = (title, field, width) =>
   ed({ title, field, width: width || 92, hozAlign: 'center', formatter: tickFormatter },
      'callings', 'sheet_ref', 'tickCross');
 
+// ── approver columns ──────────────────────────────────────────────────────
+// The sheet has one column per approver (T–AH). Storage keeps those as rows, so
+// the columns are rebuilt here from the current roster — the high council can
+// change without a schema migration.
+let APPROVERS = [];
+
+const voteMark = slackId => cell => {
+  const v = (cell.getRow().getData().votes || {})[slackId];
+  const el = cell.getElement();
+  if (el) {
+    el.style.background = v === 'approve' ? 'var(--cf-approved)'
+      : v === 'oppose' ? '#cc0000'
+      : v === 'hold' ? 'var(--cf-due-bg)'
+      : v === 'not_applicable' ? 'var(--cf-na-bg)' : '';
+    el.style.color = v === 'approve' || v === 'oppose' ? '#fff' : '';
+  }
+  return v === 'approve' ? '✓'
+    : v === 'oppose' ? '✗'
+    : v === 'hold' ? 'HOLD'
+    : v === 'not_applicable' ? '<span style="opacity:.5">—</span>'
+    : '<span style="opacity:.25">·</span>';
+};
+
+function approverColumns() {
+  return APPROVERS.map(a => ({
+    title: a.name.replace(/^(Pres|Bro|Sis)\.\s*/, ''),
+    field: 'vote_' + a.slack_id,
+    width: 74, hozAlign: 'center', headerSort: false,
+    cssClass: 'approver',
+    headerTooltip: a.name + ' — ' + a.title,
+    formatter: voteMark(a.slack_id),
+  }));
+}
+
+async function loadApprovers() {
+  if (DEMO) {
+    APPROVERS = [
+      { slack_id: 'D_SP', name: 'Pres. Smith', title: 'Stake President' },
+      { slack_id: 'D_1C', name: 'Pres. Plothow', title: 'Stake Presidency First Counselor' },
+      { slack_id: 'D_2C', name: 'Pres. Nielsen', title: 'Stake Presidency Second Counselor' },
+      ...['Ainsworth','Bellview','Corbridge','Duffin','Eastman','Fenwick',
+          'Garner','Highsmith','Ivory','Justesen','Kimballton','Lockhart']
+        .map((n, i) => ({ slack_id: 'D_HC' + i, name: 'Bro. ' + n, title: 'High Councilor ' + (i + 1) })),
+    ];
+    return;
+  }
+  try { APPROVERS = await sbSelect('v_clerk_approvers', 'select=*'); }
+  catch (e) { APPROVERS = []; }
+}
+
 // ── the four tables ───────────────────────────────────────────────────────
 const TABS = {
   callings: {
@@ -388,6 +465,7 @@ const TABS = {
       ed({ title: 'Priority', field: 'urgency', width: 96, headerFilter: 'list',
            headerFilterParams: { valuesLookup: true, clearable: true } },
          'callings', 'sheet_ref', 'list', { values: ['normal', 'urgent'] }),
+      '@APPROVERS@',
       { title: 'Status', field: 'status', width: 106,
         formatter: c => {
           const v = c.getValue() || '';
@@ -427,6 +505,15 @@ const TABS = {
       tick('Chart', 'chart_updated', 76),
       tick('Declined', 'declined', 92),
       { title: 'Task Center', field: 'task_center', minWidth: 195 },
+      { title: 'Extend Slack Permalink', field: 'extend_permalink', minWidth: 200,
+        formatter: c => {
+          const v = c.getValue() || '';
+          return /^https?:/.test(v)
+            ? `<a href="${esc(v)}" target="_blank" rel="noopener">open in Slack</a>` : esc(v);
+        } },
+      { title: 'Timestamp', field: 'sheet_ref', width: 165, formatter: c => {
+          const v = c.getValue(); return v ? new Date(v).toLocaleString() : ''; } },
+      { title: 'Block ID', field: 'block_id', width: 165 },
     ],
   },
 
@@ -582,7 +669,8 @@ function demoRows(which) {
       about_member:'Sadie Larkspur', about_calling:'Stake Relief Society Secretary',
       ward:'24th Ward', meeting_date:null, due_date:null, completed_at:'2026-08-24' },
   ];
-  const r = o => Object.assign({ sheet_ref:null, member:'', calling:'', ward:W, action:'Called',
+  const r = o => Object.assign({ sheet_ref:new Date().toISOString(), block_id:'demo-block',
+    extend_permalink:null, votes:{}, member:'', calling:'', ward:W, action:'Called',
     ctr:null, priesthood_gender:null, releases:null, release_gender:null, release_ward:null,
     sustaining_body:'Ward', submitter:'Pres. Smith', on_behalf_of:null, comments:null,
     interview_status:null, poll_ready:true, urgency:'normal', status:'submitted',
@@ -593,7 +681,9 @@ function demoRows(which) {
     chart_updated:false, declined:false, task_center:null }, o);
   const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
   return [
-    r({ member:'Porter Gladwell', calling:'Elders Quorum President', releases:'Marcus Fielding',
+    r({ votes: Object.fromEntries(['D_SP','D_1C','D_2C',...Array.from({length:12},(_,i)=>'D_HC'+i)]
+          .map(k => [k, 'approve'])),
+        member:'Porter Gladwell', calling:'Elders Quorum President', releases:'Marcus Fielding',
         release_ward:W, release_gender:'Male', priesthood_gender:'Elder', ctr:'Yes',
         status:'complete', approved_count:15, stake_business_date:'2026-08-16',
         accepted:true, counselors_approved:true, release_extended:true,
@@ -607,10 +697,14 @@ function demoRows(which) {
         sustaining_body:'Stake', priesthood_gender:'High Priest', status:'approved',
         approved_count:14, awaiting:1, stake_business_date:'2026-08-30', accepted:true,
         task_center:'Phase 2 (HC)' }),
-    r({ member:'Emmett Rowe', calling:'Stake Institute Representative', sustaining_body:'Stake',
+    r({ votes: { D_SP:'approve', D_1C:'approve', D_2C:'hold' },
+        member:'Emmett Rowe', calling:'Stake Institute Representative', sustaining_body:'Stake',
         priesthood_gender:'Elder', status:'polling', approved_count:3, awaiting:12, held:true,
         interview_status:'Needed', comments:'Waiting on the bishop.', task_center:'Phase 1 (SP)' }),
-    r({ member:'Desmond Marchetti', calling:'Ward Clerk', action:'Released', status:'complete',
+    r({ votes: Object.assign({ D_SP:'approve' },
+          Object.fromEntries(['D_1C','D_2C',...Array.from({length:12},(_,i)=>'D_HC'+i)]
+            .map(k => [k, 'not_applicable']))),
+        member:'Desmond Marchetti', calling:'Ward Clerk', action:'Released', status:'complete',
         approved_count:15, stake_business_date:'2026-08-09', release_extended:true,
         added_to_stake_business:true, sustained:true, updated_in_lcr:true,
         task_center:'Released - 8/9/2026' }),
@@ -624,6 +718,91 @@ function demoRows(which) {
     r({ member:'Bethany Cordell', calling:'Ward Organist', status:'paused',
         approved_count:6, awaiting:9, task_center:'Paused — awaiting bishop' }),
   ];
+}
+
+// ── column visibility ─────────────────────────────────────────────────────
+// Which columns are hidden is remembered per table, in this browser. Widths are
+// remembered too, so a clerk who narrows a column keeps it narrow.
+const LS_HIDDEN = 'sheetviews_hidden_v1';
+const LS_WIDTHS = 'sheetviews_widths_v1';
+
+function readLS(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) { return {}; }
+}
+function writeLS(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+}
+const hiddenFor = t => (readLS(LS_HIDDEN)[t] || []);
+function setHidden(t, list) {
+  const all = readLS(LS_HIDDEN); all[t] = list; writeLS(LS_HIDDEN, all);
+}
+
+function rememberWidth(field, w) {
+  const all = readLS(LS_WIDTHS);
+  (all[tab] = all[tab] || {})[field] = w;
+  writeLS(LS_WIDTHS, all);
+}
+
+function toggleColPanel(ev) {
+  if (ev) ev.stopPropagation();
+  const panel = document.getElementById('colPanel');
+  if (!panel.hidden) { panel.hidden = true; return; }
+  renderColPanel();
+  panel.hidden = false;
+}
+document.addEventListener('click', e => {
+  const panel = document.getElementById('colPanel');
+  if (!panel || panel.hidden) return;
+  if (!panel.contains(e.target) && e.target.id !== 'colBtn') panel.hidden = true;
+});
+
+function renderColPanel() {
+  const panel = document.getElementById('colPanel');
+  if (!grid) { panel.innerHTML = '<div class="row">Nothing loaded yet</div>'; return; }
+  const hidden = new Set(hiddenFor(tab));
+  const cols = TABS[tab].cols;
+  const isApprover = f => String(f || '').startsWith('vote_');
+  const groups = [
+    ['Columns', cols.filter(c => c.field && !isApprover(c.field))],
+    ['Approvers', cols.filter(c => isApprover(c.field))],
+  ].filter(g => g[1].length);
+
+  panel.innerHTML = groups.map(([label, list]) =>
+    `<div class="grp">${label}</div>` + list.map(c => {
+      const on = !hidden.has(c.field);
+      return `<div class="row">
+        <input type="checkbox" id="cb_${esc(c.field)}" ${on ? 'checked' : ''}
+               onchange="setColVisible('${esc(c.field)}', this.checked)">
+        <label for="cb_${esc(c.field)}">${esc(String(c.title))}</label>
+      </div>`;
+    }).join('')).join('')
+    + `<div class="acts">
+         <button onclick="showAllCols()">Show all</button>
+         <button onclick="hideApprovers()">Hide approvers</button>
+       </div>`;
+}
+
+function setColVisible(field, visible) {
+  const hidden = new Set(hiddenFor(tab));
+  if (visible) hidden.delete(field); else hidden.add(field);
+  setHidden(tab, [...hidden]);
+  if (!grid) return;
+  try { visible ? grid.showColumn(field) : grid.hideColumn(field); } catch (e) {}
+}
+
+function showAllCols() {
+  setHidden(tab, []);
+  if (grid) TABS[tab].cols.forEach(c => { try { grid.showColumn(c.field); } catch (e) {} });
+  renderColPanel();
+}
+
+function hideApprovers() {
+  const list = TABS[tab].cols.map(c => c.field).filter(f => String(f || '').startsWith('vote_'));
+  const hidden = new Set(hiddenFor(tab));
+  list.forEach(f => hidden.add(f));
+  setHidden(tab, [...hidden]);
+  if (grid) list.forEach(f => { try { grid.hideColumn(f); } catch (e) {} });
+  renderColPanel();
 }
 
 // ── shell ─────────────────────────────────────────────────────────────────
@@ -673,7 +852,14 @@ function applyFilter() {
 }
 
 async function load() {
+  if (tab === 'callings' && !APPROVERS.length) await loadApprovers();
   const spec = TABS[tab];
+  // The approver columns depend on the roster, which is fetched — splice them in
+  // at the placeholder now that it is known.
+  if (spec.cols.includes('@APPROVERS@')) {
+    const i = spec.cols.indexOf('@APPROVERS@');
+    spec.cols.splice(i, 1, ...approverColumns());
+  }
   const box = document.getElementById('grid');
   const t0 = Date.now();
   if (grid) { try { grid.destroy(); } catch (e) {} grid = null; }
@@ -691,13 +877,27 @@ async function load() {
     const rows = DEMO ? demoRows(tab) : await sbSelect(spec.view, 'select=*&order=' + spec.order);
     const ms = Date.now() - t0;
     box.innerHTML = '';
+    const hidden = new Set(hiddenFor(tab));
+    const savedWidths = (readLS(LS_WIDTHS)[tab]) || {};
+    const cols = spec.cols.map(c => Object.assign({}, c, {
+      visible: !hidden.has(c.field),
+      width: savedWidths[c.field] || c.width,
+      // Every header gets its full text on hover, so a narrowed column is still readable.
+      headerTooltip: c.headerTooltip || String(c.title),
+    }));
     grid = new Tabulator(box, {
       data: rows, layout: 'fitDataStretch', height: '100%',
-      placeholder: 'Nothing here', columns: spec.cols,
+      placeholder: 'Nothing here', columns: cols,
       rowFormatter: spec.rowFormatter || undefined,
+      movableColumns: true,
+      columnDefaults: { resizable: true, headerWordWrap: true },
+    });
+    grid.on('columnResized', col => {
+      try { rememberWidth(col.getField(), col.getWidth()); } catch (e) {}
     });
     counts[tab] = rows.length;
     renderTabs();
+    if (!document.getElementById('colPanel').hidden) renderColPanel();
     document.getElementById('meta').textContent = DEMO
       ? rows.length + ' sample rows'
       : rows.length + ' rows · ' + ms + 'ms';
