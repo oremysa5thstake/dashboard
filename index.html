@@ -102,6 +102,16 @@
     .modal-overlay.show{opacity:1;visibility:visible}
     .modal{background:#fff;border-radius:12px;width:90%;max-width:500px;max-height:90vh;overflow:auto;transform:scale(.9);transition:transform .3s}
     .modal-overlay.show .modal{transform:scale(1)}
+    .sheet-modal{max-width:min(1400px,96vw);width:96vw;height:92vh;display:flex;flex-direction:column;overflow:hidden}
+    .sheet-tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid #eee;overflow-x:auto;flex:none}
+    .sheet-tab{padding:9px 14px;font-size:13px;font-weight:600;color:#666;background:none;border:none;
+      border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+    .sheet-tab:hover{color:#333}
+    .sheet-tab.active{color:#1a6159;border-bottom-color:#1a6159}
+    .sheet-tab .n{font-weight:400;opacity:.6;margin-left:5px;font-variant-numeric:tabular-nums}
+    .sheet-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid #f0f0f0;flex:none}
+    .sheet-gridwrap{flex:1;min-height:0;padding:0 14px 14px;overflow:hidden}
+    .sheet-gridwrap #sheetGrid{height:100%}
     .modal-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
     .modal-title{font-size:18px;font-weight:600}
     .modal-close{background:none;border:none;font-size:24px;color:#999;cursor:pointer;padding:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center}
@@ -404,6 +414,24 @@
   </div>
 
   <!-- PERF (temporary): performance log viewer -->
+  <!-- Sheet views: the tables clerks and secretaries open the spreadsheet to scan. -->
+  <div class="modal-overlay" id="sheetModal">
+    <div class="modal sheet-modal">
+      <div class="modal-header">
+        <span class="modal-title">📋 Sheet Views</span>
+        <button class="modal-close" onclick="closeSheetModal()">×</button>
+      </div>
+      <div class="sheet-tabs" id="sheetTabs"></div>
+      <div class="sheet-toolbar">
+        <input type="text" id="sheetSearch" class="form-input" placeholder="Search this table…"
+               style="flex:1 1 220px;min-width:150px;font-size:13px;" oninput="sheetViewFilter()">
+        <span class="item-meta" id="sheetViewFoot" style="margin-left:auto;"></span>
+        <button class="btn btn-sm btn-secondary" id="sheetReloadBtn" onclick="sheetViewReload()">↻ Refresh</button>
+      </div>
+      <div class="sheet-gridwrap"><div id="sheetGrid"><div class="item-meta">Loading…</div></div></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="perfModal">
     <div class="modal" style="max-width:640px;">
       <div class="modal-header">
@@ -1162,11 +1190,6 @@
       // Out-of-town dates — anyone who can be asked to conduct stake business.
       // The demo has its own in-browser copy so the section can be shown there too.
       html += renderAwaySection();
-
-      // Sheet views — the people who currently open the spreadsheet to cross-check.
-      if (data.isClerk || data.isExecSec) {
-        html += renderSheetViewSection();
-      }
 
       // Recent Actions (Undo) — everyone gets it, above Admin Tools. In demo mode it
       // replays the scenario's own action log, so undo is demonstrable without a backend.
@@ -2704,48 +2727,153 @@
     // availability check then skips them and asks the ward's backup instead.
     let _awayLoaded = false;
 
-    // ── Sheet view: Callings ─────────────────────────────────────────────────
+    // ── Sheet Views ──────────────────────────────────────────────────────────
     // Clerks and secretaries open the Google Sheet to scan and cross-check rows.
-    // This is that view, read live from Supabase (~100ms) instead of through Apps
-    // Script (~5s). Read-only for now — edits still belong in the sheet until the
-    // write path is dual-writing.
-    let _sheetViewLoaded = false;
+    // These are those tables, read live from Supabase (~200-400ms) rather than
+    // through Apps Script (~5s). Read-only until the write path dual-writes.
+    //
+    // Each reads ONE view. The publishable key cannot reach a table, so member
+    // contact details and the varsity roster stay unreachable from the browser.
     let _sheetGrid = null;
+    let _sheetTab = 'callings';
+    const _sheetCounts = {};
 
-    function renderSheetViewSection() {
-      let html = '<div class="section"><div class="section-header" onclick="toggleSheetView()">'
-        + '<div class="section-title">\u{1F4CB} Callings \u2014 Sheet View</div>'
-        + '<div class="section-meta"><span class="section-count" id="sheetViewCount"></span>'
-        + '<span class="chevron">\u25BC</span></div></div>';
-      html += '<div class="section-content" id="section-sheetview"><div class="section-inner">'
-        + '<div class="item-meta" style="margin-bottom:10px;">'
-        + (typeof DEMO_MODE !== 'undefined' && DEMO_MODE
-        ? 'A sample of the callings view. In the real dashboard this lists every calling and release in the stake. '
-        : 'Every calling and release, live from the new database. Sort or filter any column. ')
-        + '<strong>Read-only</strong> \u2014 make changes in the dashboard or the sheet as usual.'
-        + '</div>'
-        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">'
-        + '<input type="text" id="sheetSearch" class="form-input" placeholder="Search any column\u2026" '
-        +   'style="flex:1 1 200px;min-width:150px;font-size:13px;" oninput="sheetViewFilter()">'
-        + '<select id="sheetStatus" class="form-input" style="width:auto;font-size:13px;" onchange="sheetViewFilter()">'
-        +   '<option value="">All statuses</option><option value="submitted">Submitted</option>'
-        +   '<option value="complete">Complete</option><option value="paused">Paused</option>'
-        +   '<option value="canceled">Canceled</option><option value="declined">Declined</option></select>'
-        + '<button class="btn btn-sm" onclick="sheetViewReload()" id="sheetReloadBtn">\u21BB Refresh</button>'
-        + '</div>'
-        + '<div id="sheetGrid"><div class="item-meta">Loading\u2026</div></div>'
-        + '<div class="item-meta" id="sheetViewFoot" style="margin-top:8px;"></div>'
-        + '</div></div></div>';
-      return html;
+    const _d = c => { const v = c.getValue(); return v ? String(v).slice(0, 10) : ''; };
+    const _tick = c => c.getValue()
+      ? '<span style="color:#1a6159;font-weight:700;">✓</span>' : '<span style="opacity:.25">·</span>';
+    const _yn = c => c.getValue() ? 'Yes' : '';
+
+    const SHEET_TABS = {
+      callings: {
+        label: '📋 Callings', view: 'v_clerk_callings', order: 'created_at.desc',
+        cols: [
+          { title: 'Member', field: 'member', minWidth: 150, headerFilter: 'input', frozen: true },
+          { title: 'Calling', field: 'calling', minWidth: 200, headerFilter: 'input' },
+          { title: 'Ward', field: 'ward', width: 110, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Action', field: 'action', width: 95, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Releases', field: 'releases', minWidth: 140 },
+          { title: 'Status', field: 'status', width: 110, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true },
+            formatter: c => {
+              const v = c.getValue() || '';
+              const tone = v === 'complete' ? '#2e7d32'
+                : (v === 'paused' || v === 'canceled') ? '#b26500'
+                : v === 'declined' ? '#c62828' : '#555';
+              return '<span style="color:' + tone + ';font-weight:600;">' + v + '</span>';
+            } },
+          { title: 'Appr', field: 'approved', width: 70, hozAlign: 'right' },
+          { title: 'Await', field: 'awaiting', width: 70, hozAlign: 'right',
+            formatter: c => c.getValue() > 0
+              ? '<span style="color:#b26500;font-weight:600;">' + c.getValue() + '</span>' : '' },
+          { title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
+            formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>' : '' },
+          { title: 'Stake Bus.', field: 'stake_business_date', width: 108, formatter: _d },
+          { title: 'Accepted', field: 'accepted_at', width: 100, formatter: _d },
+          { title: 'Sustained', field: 'sustained_at', width: 100, formatter: _d },
+          { title: 'Set Apart', field: 'set_apart_at', width: 100, formatter: _d },
+        ],
+      },
+      business: {
+        label: '📅 Stake Business', view: 'v_clerk_stake_business', order: 'meeting_date.desc',
+        cols: [
+          { title: 'Date', field: 'meeting_date', width: 110, formatter: _d, frozen: true },
+          { title: 'Member', field: 'member', minWidth: 150, headerFilter: 'input' },
+          { title: 'Calling', field: 'calling', minWidth: 190, headerFilter: 'input' },
+          { title: 'Ward', field: 'ward', width: 110, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Action', field: 'action', width: 100 },
+          { title: 'Where', field: 'where_', width: 80, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Released', field: 'released', minWidth: 130 },
+          { title: '16th', field: 'w16', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '19th', field: 'w19', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '24th', field: 'w24', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '25th', field: 'w25', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '27th', field: 'w27', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '32nd', field: 'w32', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '33rd', field: 'w33', width: 58, hozAlign: 'center', formatter: _tick },
+          { title: '49th', field: 'w49', width: 58, hozAlign: 'center', formatter: _tick },
+        ],
+      },
+      chart: {
+        label: '⚙️ Callings Chart', view: 'v_clerk_callings_chart', order: 'calling.asc',
+        cols: [
+          { title: 'Calling', field: 'calling', minWidth: 230, headerFilter: 'input', frozen: true },
+          { title: 'Who sustains', field: 'sustaining_body', width: 120, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Conducts', field: 'conducts_sustaining', width: 140 },
+          { title: 'Extend (col Q)', field: 'extend_routing', width: 120, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true },
+            formatter: c => c.getValue()
+              ? c.getValue() : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
+          { title: 'Set apart (col T)', field: 'set_apart_routing', width: 135, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true },
+            formatter: c => c.getValue()
+              ? c.getValue() : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
+          { title: 'High Priest', field: 'requires_high_priest', width: 95, hozAlign: 'center', formatter: _yn },
+          { title: 'Temple rec.', field: 'requires_temple_recommend', width: 100, hozAlign: 'center', formatter: _yn },
+          { title: 'Submitted by', field: 'can_be_submitted_by', minWidth: 180 },
+          { title: 'Used', field: 'times_used', width: 70, hozAlign: 'right' },
+        ],
+      },
+      tasks: {
+        label: '✅ Action Items', view: 'v_clerk_action_items', order: 'created_at.desc',
+        cols: [
+          { title: 'Assignee', field: 'assignee', minWidth: 150, headerFilter: 'input', frozen: true },
+          { title: 'Type', field: 'action_type', minWidth: 175, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Status', field: 'status', width: 120, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true },
+            formatter: c => {
+              const v = c.getValue() || '';
+              const tone = v === 'Open' ? '#b26500' : v === 'Completed' ? '#2e7d32' : '#777';
+              return '<span style="color:' + tone + ';font-weight:600;">' + v + '</span>';
+            } },
+          { title: 'P/CC', field: 'is_primary', width: 62, hozAlign: 'center',
+            formatter: c => c.getValue() ? 'P' : 'CC' },
+          { title: 'About', field: 'about_member', minWidth: 140 },
+          { title: 'Calling', field: 'about_calling', minWidth: 175 },
+          { title: 'Ward', field: 'ward', width: 108, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } },
+          { title: 'Meeting', field: 'meeting_date', width: 105, formatter: _d },
+          { title: 'Due', field: 'due_date', width: 100, formatter: _d },
+          { title: 'Completed', field: 'completed_at', width: 105, formatter: _d },
+        ],
+      },
+    };
+
+    function openSheetModal(tab) {
+      _sheetTab = tab || 'callings';
+      renderSheetTabs();
+      document.getElementById('sheetModal').classList.add('show');
+      loadSheetView();
     }
-
-    function toggleSheetView() {
-      toggleSection('sheetview');
-      if (!_sheetViewLoaded) { _sheetViewLoaded = true; loadSheetView(); }
+    function closeSheetModal() {
+      document.getElementById('sheetModal').classList.remove('show');
+      if (_sheetGrid) { try { _sheetGrid.destroy(); } catch (e) {} _sheetGrid = null; }
+    }
+    function renderSheetTabs() {
+      const box = document.getElementById('sheetTabs');
+      if (!box) return;
+      box.innerHTML = Object.keys(SHEET_TABS).map(k =>
+        '<button class="sheet-tab' + (k === _sheetTab ? ' active' : '') + '" onclick="switchSheetTab(\'' + k + '\')">'
+        + SHEET_TABS[k].label
+        + (_sheetCounts[k] != null ? '<span class="n">' + _sheetCounts[k] + '</span>' : '')
+        + '</button>').join('');
+    }
+    function switchSheetTab(k) {
+      if (k === _sheetTab) return;
+      _sheetTab = k;
+      const q = document.getElementById('sheetSearch');
+      if (q) q.value = '';
+      renderSheetTabs();
+      loadSheetView();
     }
 
     // Tabulator is fetched on first open, not on page load — most people never open
-    // this section, and it should not cost them anything.
+    // this, and it should cost them nothing.
     function ensureTabulator() {
       if (window.Tabulator) return Promise.resolve();
       return new Promise((resolve, reject) => {
@@ -2761,108 +2889,113 @@
       });
     }
 
-    const _sheetDate = c => { const v = c.getValue(); return v ? String(v).slice(0, 10) : ''; };
-
     async function loadSheetView() {
       const box = document.getElementById('sheetGrid');
       if (!box) return;
+      const spec = SHEET_TABS[_sheetTab];
       const t0 = Date.now();
+      if (_sheetGrid) { try { _sheetGrid.destroy(); } catch (e) {} _sheetGrid = null; }
+      box.innerHTML = '<div class="item-meta">Loading…</div>';
       try {
         await ensureTabulator();
-        // 🎓 Demo mode must NEVER reach the real database — demo links get shared, and
-        // this section would otherwise render live member names into a training session.
-        const rows = DEMO_MODE ? demoSheetRows() : await supabaseSelect('v_clerk_callings',
-          'select=member,calling,ward,action,releases,status,urgency,sustaining_body,'
-          + 'stake_business_date,held,approved,awaiting,accepted_at,sustained_at,set_apart_at'
-          + '&order=created_at.desc');
+        // 🎓 Demo mode must NEVER reach the real database — demo links get shared,
+        // and this would otherwise render live member names into a training session.
+        const rows = DEMO_MODE
+          ? demoSheetRows(_sheetTab)
+          : await supabaseSelect(spec.view, 'select=*&order=' + spec.order);
         const ms = Date.now() - t0;
         box.innerHTML = '';
         _sheetGrid = new Tabulator(box, {
-          data: rows,
-          layout: 'fitDataStretch',
-          height: '520px',
-          placeholder: 'No callings',
-          columns: [
-            { title: 'Member',   field: 'member',   minWidth: 150, headerFilter: 'input', frozen: true },
-            { title: 'Calling',  field: 'calling',  minWidth: 200, headerFilter: 'input' },
-            { title: 'Ward',     field: 'ward',     minWidth: 100, headerFilter: 'list',
-              headerFilterParams: { valuesLookup: true, clearable: true } },
-            { title: 'Action',   field: 'action',   width: 95 },
-            { title: 'Releases', field: 'releases', minWidth: 140 },
-            { title: 'Status',   field: 'status',   width: 110, headerFilter: 'list',
-              headerFilterParams: { valuesLookup: true, clearable: true },
-              formatter: c => {
-                const v = c.getValue() || '';
-                const tone = v === 'complete' ? '#2e7d32' : v === 'paused' || v === 'canceled' ? '#b26500'
-                           : v === 'declined' ? '#c62828' : '#555';
-                return '<span style="color:' + tone + ';font-weight:600;">' + v + '</span>';
-              } },
-            { title: 'Approved', field: 'approved', width: 90, hozAlign: 'right' },
-            { title: 'Awaiting', field: 'awaiting', width: 90, hozAlign: 'right',
-              formatter: c => c.getValue() > 0
-                ? '<span style="color:#b26500;font-weight:600;">' + c.getValue() + '</span>' : '0' },
-            { title: 'Hold',     field: 'held',     width: 70, hozAlign: 'center',
-              formatter: c => c.getValue() ? 'HOLD' : '' },
-            { title: 'Stake Bus.', field: 'stake_business_date', width: 110, formatter: _sheetDate },
-            { title: 'Accepted',   field: 'accepted_at',  width: 105, formatter: _sheetDate },
-            { title: 'Sustained',  field: 'sustained_at', width: 105, formatter: _sheetDate },
-            { title: 'Set Apart',  field: 'set_apart_at', width: 105, formatter: _sheetDate },
-          ],
+          data: rows, layout: 'fitDataStretch', height: '100%',
+          placeholder: 'Nothing here', columns: spec.cols,
         });
-        const cnt = document.getElementById('sheetViewCount');
-        if (cnt) cnt.textContent = rows.length;
+        _sheetCounts[_sheetTab] = rows.length;
+        renderSheetTabs();
         const foot = document.getElementById('sheetViewFoot');
         if (foot) foot.textContent = DEMO_MODE
-          ? rows.length + ' sample rows \u2014 the real view shows every calling in the stake'
-          : rows.length + ' rows \u2014 loaded in ' + ms + 'ms';
+          ? rows.length + ' sample rows — the real view shows every row in the stake'
+          : rows.length + ' rows · ' + ms + 'ms';
       } catch (e) {
         box.innerHTML = '<div class="item-meta" style="color:#c62828;">Could not load: '
-          + (e.message || e) + '</div>';
+          + escapeHtml(e.message || String(e)) + '</div>';
       }
-    }
-
-    // The demo's own rows. Same shape as v_clerk_callings so the grid behaves identically,
-    // but drawn from the demo cast — no live data ever reaches a demo session.
-    function demoSheetRows() {
-      const d = (o) => Object.assign({ member: '', calling: '', ward: '', action: 'Called',
-        releases: null, status: 'submitted', urgency: 'normal', sustaining_body: 'Ward',
-        stake_business_date: null, held: false, approved: 0, awaiting: 0,
-        accepted_at: null, sustained_at: null, set_apart_at: null }, o);
-      return [
-        d({ member: DEMO_CAST.porter, calling: 'Elders Quorum President', ward: DEMO_WARD,
-            releases: DEMO_CAST.marcus, status: 'complete', approved: 15,
-            stake_business_date: '2026-08-16', accepted_at: '2026-08-10',
-            sustained_at: '2026-08-16', set_apart_at: '2026-08-23' }),
-        d({ member: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', ward: '24th Ward',
-            sustaining_body: 'Stake', status: 'approved', approved: 15,
-            stake_business_date: '2026-08-23', accepted_at: '2026-08-18' }),
-        d({ member: DEMO_CAST.tanner, calling: 'High Councilor', ward: '32nd Ward',
-            sustaining_body: 'Stake', status: 'approved', approved: 14, awaiting: 1,
-            stake_business_date: '2026-08-30' }),
-        d({ member: DEMO_CAST.emmett, calling: 'Stake Institute Representative', ward: DEMO_WARD,
-            sustaining_body: 'Stake', status: 'submitted', approved: 3, awaiting: 12, held: true }),
-        d({ member: DEMO_CAST.desmond, calling: 'Ward Clerk', ward: DEMO_WARD,
-            action: 'Released', status: 'complete', approved: 15,
-            stake_business_date: '2026-08-09', sustained_at: '2026-08-09' }),
-      ];
     }
 
     function sheetViewFilter() {
       if (!_sheetGrid) return;
-      const q = (document.getElementById('sheetSearch') || {}).value || '';
-      const st = (document.getElementById('sheetStatus') || {}).value || '';
-      _sheetGrid.setFilter(row => {
-        if (st && row.status !== st) return false;
-        if (!q) return true;
-        const needle = q.toLowerCase();
-        return Object.values(row).some(v => v != null && String(v).toLowerCase().includes(needle));
-      });
+      const q = ((document.getElementById('sheetSearch') || {}).value || '').toLowerCase();
+      if (!q) { _sheetGrid.clearFilter(); return; }
+      _sheetGrid.setFilter(row => Object.values(row)
+        .some(v => v != null && String(v).toLowerCase().includes(q)));
     }
 
     function sheetViewReload() {
       const b = document.getElementById('sheetReloadBtn');
-      if (b) { b.disabled = true; b.textContent = '\u2026'; }
-      loadSheetView().finally(() => { if (b) { b.disabled = false; b.textContent = '\u21BB Refresh'; } });
+      if (b) { b.disabled = true; b.textContent = '…'; }
+      loadSheetView().finally(() => {
+        if (b) { b.disabled = false; b.textContent = '↻ Refresh'; }
+      });
+    }
+
+    // The demo's own rows, in the same shape each view returns, drawn from the demo
+    // cast. No live data ever reaches a demo session.
+    function demoSheetRows(tab) {
+      const C = DEMO_CAST, W = DEMO_WARD;
+      if (tab === 'business') return [
+        { meeting_date: '2026-08-16', member: C.porter, calling: 'Elders Quorum President', ward: W,
+          action: 'Called', where_: 'Ward', released: C.marcus, w16: true, w19: false, w24: false,
+          w25: false, w27: false, w32: false, w33: false, w49: false },
+        { meeting_date: '2026-08-23', member: C.sadie, calling: 'Stake Relief Society Secretary',
+          ward: '24th Ward', action: 'Called', where_: 'Stake', released: null,
+          w16: true, w19: true, w24: true, w25: true, w27: true, w32: true, w33: true, w49: true },
+        { meeting_date: '2026-08-30', member: C.tanner, calling: 'High Councilor', ward: '32nd Ward',
+          action: 'Called', where_: 'Stake', released: null, w16: true, w19: true, w24: false,
+          w25: false, w27: false, w32: true, w33: false, w49: false },
+      ];
+      if (tab === 'chart') return [
+        { calling: 'Elders Quorum President', sustaining_body: 'Ward', conducts_sustaining: 'High Councilor',
+          extend_routing: 'SPC', set_apart_routing: 'SPC', requires_high_priest: false,
+          requires_temple_recommend: true, can_be_submitted_by: 'Bishop', times_used: 4 },
+        { calling: 'Stake Institute Representative', sustaining_body: 'Stake', conducts_sustaining: 'Stake Presidency',
+          extend_routing: 'SPB/HC', set_apart_routing: 'SPB/HC', requires_high_priest: false,
+          requires_temple_recommend: true, can_be_submitted_by: 'Stake Presidency', times_used: 1 },
+        { calling: 'Ward Organist', sustaining_body: 'Ward', conducts_sustaining: 'High Councilor',
+          extend_routing: null, set_apart_routing: null, requires_high_priest: false,
+          requires_temple_recommend: false, can_be_submitted_by: 'Bishop', times_used: 2 },
+      ];
+      if (tab === 'tasks') return [
+        { assignee: C.hcYou, action_type: 'extend-calling', status: 'Open', is_primary: true,
+          about_member: C.porter, about_calling: 'Elders Quorum President', ward: W,
+          meeting_date: null, due_date: null, completed_at: null },
+        { assignee: 'Pres. Smith', action_type: 'set-apart', status: 'Completed', is_primary: true,
+          about_member: C.sadie, about_calling: 'Stake Relief Society Secretary', ward: '24th Ward',
+          meeting_date: null, due_date: null, completed_at: '2026-08-24' },
+        { assignee: C.hcYou, action_type: 'sustaining-report', status: 'Open', is_primary: true,
+          about_member: null, about_calling: null, ward: null,
+          meeting_date: '2026-08-30', due_date: null, completed_at: null },
+      ];
+      return [
+        { member: C.porter, calling: 'Elders Quorum President', ward: W, action: 'Called',
+          releases: C.marcus, status: 'complete', urgency: 'normal', sustaining_body: 'Ward',
+          stake_business_date: '2026-08-16', held: false, approved: 15, awaiting: 0,
+          accepted_at: '2026-08-10', sustained_at: '2026-08-16', set_apart_at: '2026-08-23' },
+        { member: C.sadie, calling: 'Stake Relief Society Secretary', ward: '24th Ward', action: 'Called',
+          releases: null, status: 'approved', urgency: 'normal', sustaining_body: 'Stake',
+          stake_business_date: '2026-08-23', held: false, approved: 15, awaiting: 0,
+          accepted_at: '2026-08-18', sustained_at: null, set_apart_at: null },
+        { member: C.tanner, calling: 'High Councilor', ward: '32nd Ward', action: 'Called',
+          releases: null, status: 'approved', urgency: 'normal', sustaining_body: 'Stake',
+          stake_business_date: '2026-08-30', held: false, approved: 14, awaiting: 1,
+          accepted_at: null, sustained_at: null, set_apart_at: null },
+        { member: C.emmett, calling: 'Stake Institute Representative', ward: W, action: 'Called',
+          releases: null, status: 'submitted', urgency: 'normal', sustaining_body: 'Stake',
+          stake_business_date: null, held: true, approved: 3, awaiting: 12,
+          accepted_at: null, sustained_at: null, set_apart_at: null },
+        { member: C.desmond, calling: 'Ward Clerk', ward: W, action: 'Released',
+          releases: null, status: 'complete', urgency: 'normal', sustaining_body: 'Ward',
+          stake_business_date: '2026-08-09', held: false, approved: 15, awaiting: 0,
+          accepted_at: null, sustained_at: '2026-08-09', set_apart_at: null },
+      ];
     }
 
     function renderAwaySection() {
@@ -3020,6 +3153,12 @@
 
       // ── Tools you run on purpose ──
       let tools = '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+      // Sheet views — for the people who currently open the spreadsheet to cross-check.
+      // Clerks and secretaries only; the presidency also sees Admin Tools but has no
+      // reason to scan raw tables.
+      if (userData && (userData.isClerk || userData.isExecSec)) {
+        tools += '<button class="btn btn-primary" onclick="openSheetModal()">📋 Sheet Views <span style="opacity:.75;">· callings · stake business · chart · tasks</span></button>';
+      }
       tools += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       tools += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';
       tools += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
@@ -3429,7 +3568,6 @@
       // back to the "Loading…" placeholder, so refill them if they're still open.
       if (_sectionState.assignments) { _assignmentsLoaded = true; loadAssignments(); }
       if (_sectionState.away) { _awayLoaded = true; loadAway(); }
-      if (_sectionState.sheetview) { _sheetViewLoaded = true; loadSheetView(); }
     }
 
     function scrollToSection(id) {
