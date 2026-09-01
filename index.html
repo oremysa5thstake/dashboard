@@ -509,6 +509,22 @@
     // Configuration
     const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
 
+    // ── Supabase (read-only, for the clerk/secretary sheet views) ──────────────
+    // The publishable key is public by design and ships in this page. It reaches
+    // exactly ONE view — v_clerk_callings — and nothing else: every table denies it,
+    // so member contact details and the varsity roster (addresses, temple recommend)
+    // are unreachable from the browser. Writes still go through Apps Script.
+    const SUPABASE_URL = 'https://lrfbxbiwqnlctomjeboi.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_eJToH6uWrOBEPzhkzgA_Hg_VRn81dfP';
+
+    async function supabaseSelect(view, query) {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${view}?${query}`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY }
+      });
+      if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + (await res.text()).slice(0, 160));
+      return res.json();
+    }
+
     // Global state
     let userId = null;
     // While the admin "View as another user" overlay is open, we render the
@@ -1146,6 +1162,11 @@
       // Out-of-town dates — anyone who can be asked to conduct stake business.
       // The demo has its own in-browser copy so the section can be shown there too.
       html += renderAwaySection();
+
+      // Sheet views — the people who currently open the spreadsheet to cross-check.
+      if (data.isClerk || data.isExecSec) {
+        html += renderSheetViewSection();
+      }
 
       // Recent Actions (Undo) — everyone gets it, above Admin Tools. In demo mode it
       // replays the scenario's own action log, so undo is demonstrable without a backend.
@@ -2683,6 +2704,167 @@
     // availability check then skips them and asks the ward's backup instead.
     let _awayLoaded = false;
 
+    // ── Sheet view: Callings ─────────────────────────────────────────────────
+    // Clerks and secretaries open the Google Sheet to scan and cross-check rows.
+    // This is that view, read live from Supabase (~100ms) instead of through Apps
+    // Script (~5s). Read-only for now — edits still belong in the sheet until the
+    // write path is dual-writing.
+    let _sheetViewLoaded = false;
+    let _sheetGrid = null;
+
+    function renderSheetViewSection() {
+      let html = '<div class="section"><div class="section-header" onclick="toggleSheetView()">'
+        + '<div class="section-title">\u{1F4CB} Callings \u2014 Sheet View</div>'
+        + '<div class="section-meta"><span class="section-count" id="sheetViewCount"></span>'
+        + '<span class="chevron">\u25BC</span></div></div>';
+      html += '<div class="section-content" id="section-sheetview"><div class="section-inner">'
+        + '<div class="item-meta" style="margin-bottom:10px;">'
+        + (typeof DEMO_MODE !== 'undefined' && DEMO_MODE
+        ? 'A sample of the callings view. In the real dashboard this lists every calling and release in the stake. '
+        : 'Every calling and release, live from the new database. Sort or filter any column. ')
+        + '<strong>Read-only</strong> \u2014 make changes in the dashboard or the sheet as usual.'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">'
+        + '<input type="text" id="sheetSearch" class="form-input" placeholder="Search any column\u2026" '
+        +   'style="flex:1 1 200px;min-width:150px;font-size:13px;" oninput="sheetViewFilter()">'
+        + '<select id="sheetStatus" class="form-input" style="width:auto;font-size:13px;" onchange="sheetViewFilter()">'
+        +   '<option value="">All statuses</option><option value="submitted">Submitted</option>'
+        +   '<option value="complete">Complete</option><option value="paused">Paused</option>'
+        +   '<option value="canceled">Canceled</option><option value="declined">Declined</option></select>'
+        + '<button class="btn btn-sm" onclick="sheetViewReload()" id="sheetReloadBtn">\u21BB Refresh</button>'
+        + '</div>'
+        + '<div id="sheetGrid"><div class="item-meta">Loading\u2026</div></div>'
+        + '<div class="item-meta" id="sheetViewFoot" style="margin-top:8px;"></div>'
+        + '</div></div></div>';
+      return html;
+    }
+
+    function toggleSheetView() {
+      toggleSection('sheetview');
+      if (!_sheetViewLoaded) { _sheetViewLoaded = true; loadSheetView(); }
+    }
+
+    // Tabulator is fetched on first open, not on page load — most people never open
+    // this section, and it should not cost them anything.
+    function ensureTabulator() {
+      if (window.Tabulator) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = 'https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css';
+        document.head.appendChild(css);
+        const js = document.createElement('script');
+        js.src = 'https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js';
+        js.onload = resolve;
+        js.onerror = () => reject(new Error('could not load the grid library'));
+        document.head.appendChild(js);
+      });
+    }
+
+    const _sheetDate = c => { const v = c.getValue(); return v ? String(v).slice(0, 10) : ''; };
+
+    async function loadSheetView() {
+      const box = document.getElementById('sheetGrid');
+      if (!box) return;
+      const t0 = Date.now();
+      try {
+        await ensureTabulator();
+        // 🎓 Demo mode must NEVER reach the real database — demo links get shared, and
+        // this section would otherwise render live member names into a training session.
+        const rows = DEMO_MODE ? demoSheetRows() : await supabaseSelect('v_clerk_callings',
+          'select=member,calling,ward,action,releases,status,urgency,sustaining_body,'
+          + 'stake_business_date,held,approved,awaiting,accepted_at,sustained_at,set_apart_at'
+          + '&order=created_at.desc');
+        const ms = Date.now() - t0;
+        box.innerHTML = '';
+        _sheetGrid = new Tabulator(box, {
+          data: rows,
+          layout: 'fitDataStretch',
+          height: '520px',
+          placeholder: 'No callings',
+          columns: [
+            { title: 'Member',   field: 'member',   minWidth: 150, headerFilter: 'input', frozen: true },
+            { title: 'Calling',  field: 'calling',  minWidth: 200, headerFilter: 'input' },
+            { title: 'Ward',     field: 'ward',     minWidth: 100, headerFilter: 'list',
+              headerFilterParams: { valuesLookup: true, clearable: true } },
+            { title: 'Action',   field: 'action',   width: 95 },
+            { title: 'Releases', field: 'releases', minWidth: 140 },
+            { title: 'Status',   field: 'status',   width: 110, headerFilter: 'list',
+              headerFilterParams: { valuesLookup: true, clearable: true },
+              formatter: c => {
+                const v = c.getValue() || '';
+                const tone = v === 'complete' ? '#2e7d32' : v === 'paused' || v === 'canceled' ? '#b26500'
+                           : v === 'declined' ? '#c62828' : '#555';
+                return '<span style="color:' + tone + ';font-weight:600;">' + v + '</span>';
+              } },
+            { title: 'Approved', field: 'approved', width: 90, hozAlign: 'right' },
+            { title: 'Awaiting', field: 'awaiting', width: 90, hozAlign: 'right',
+              formatter: c => c.getValue() > 0
+                ? '<span style="color:#b26500;font-weight:600;">' + c.getValue() + '</span>' : '0' },
+            { title: 'Hold',     field: 'held',     width: 70, hozAlign: 'center',
+              formatter: c => c.getValue() ? 'HOLD' : '' },
+            { title: 'Stake Bus.', field: 'stake_business_date', width: 110, formatter: _sheetDate },
+            { title: 'Accepted',   field: 'accepted_at',  width: 105, formatter: _sheetDate },
+            { title: 'Sustained',  field: 'sustained_at', width: 105, formatter: _sheetDate },
+            { title: 'Set Apart',  field: 'set_apart_at', width: 105, formatter: _sheetDate },
+          ],
+        });
+        const cnt = document.getElementById('sheetViewCount');
+        if (cnt) cnt.textContent = rows.length;
+        const foot = document.getElementById('sheetViewFoot');
+        if (foot) foot.textContent = DEMO_MODE
+          ? rows.length + ' sample rows \u2014 the real view shows every calling in the stake'
+          : rows.length + ' rows \u2014 loaded in ' + ms + 'ms';
+      } catch (e) {
+        box.innerHTML = '<div class="item-meta" style="color:#c62828;">Could not load: '
+          + (e.message || e) + '</div>';
+      }
+    }
+
+    // The demo's own rows. Same shape as v_clerk_callings so the grid behaves identically,
+    // but drawn from the demo cast — no live data ever reaches a demo session.
+    function demoSheetRows() {
+      const d = (o) => Object.assign({ member: '', calling: '', ward: '', action: 'Called',
+        releases: null, status: 'submitted', urgency: 'normal', sustaining_body: 'Ward',
+        stake_business_date: null, held: false, approved: 0, awaiting: 0,
+        accepted_at: null, sustained_at: null, set_apart_at: null }, o);
+      return [
+        d({ member: DEMO_CAST.porter, calling: 'Elders Quorum President', ward: DEMO_WARD,
+            releases: DEMO_CAST.marcus, status: 'complete', approved: 15,
+            stake_business_date: '2026-08-16', accepted_at: '2026-08-10',
+            sustained_at: '2026-08-16', set_apart_at: '2026-08-23' }),
+        d({ member: DEMO_CAST.sadie, calling: 'Stake Relief Society Secretary', ward: '24th Ward',
+            sustaining_body: 'Stake', status: 'approved', approved: 15,
+            stake_business_date: '2026-08-23', accepted_at: '2026-08-18' }),
+        d({ member: DEMO_CAST.tanner, calling: 'High Councilor', ward: '32nd Ward',
+            sustaining_body: 'Stake', status: 'approved', approved: 14, awaiting: 1,
+            stake_business_date: '2026-08-30' }),
+        d({ member: DEMO_CAST.emmett, calling: 'Stake Institute Representative', ward: DEMO_WARD,
+            sustaining_body: 'Stake', status: 'submitted', approved: 3, awaiting: 12, held: true }),
+        d({ member: DEMO_CAST.desmond, calling: 'Ward Clerk', ward: DEMO_WARD,
+            action: 'Released', status: 'complete', approved: 15,
+            stake_business_date: '2026-08-09', sustained_at: '2026-08-09' }),
+      ];
+    }
+
+    function sheetViewFilter() {
+      if (!_sheetGrid) return;
+      const q = (document.getElementById('sheetSearch') || {}).value || '';
+      const st = (document.getElementById('sheetStatus') || {}).value || '';
+      _sheetGrid.setFilter(row => {
+        if (st && row.status !== st) return false;
+        if (!q) return true;
+        const needle = q.toLowerCase();
+        return Object.values(row).some(v => v != null && String(v).toLowerCase().includes(needle));
+      });
+    }
+
+    function sheetViewReload() {
+      const b = document.getElementById('sheetReloadBtn');
+      if (b) { b.disabled = true; b.textContent = '\u2026'; }
+      loadSheetView().finally(() => { if (b) { b.disabled = false; b.textContent = '\u21BB Refresh'; } });
+    }
+
     function renderAwaySection() {
       let html = '<div class="section"><div class="section-header" onclick="toggleAway()"><div class="section-title">🌴 When I\'m Out of Town</div><div class="section-meta">' + helpBtn('away') + '<span class="chevron">▼</span></div></div>';
       html += '<div class="section-content" id="section-away"><div class="section-inner" id="awayBody"><div class="item-meta">Loading…</div></div></div></div>';
@@ -3247,6 +3429,7 @@
       // back to the "Loading…" placeholder, so refill them if they're still open.
       if (_sectionState.assignments) { _assignmentsLoaded = true; loadAssignments(); }
       if (_sectionState.away) { _awayLoaded = true; loadAway(); }
+      if (_sectionState.sheetview) { _sheetViewLoaded = true; loadSheetView(); }
     }
 
     function scrollToSection(id) {
