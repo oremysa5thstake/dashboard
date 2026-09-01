@@ -1198,7 +1198,7 @@
       // Admin Tools section — admins and the Stake Presidency. The presidency sees the
       // scripts + demos; "View Another User's Dashboard" stays admin-only.
       if (data.isAdmin || data.isPresidency) {
-        html += renderAdminSection(data.adminUsers || [], !!data.isAdmin);
+        html += renderAdminSection(data.adminUsers || [], !!data.isAdmin && !DEMO_MODE);
       }
 
       // Empty state
@@ -6392,6 +6392,7 @@
         : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', Stake Clerk over membership. You open the pipeline (clerk review) and close it (records + certificates).');
       data.canReassign = true;
       data.isClerk = true;
+      data.isAdmin = true;      // the real backend derives isAdmin = isClerk || isExecSec
       data.stakePresidency = DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n }));
       data.highCouncilors = DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n }));
 
@@ -6451,6 +6452,7 @@
         : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', Stake Executive Secretary. Once the presidency and high council approve, assigning and scheduling is yours.');
       data.canReassign = true;
       data.isExecSec = true;
+      data.isAdmin = true;      // the real backend derives isAdmin = isClerk || isExecSec
       data.stakePresidency = DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n }));
       data.highCouncilors = DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n }));
 
