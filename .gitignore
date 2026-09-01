@@ -7,6 +7,7 @@
 !form.html
 !boundary-maps.html
 !pipeline.html
+!sheets.html
 
 # Tab icons (favicons) for the Pages sites
 !icon-*.svg
@@ -21,3 +22,7 @@
 *.env
 supabase/.env
 supabase/.secrets*
+
+# exported spreadsheet data — PII, never commit
+supabase/import/*.xlsx
+supabase/import/*.csv

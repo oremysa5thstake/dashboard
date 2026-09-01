@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sheet Views — Orem YSA 5th Stake</title>
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css">
+<style>
+  :root{
+    /* Pulled from the spreadsheet's own conditional formatting rules, so the grid
+       reads the way the sheet does. */
+    --cf-canceled:#666666;
+    --cf-paused:#E06666;
+    --cf-released-bg:#FCE5CD;
+    --cf-released-fg:#783F04;
+    --cf-stake-fg:#351C75;
+    --cf-ward-fg:#1155CC;
+    --cf-ticked:#A4C2F4;
+    --cf-na-bg:#B7B7B7;
+    --cf-na-fg:#999999;
+    --cf-due-bg:#EA9999;
+    --cf-due-fg:#CC0000;
+    --cf-allapproved:#B7E1CD;
+    --cf-approved:#6AA84F;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex;flex-direction:column;background:#f5f6f8;color:#222;
+  }
+  header{
+    background:#fff;border-bottom:1px solid #e2e5e9;flex:none;
+    padding:10px 16px 0;
+  }
+  .titlebar{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  h1{font-size:15px;font-weight:700;margin:0;letter-spacing:.01em}
+  h1 .who{font-weight:400;color:#777;margin-left:8px;font-size:13px}
+  .tabs{display:flex;gap:2px;overflow-x:auto}
+  .tab{
+    padding:9px 15px;font-size:13px;font-weight:600;color:#666;background:none;
+    border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;
+  }
+  .tab:hover{color:#222}
+  .tab.active{color:#1a6159;border-bottom-color:#1a6159}
+  .tab .n{font-weight:400;opacity:.6;margin-left:5px;font-variant-numeric:tabular-nums}
+  .toolbar{
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:none;
+    padding:9px 16px;background:#fff;border-bottom:1px solid #e2e5e9;
+  }
+  input[type=text],select{
+    font:inherit;font-size:13px;padding:5px 8px;border:1px solid #ccd1d6;border-radius:5px;
+  }
+  input[type=text]{flex:1 1 240px;min-width:150px}
+  button{
+    font:inherit;font-size:13px;font-weight:600;padding:5px 11px;border-radius:5px;
+    border:1px solid #ccd1d6;background:#fff;cursor:pointer;
+  }
+  button:hover{background:#f2f4f6}
+  button:disabled{opacity:.5;cursor:default}
+  .meta{font-size:12px;color:#777;margin-left:auto;font-variant-numeric:tabular-nums}
+  #grid{flex:1;min-height:0;margin:0 8px 8px}
+  .banner{
+    padding:7px 16px;font-size:12.5px;background:#fff8e1;border-bottom:1px solid #f0e0a8;flex:none;
+  }
+  .banner.demo{background:#e8f5e9;border-bottom-color:#b9dfbc}
+  .banner.err{background:#fdecea;border-bottom-color:#f5c2bd;color:#8a1c12}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:#666;padding:6px 16px;flex:none;background:#fff;border-bottom:1px solid #e2e5e9}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
+  .toast{
+    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99;
+    background:#222;color:#fff;padding:9px 16px;border-radius:7px;font-size:13px;
+    box-shadow:0 4px 14px rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none;
+  }
+  .toast.show{opacity:1}
+  .toast.err{background:#b3261e}
+  .toast.warn{background:#8a5410}
+  /* Conditional-formatting classes, applied per cell/row by the formatters below. */
+  .cf-canceled{background:var(--cf-canceled)!important;color:#111!important}
+  .cf-paused{background:var(--cf-paused)!important}
+  .cf-declined{background:var(--cf-canceled)!important;color:#ddd!important}
+  .tabulator-row.cf-canceled .tabulator-cell,
+  .tabulator-row.cf-declined .tabulator-cell{background:var(--cf-canceled);color:#e8e8e8}
+  .tabulator-row.cf-paused .tabulator-cell{background:var(--cf-paused)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="titlebar">
+    <h1>📋 Sheet Views <span class="who" id="who"></span></h1>
+  </div>
+  <div class="tabs" id="tabs"></div>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<div class="toolbar">
+  <input type="text" id="search" placeholder="Search this table…" oninput="applyFilter()">
+  <select id="statusFilter" onchange="applyFilter()" hidden></select>
+  <button onclick="reload()" id="reloadBtn">↻ Refresh</button>
+  <span class="meta" id="meta"></span>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<div id="grid"></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Sheet Views — a standalone window over the Supabase read views.
+//
+// Reads come straight from Supabase (~200-400ms). Every WRITE goes back through
+// Apps Script, which updates the Google Sheet and mirrors the change into
+// Supabase, so the sheet stays the system of record and the existing permission
+// model still decides who may change what.
+//
+// The colours are not invented: they are the workbook's own conditional
+// formatting rules, read out of the .xlsx and reimplemented here. See the
+// COLOUR RULES section.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
+const SUPABASE_URL = 'https://lrfbxbiwqnlctomjeboi.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_eJToH6uWrOBEPzhkzgA_Hg_VRn81dfP';
+
+const qp = new URLSearchParams(location.search);
+const USER_ID = qp.get('userId') || '';
+const DEMO = qp.get('demo') || '';
+const USER_NAME = qp.get('name') || '';
+
+let grid = null, tab = 'callings';
+const counts = {};
+
+// ── helpers ───────────────────────────────────────────────────────────────
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const _d = c => { const v = c.getValue(); return v ? String(v).slice(0, 10) : ''; };
+const daysUntil = v => {
+  if (!v) return null;
+  const d = new Date(v); if (isNaN(d)) return null;
+  return Math.round((d - new Date().setHours(0,0,0,0)) / 86400000);
+};
+
+function toast(msg, kind) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+async function sbSelect(view, query) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${view}?${query}`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY }
+  });
+  if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + (await res.text()).slice(0, 160));
+  return res.json();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COLOUR RULES
+//
+// Taken verbatim from the workbook's conditionalFormatting XML. The sheet greys
+// a checkbox out when that step does not apply to that calling — which is real
+// information ("you do not need to tick this"), so it is reproduced here rather
+// than dropped.
+// ═══════════════════════════════════════════════════════════════════════════
+const RX = {
+  president:  /President/i,
+  audit:      /Audit/i,
+  secondary:  /Executive|Clerk|Bishopric/i,
+  nameTag:    /Stake Executive|Stake Clerk|Stake Assistant|Bishopric|High Councilor|Relief/i,
+  key:        /President|Bishop|High Councilor|Clerk|Executive/i,
+};
+
+/** Is this checkbox not applicable to this row's calling? Returns true to grey it. */
+function notApplicable(field, row) {
+  const calling = row.calling || '';
+  const released = row.action === 'Released';
+  switch (field) {
+    // "Release Extended" only matters when somebody is actually being released.
+    case 'release_extended':     return !row.releases && !released;
+    // Counselors are only approved separately for presidencies.
+    case 'counselors_approved':  return !RX.president.test(calling);
+    case 'secondary_approval':   return released || !RX.secondary.test(calling);
+    case 'marked_set_apart_lcr': return released || RX.audit.test(calling);
+    case 'sustained':            return RX.audit.test(calling);
+    case 'name_tag':             return !RX.nameTag.test(calling);
+    case 'key_done':             return !RX.key.test(calling);
+    case 'accepted':             return released;
+    case 'set_apart':            return released;
+    default: return false;
+  }
+}
+
+/** Tick boxes: blue when set, grey when the step does not apply to this calling. */
+function tickFormatter(cell) {
+  const row = cell.getRow().getData();
+  const field = cell.getField();
+  const on = cell.getValue() === true;
+  const na = notApplicable(field, row);
+  const el = cell.getElement();
+  if (el) {
+    el.style.background = na ? 'var(--cf-na-bg)' : (on ? 'var(--cf-ticked)' : '');
+    el.style.color = na ? 'var(--cf-na-fg)' : '';
+  }
+  // A greyed box that is nonetheless ticked must still show its tick. The sheet greys
+  // the background and leaves the checkmark visible; replacing it with a dash would
+  // hide a real state. 9 rows in the live data are exactly this case — a release whose
+  // "Accepted" box was ticked anyway.
+  if (on) return '<span style="font-weight:700;color:' + (na ? '#4a4a4a' : '#1a3a6b') + '">✓</span>';
+  if (na) return '<span style="opacity:.55">—</span>';
+  return '<span style="opacity:.3">·</span>';
+}
+
+/** Member / calling: released rows go peach; text colour follows sustaining body. */
+function nameFormatter(cell) {
+  const row = cell.getRow().getData();
+  const el = cell.getElement();
+  if (el) {
+    if (row.action === 'Released') {
+      el.style.background = 'var(--cf-released-bg)';
+      el.style.color = 'var(--cf-released-fg)';
+    } else {
+      el.style.background = '';
+      el.style.color = row.sustaining_body === 'Stake' ? 'var(--cf-stake-fg)'
+                     : row.sustaining_body === 'Ward'  ? 'var(--cf-ward-fg)' : '';
+    }
+  }
+  return esc(cell.getValue() || '');
+}
+
+/** Stake business date: red and bold when it is within a week and not yet added. */
+function sbDateFormatter(cell) {
+  const row = cell.getRow().getData();
+  const v = cell.getValue();
+  const el = cell.getElement();
+  const d = daysUntil(v);
+  const due = d !== null && d >= 0 && d <= 7 && !row.added_to_stake_business;
+  if (el) {
+    el.style.background = due ? 'var(--cf-due-bg)' : '';
+    el.style.color = due ? 'var(--cf-due-fg)' : '';
+    el.style.fontWeight = due ? '700' : '';
+  }
+  return v ? String(v).slice(0, 10) : '';
+}
+
+/** Whole-row shading for canceled / paused / declined. */
+function rowFormatter(row) {
+  const d = row.getData();
+  const el = row.getElement();
+  el.classList.remove('cf-canceled', 'cf-paused', 'cf-declined');
+  if (d.status === 'canceled') el.classList.add('cf-canceled');
+  else if (d.status === 'paused') el.classList.add('cf-paused');
+  else if (d.declined) el.classList.add('cf-declined');
+}
+
+// ── editing ───────────────────────────────────────────────────────────────
+const STAKE_WARDS = ['16th Ward','19th Ward','24th Ward','25th Ward',
+                     '27th Ward','32nd Ward','33rd Ward','49th Ward'];
+const WARD_OTHER = '➕ Other unit…';
+
+// The eight wards, plus an escape hatch for a member called from outside the
+// stake. A unit typed that way is deliberately NOT added to the list — it
+// belongs to that one row, not to the stake.
+function wardEditor(cell, onRendered, success, cancel) {
+  const cur = cell.getValue() || '';
+  const sel = document.createElement('select');
+  sel.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;padding:3px;';
+  const opts = ['', ...STAKE_WARDS];
+  if (cur && !STAKE_WARDS.includes(cur)) opts.push(cur);   // keep an existing outside unit selectable
+  opts.push(WARD_OTHER);
+  opts.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = v || '—';
+    if (v === cur) o.selected = true;
+    sel.appendChild(o);
+  });
+  const finish = () => {
+    if (sel.value === WARD_OTHER) {
+      const typed = (prompt('Unit name (a ward or stake outside ours):', '') || '').trim();
+      if (!typed) { cancel(); return; }
+      success(typed);
+      return;
+    }
+    success(sel.value);
+  };
+  sel.addEventListener('change', finish);
+  sel.addEventListener('blur', () => { if (sel.value !== WARD_OTHER) success(sel.value); });
+  sel.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
+  onRendered(() => sel.focus());
+  return sel;
+}
+
+async function saveCell(cell, gridName, keyField) {
+  const row = cell.getRow().getData();
+  const field = cell.getField();
+  const before = cell.getOldValue();
+  const el = cell.getElement();
+
+  if (DEMO) {
+    toast('Demo — the change is not saved anywhere');
+    return;
+  }
+  if (!USER_ID) {
+    cell.setValue(before, true);
+    toast('No user — reopen this window from the dashboard', 'err');
+    return;
+  }
+  if (el) el.style.outline = '2px solid #f0b429';
+  try {
+    const params = new URLSearchParams({
+      action: 'updateGridCell', userId: USER_ID, grid: gridName,
+      rowKey: String(row[keyField] ?? ''), field: field,
+      value: cell.getValue() === null || cell.getValue() === undefined ? '' : cell.getValue()
+    });
+    const res = await fetch(API_URL + '?' + params.toString());
+    const data = await res.json();
+    if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    if (el) {
+      el.style.outline = '2px solid #4caf50';
+      setTimeout(() => { el.style.outline = ''; }, 900);
+    }
+    if (data.mirrored && data.mirrored !== 'ok') {
+      toast(data.mirrored === 'not-configured'
+        ? 'Saved to the sheet. The Supabase mirror is not configured yet.'
+        : 'Saved to the sheet, but the database mirror failed.', 'warn');
+    }
+  } catch (e) {
+    cell.setValue(before, true);            // the sheet did not change; do not pretend it did
+    if (el) el.style.outline = '';
+    toast('Not saved: ' + (e.message || e), 'err');
+  }
+}
+
+function ed(col, gridName, keyField, editor, params) {
+  return Object.assign({}, col, {
+    editor: editor || 'input',
+    editorParams: params || {},
+    cellEdited: cell => saveCell(cell, gridName, keyField),
+  });
+}
+const tick = (title, field, width) =>
+  ed({ title, field, width: width || 92, hozAlign: 'center', formatter: tickFormatter },
+     'callings', 'sheet_ref', 'tickCross');
+
+// ── the four tables ───────────────────────────────────────────────────────
+const TABS = {
+  callings: {
+    label: '📋 Callings', view: 'v_clerk_callings', order: 'created_at.desc',
+    grid: 'callings', key: 'sheet_ref', rowFormatter: rowFormatter,
+    statuses: ['submitted','polling','approved','complete','declined','paused','canceled'],
+    cols: [
+      ed({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input',
+           frozen: true, formatter: nameFormatter }, 'callings', 'sheet_ref'),
+      ed({ title: 'Calling', field: 'calling', minWidth: 205, headerFilter: 'input',
+           formatter: nameFormatter }, 'callings', 'sheet_ref'),
+      ed({ title: 'Ward', field: 'ward', width: 128, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true },
+           formatter: nameFormatter }, 'callings', 'sheet_ref', wardEditor),
+      ed({ title: 'Action', field: 'action', width: 100, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true } },
+         'callings', 'sheet_ref', 'list', { values: ['Called', 'Released'] }),
+      ed({ title: 'CTR?', field: 'ctr', width: 78 },
+         'callings', 'sheet_ref', 'list', { values: ['', 'Yes', 'N/A'] }),
+      ed({ title: 'Priesthood/Gender', field: 'priesthood_gender', width: 145 },
+         'callings', 'sheet_ref', 'list',
+         { values: ['', 'Elder', 'High Priest', 'Male', 'Female'] }),
+      ed({ title: 'Released Member', field: 'releases', minWidth: 155 }, 'callings', 'sheet_ref'),
+      ed({ title: 'Rel. Gender', field: 'release_gender', width: 105 },
+         'callings', 'sheet_ref', 'list', { values: ['', 'Male', 'Female'] }),
+      ed({ title: 'Release Ward', field: 'release_ward', width: 132 },
+         'callings', 'sheet_ref', wardEditor),
+      ed({ title: 'Sustaining Body', field: 'sustaining_body', width: 132, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true } },
+         'callings', 'sheet_ref', 'list', { values: ['', 'Ward', 'Stake', 'None'] }),
+      ed({ title: 'Submitter', field: 'submitter', minWidth: 145 }, 'callings', 'sheet_ref'),
+      ed({ title: 'On Behalf Of', field: 'on_behalf_of', minWidth: 145 }, 'callings', 'sheet_ref'),
+      ed({ title: 'Comments', field: 'comments', minWidth: 210 },
+         'callings', 'sheet_ref', 'textarea'),
+      ed({ title: 'Interview?', field: 'interview_status', width: 110 },
+         'callings', 'sheet_ref', 'list', { values: ['', 'N/A', 'Needed', 'Complete'] }),
+      ed({ title: 'Poll?', field: 'poll_ready', width: 74, hozAlign: 'center', formatter: 'tickCross' },
+         'callings', 'sheet_ref', 'tickCross'),
+      ed({ title: 'Priority', field: 'urgency', width: 96, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true } },
+         'callings', 'sheet_ref', 'list', { values: ['normal', 'urgent'] }),
+      { title: 'Status', field: 'status', width: 106,
+        formatter: c => {
+          const v = c.getValue() || '';
+          const tone = v === 'complete' ? '#2e7d32'
+            : (v === 'paused' || v === 'canceled') ? '#7a4a00'
+            : v === 'declined' ? '#c62828' : '#555';
+          return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
+        } },
+      { title: 'Appr', field: 'approved_count', width: 64, hozAlign: 'right',
+        formatter: c => {
+          // The sheet turns the approval block green once every approver has said yes.
+          const r = c.getRow().getData();
+          const el = c.getElement();
+          if (el) el.style.background = (r.awaiting === 0 && c.getValue() > 0)
+            ? 'var(--cf-allapproved)' : '';
+          return c.getValue();
+        } },
+      { title: 'Await', field: 'awaiting', width: 64, hozAlign: 'right',
+        formatter: c => c.getValue() > 0
+          ? '<span style="color:#b26500;font-weight:700;">' + c.getValue() + '</span>' : '' },
+      tick('Accepted', 'accepted'),
+      tick('Couns. Appr.', 'counselors_approved', 110),
+      tick('Rel. Extended', 'release_extended', 115),
+      ed({ title: 'Sched. Stake Bus.', field: 'stake_business_date', width: 140,
+           formatter: sbDateFormatter }, 'callings', 'sheet_ref', 'date', { format: 'yyyy-MM-dd' }),
+      { title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
+        formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>' : '' },
+      tick('Added to SB', 'added_to_stake_business', 106),
+      tick('Sustained', 'sustained', 96),
+      tick('In LCR', 'updated_in_lcr', 86),
+      tick('Secondary', 'secondary_approval', 100),
+      tick('Set Apart', 'set_apart', 96),
+      tick('SA on LCR', 'marked_set_apart_lcr', 100),
+      tick('Name Tag', 'name_tag', 96),
+      tick('Key', 'key_done', 72),
+      tick('Drive', 'drive_updated', 76),
+      tick('Chart', 'chart_updated', 76),
+      tick('Declined', 'declined', 92),
+      { title: 'Task Center', field: 'task_center', minWidth: 195 },
+    ],
+  },
+
+  business: {
+    label: '📅 Stake Business', view: 'v_clerk_stake_business', order: 'meeting_date.desc',
+    cols: (() => {
+      const t = c => c.getValue()
+        ? '<span style="color:#1a3a6b;font-weight:700">✓</span>'
+        : '<span style="opacity:.25">·</span>';
+      const base = [
+        { title: 'Date', field: 'meeting_date', width: 112, formatter: _d, frozen: true },
+        { title: 'Member', field: 'member', minWidth: 160, headerFilter: 'input' },
+        { title: 'Calling', field: 'calling', minWidth: 195, headerFilter: 'input' },
+        { title: 'Ward', field: 'ward', width: 118, headerFilter: 'list',
+          headerFilterParams: { valuesLookup: true, clearable: true } },
+        { title: 'Action', field: 'action', width: 100 },
+        { title: 'Where', field: 'where_', width: 82, headerFilter: 'list',
+          headerFilterParams: { valuesLookup: true, clearable: true } },
+        { title: 'Released', field: 'released', minWidth: 140 },
+      ];
+      ['16th','19th','24th','25th','27th','32nd','33rd','49th'].forEach((w, i) => {
+        base.push({ title: w, field: 'w' + w.replace(/\D/g, ''), width: 58,
+          hozAlign: 'center', formatter: t });
+      });
+      return base;
+    })(),
+  },
+
+  chart: {
+    label: '⚙️ Callings Chart', view: 'v_clerk_callings_chart', order: 'calling.asc',
+    grid: 'chart', key: 'calling',
+    cols: [
+      { title: 'Calling', field: 'calling', minWidth: 240, headerFilter: 'input', frozen: true },
+      ed({ title: 'Recommended By', field: 'recommended_by', minWidth: 180 }, 'chart', 'calling'),
+      ed({ title: 'Approved By', field: 'approved_by', minWidth: 180 }, 'chart', 'calling'),
+      ed({ title: 'Sustained By', field: 'sustaining_body', width: 122, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true } },
+         'chart', 'calling', 'list', { values: ['', 'Ward', 'Stake', 'None'] }),
+      ed({ title: 'Called & set apart by', field: 'called_and_set_apart_by', minWidth: 195 },
+         'chart', 'calling'),
+      ed({ title: 'Conducts', field: 'conducts_sustaining', width: 148 },
+         'chart', 'calling', 'list', { values: ['', 'Stake Presidency', 'High Councilor'] }),
+      ed({ title: 'Can be submitted by', field: 'can_be_submitted_by', minWidth: 195 },
+         'chart', 'calling'),
+      ed({ title: 'Consultation', field: 'check_for_consultation', minWidth: 145 }, 'chart', 'calling'),
+      ed({ title: 'Temple rec.', field: 'requires_temple_recommend', width: 100,
+           hozAlign: 'center', formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      ed({ title: 'Aaronic', field: 'requires_aaronic', width: 86, hozAlign: 'center',
+           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      ed({ title: 'Elder', field: 'requires_elder', width: 80, hozAlign: 'center',
+           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      ed({ title: 'High Priest', field: 'requires_high_priest', width: 96, hozAlign: 'center',
+           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      ed({ title: 'Stake interview', field: 'stake_interview', width: 126 }, 'chart', 'calling'),
+      ed({ title: 'Note to submitter', field: 'note_to_submitter', minWidth: 215 },
+         'chart', 'calling', 'textarea'),
+      ed({ title: 'Approval', field: 'approval_level', width: 112 },
+         'chart', 'calling', 'list', { values: ['', 'None', 'SP & HC'] }),
+      ed({ title: 'Extend (col Q)', field: 'extend_routing', width: 128, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true },
+           formatter: c => c.getValue() ? esc(c.getValue())
+             : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
+         'chart', 'calling', 'list',
+         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', 'SPB', 'SPB/HC'] }),
+      ed({ title: 'Wait for counselors', field: 'wait_for_counselors', width: 148 },
+         'chart', 'calling', 'list', { values: ['', 'Yes', 'Maybe'] }),
+      ed({ title: 'Sustaining Title', field: 'sustaining_title', minWidth: 180 }, 'chart', 'calling'),
+      ed({ title: 'Set apart (col T)', field: 'set_apart_routing', width: 138, headerFilter: 'list',
+           headerFilterParams: { valuesLookup: true, clearable: true },
+           formatter: c => c.getValue() ? esc(c.getValue())
+             : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
+         'chart', 'calling', 'list',
+         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', 'SPB', 'SPB/HC', 'N/A'] }),
+      ed({ title: 'Add to LCR', field: 'add_to_lcr', minWidth: 170 }, 'chart', 'calling'),
+      ed({ title: 'Secondary Approvers', field: 'secondary_approvers', minWidth: 205 },
+         'chart', 'calling'),
+      ed({ title: 'Update Chart', field: 'update_chart', width: 108, hozAlign: 'center',
+           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      ed({ title: 'Name Tag', field: 'name_tag', width: 128 }, 'chart', 'calling'),
+      ed({ title: 'Key', field: 'key_type', width: 86 }, 'chart', 'calling'),
+      ed({ title: 'Kindoo', field: 'kindoo', width: 82, hozAlign: 'center',
+           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      ed({ title: 'Note', field: 'extra_note', minWidth: 180 }, 'chart', 'calling'),
+      { title: 'Used', field: 'times_used', width: 66, hozAlign: 'right' },
+    ],
+  },
+
+  tasks: {
+    label: '✅ Action Items', view: 'v_clerk_action_items', order: 'created_at.desc',
+    statuses: ['Open','Completed','Acknowledged','Dismissed','Bypassed'],
+    cols: [
+      { title: 'Assignee', field: 'assignee', minWidth: 160, headerFilter: 'input', frozen: true },
+      { title: 'Type', field: 'action_type', minWidth: 180, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'Status', field: 'status', width: 122, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true },
+        formatter: c => {
+          const v = c.getValue() || '';
+          const tone = v === 'Open' ? '#b26500' : v === 'Completed' ? '#2e7d32' : '#777';
+          return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
+        } },
+      { title: 'P/CC', field: 'is_primary', width: 64, hozAlign: 'center',
+        formatter: c => c.getValue() ? 'P' : 'CC' },
+      { title: 'About', field: 'about_member', minWidth: 150 },
+      { title: 'Calling', field: 'about_calling', minWidth: 180 },
+      { title: 'Ward', field: 'ward', width: 116, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'Meeting', field: 'meeting_date', width: 108, formatter: _d },
+      { title: 'Due', field: 'due_date', width: 102, formatter: _d },
+      { title: 'Completed', field: 'completed_at', width: 110, formatter: _d },
+    ],
+  },
+};
+
+// ── demo data ─────────────────────────────────────────────────────────────
+// A demo window must never reach the real database — demo links get shared.
+function demoRows(which) {
+  const W = '6-7th Ward';
+  if (which === 'business') return [
+    { meeting_date:'2026-08-16', member:'Porter Gladwell', calling:'Elders Quorum President',
+      ward:W, action:'Called', where_:'Ward', released:'Marcus Fielding',
+      w16:true, w19:false, w24:false, w25:false, w27:false, w32:false, w33:false, w49:false },
+    { meeting_date:'2026-08-23', member:'Sadie Larkspur', calling:'Stake Relief Society Secretary',
+      ward:'24th Ward', action:'Called', where_:'Stake', released:null,
+      w16:true, w19:true, w24:true, w25:true, w27:true, w32:true, w33:true, w49:true },
+  ];
+  if (which === 'chart') {
+    const c = o => Object.assign({ calling:'', recommended_by:null, approved_by:null,
+      sustaining_body:'Ward', called_and_set_apart_by:null, conducts_sustaining:null,
+      can_be_submitted_by:null, check_for_consultation:null, requires_temple_recommend:false,
+      requires_aaronic:false, requires_elder:false, requires_high_priest:false,
+      stake_interview:null, note_to_submitter:null, approval_level:null, extend_routing:null,
+      wait_for_counselors:null, sustaining_title:null, set_apart_routing:null, add_to_lcr:null,
+      secondary_approvers:null, update_chart:false, name_tag:null, key_type:null,
+      kindoo:false, extra_note:null, times_used:0 }, o);
+    return [
+      c({ calling:'Elders Quorum President', recommended_by:'Bishop', requires_elder:true,
+          approved_by:'Stake presidency and high council', conducts_sustaining:'High Councilor',
+          can_be_submitted_by:'Bishop', requires_temple_recommend:true,
+          extend_routing:'SPC', set_apart_routing:'SPC', approval_level:'SP & HC', times_used:4 }),
+      c({ calling:'Stake Institute Representative', sustaining_body:'Stake',
+          conducts_sustaining:'Stake Presidency', can_be_submitted_by:'Stake Presidency',
+          extend_routing:'SPB/HC', set_apart_routing:'SPB/HC', name_tag:'Yes', times_used:1 }),
+      c({ calling:'Ward Organist', recommended_by:'Bishopric', can_be_submitted_by:'Bishop',
+          conducts_sustaining:'High Councilor', times_used:2 }),
+    ];
+  }
+  if (which === 'tasks') return [
+    { assignee:'Bro. Demoson (you)', action_type:'extend-calling', status:'Open', is_primary:true,
+      about_member:'Porter Gladwell', about_calling:'Elders Quorum President', ward:W,
+      meeting_date:null, due_date:null, completed_at:null },
+    { assignee:'Pres. Smith', action_type:'set-apart', status:'Completed', is_primary:true,
+      about_member:'Sadie Larkspur', about_calling:'Stake Relief Society Secretary',
+      ward:'24th Ward', meeting_date:null, due_date:null, completed_at:'2026-08-24' },
+  ];
+  const r = o => Object.assign({ sheet_ref:null, member:'', calling:'', ward:W, action:'Called',
+    ctr:null, priesthood_gender:null, releases:null, release_gender:null, release_ward:null,
+    sustaining_body:'Ward', submitter:'Pres. Smith', on_behalf_of:null, comments:null,
+    interview_status:null, poll_ready:true, urgency:'normal', status:'submitted',
+    approved_count:0, awaiting:0, accepted:false, counselors_approved:false,
+    release_extended:false, stake_business_date:null, held:false, added_to_stake_business:false,
+    sustained:false, updated_in_lcr:false, secondary_approval:false, set_apart:false,
+    marked_set_apart_lcr:false, name_tag:false, key_done:false, drive_updated:false,
+    chart_updated:false, declined:false, task_center:null }, o);
+  const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  return [
+    r({ member:'Porter Gladwell', calling:'Elders Quorum President', releases:'Marcus Fielding',
+        release_ward:W, release_gender:'Male', priesthood_gender:'Elder', ctr:'Yes',
+        status:'complete', approved_count:15, stake_business_date:'2026-08-16',
+        accepted:true, counselors_approved:true, release_extended:true,
+        added_to_stake_business:true, sustained:true, updated_in_lcr:true, set_apart:true,
+        marked_set_apart_lcr:true, key_done:true, task_center:'Complete - 8/23/2026' }),
+    r({ member:'Sadie Larkspur', calling:'Stake Relief Society Secretary', ward:'24th Ward',
+        sustaining_body:'Stake', priesthood_gender:'Female', status:'approved',
+        approved_count:15, stake_business_date:soon, accepted:true, name_tag:true,
+        task_center:'Awaiting sustaining' }),
+    r({ member:'Tanner Holbrook', calling:'High Councilor', ward:'32nd Ward',
+        sustaining_body:'Stake', priesthood_gender:'High Priest', status:'approved',
+        approved_count:14, awaiting:1, stake_business_date:'2026-08-30', accepted:true,
+        task_center:'Phase 2 (HC)' }),
+    r({ member:'Emmett Rowe', calling:'Stake Institute Representative', sustaining_body:'Stake',
+        priesthood_gender:'Elder', status:'polling', approved_count:3, awaiting:12, held:true,
+        interview_status:'Needed', comments:'Waiting on the bishop.', task_center:'Phase 1 (SP)' }),
+    r({ member:'Desmond Marchetti', calling:'Ward Clerk', action:'Released', status:'complete',
+        approved_count:15, stake_business_date:'2026-08-09', release_extended:true,
+        added_to_stake_business:true, sustained:true, updated_in_lcr:true,
+        task_center:'Released - 8/9/2026' }),
+    r({ member:'Rosalind Vance', calling:'Stake Young Single Adult Advisor',
+        ward:'Cherry Hill 9th Ward', sustaining_body:'Stake', priesthood_gender:'Female',
+        status:'approved', approved_count:15, accepted:true,
+        comments:'Called from her home ward, outside the stake.', task_center:'Out-of-unit call' }),
+    r({ member:'Alma Rutherford', calling:'Stake Auditor', ward:'27th Ward',
+        sustaining_body:'None', status:'canceled', approved_count:15,
+        task_center:'Canceled' }),
+    r({ member:'Bethany Cordell', calling:'Ward Organist', status:'paused',
+        approved_count:6, awaiting:9, task_center:'Paused — awaiting bishop' }),
+  ];
+}
+
+// ── shell ─────────────────────────────────────────────────────────────────
+function renderTabs() {
+  document.getElementById('tabs').innerHTML = Object.keys(TABS).map(k =>
+    `<button class="tab${k === tab ? ' active' : ''}" onclick="switchTab('${k}')">`
+    + TABS[k].label
+    + (counts[k] != null ? `<span class="n">${counts[k]}</span>` : '')
+    + '</button>').join('');
+}
+
+function renderLegend() {
+  const items = tab === 'callings' ? [
+    ['var(--cf-released-bg)', 'a release'],
+    ['transparent', '<span style="color:var(--cf-stake-fg);font-weight:700">stake</span> / '
+      + '<span style="color:var(--cf-ward-fg);font-weight:700">ward</span> sustaining'],
+    ['var(--cf-ticked)', 'done'],
+    ['var(--cf-na-bg)', 'not needed for this calling'],
+    ['var(--cf-due-bg)', 'stake business within a week, not yet added'],
+    ['var(--cf-allapproved)', 'everyone has approved'],
+    ['var(--cf-canceled)', 'canceled / declined'],
+    ['var(--cf-paused)', 'paused'],
+  ] : [];
+  const el = document.getElementById('legend');
+  el.hidden = !items.length;
+  el.innerHTML = items.map(([c, l]) =>
+    (c === 'transparent' ? '' : `<i style="background:${c}"></i>`) + l).join('');
+}
+
+function switchTab(k) {
+  if (k === tab) return;
+  tab = k;
+  document.getElementById('search').value = '';
+  renderTabs(); renderLegend(); load();
+}
+
+function applyFilter() {
+  if (!grid) return;
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  const st = document.getElementById('statusFilter').value || '';
+  if (!q && !st) { grid.clearFilter(); return; }
+  grid.setFilter(row => {
+    if (st && row.status !== st) return false;
+    if (!q) return true;
+    return Object.values(row).some(v => v != null && String(v).toLowerCase().includes(q));
+  });
+}
+
+async function load() {
+  const spec = TABS[tab];
+  const box = document.getElementById('grid');
+  const t0 = Date.now();
+  if (grid) { try { grid.destroy(); } catch (e) {} grid = null; }
+  box.innerHTML = '<p style="padding:16px;color:#777;font-size:13px">Loading…</p>';
+
+  // status dropdown, per table
+  const sf = document.getElementById('statusFilter');
+  sf.hidden = !spec.statuses;
+  if (spec.statuses) {
+    sf.innerHTML = '<option value="">All statuses</option>'
+      + spec.statuses.map(s => `<option value="${s}">${s}</option>`).join('');
+  }
+
+  try {
+    const rows = DEMO ? demoRows(tab) : await sbSelect(spec.view, 'select=*&order=' + spec.order);
+    const ms = Date.now() - t0;
+    box.innerHTML = '';
+    grid = new Tabulator(box, {
+      data: rows, layout: 'fitDataStretch', height: '100%',
+      placeholder: 'Nothing here', columns: spec.cols,
+      rowFormatter: spec.rowFormatter || undefined,
+    });
+    counts[tab] = rows.length;
+    renderTabs();
+    document.getElementById('meta').textContent = DEMO
+      ? rows.length + ' sample rows'
+      : rows.length + ' rows · ' + ms + 'ms';
+  } catch (e) {
+    box.innerHTML = '<p style="padding:16px;color:#b3261e;font-size:13px">Could not load: '
+      + esc(e.message || e) + '</p>';
+  }
+}
+
+function reload() {
+  const b = document.getElementById('reloadBtn');
+  b.disabled = true; b.textContent = '…';
+  load().finally(() => { b.disabled = false; b.textContent = '↻ Refresh'; });
+}
+
+// boot
+(function () {
+  const banner = document.getElementById('banner');
+  if (DEMO) {
+    banner.hidden = false;
+    banner.className = 'banner demo';
+    banner.innerHTML = '🎓 <b>Demo</b> — sample rows only. Edits stay on screen and are saved nowhere.';
+  } else if (!USER_ID) {
+    banner.hidden = false;
+    banner.className = 'banner err';
+    banner.textContent = 'Opened without a user, so nothing can be saved. Reopen from Admin Tools → Sheet Views.';
+  }
+  document.getElementById('who').textContent = USER_NAME ? '· ' + USER_NAME : '';
+  renderTabs(); renderLegend(); load();
+})();
+</script>
+</body>
+</html>
