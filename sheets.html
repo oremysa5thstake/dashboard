@@ -66,13 +66,13 @@
   }
   .banner.demo{background:#e8f5e9;border-bottom-color:#b9dfbc}
   .banner.err{background:#fdecea;border-bottom-color:#f5c2bd;color:#8a1c12}
-  /* Headers wrap onto two lines instead of truncating, so a label is always readable. */
-  .tabulator .tabulator-header .tabulator-col .tabulator-col-title{
-    white-space:normal;text-overflow:clip;overflow:visible;line-height:1.25;
-  }
-  .tabulator .tabulator-header{white-space:normal}
-  .tabulator .tabulator-col{vertical-align:bottom}
-  /* Approver columns are narrow; stand their names up to save width. */
+  /* Header wrapping is Tabulator's own job — `headerWordWrap: true` adds
+     .tabulator-col-title-wrap, which sets white-space:normal on the title only.
+     Do NOT put white-space:normal on .tabulator-header itself: the header relies
+     on nowrap to lay its columns out in a single line and translate them
+     horizontally in step with the body. Overriding it stops the header scrolling. */
+  .tabulator .tabulator-col-title-wrap{line-height:1.25}
+  /* Approver columns are narrow; shrink their labels rather than truncate them. */
   .tabulator .tabulator-col.approver .tabulator-col-title{
     font-size:11px;letter-spacing:-.01em;
   }
@@ -884,6 +884,7 @@ async function load() {
       width: savedWidths[c.field] || c.width,
       // Every header gets its full text on hover, so a narrowed column is still readable.
       headerTooltip: c.headerTooltip || String(c.title),
+      headerWordWrap: true,
     }));
     grid = new Tabulator(box, {
       data: rows, layout: 'fitDataStretch', height: '100%',
