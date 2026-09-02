@@ -2706,6 +2706,25 @@
     // piling up copies.
     //
     // Nothing about the grids is duplicated here: sheets.html is the only copy.
+    // Pull every mirrored sheet into Supabase now, rather than waiting for the hourly
+    // run. Useful straight after editing the sheet directly.
+    async function runSheetSync() {
+      const b = document.getElementById('syncBtn');
+      if (b) { b.disabled = true; b.textContent = '🔄 Syncing…'; }
+      try {
+        const r = await performAction('syncSheets', {});
+        if (r && r.success === false) throw new Error(r.error || 'sync failed');
+        const n = r && r.applied
+          ? Object.entries(r.applied).map(([k, v]) => k + ' ' + v).join(' · ')
+          : 'done';
+        showToast('Synced — ' + n, 'success');
+      } catch (e) {
+        showToast('Sync failed: ' + (e.message || e), 'error');
+      } finally {
+        if (b) { b.disabled = false; b.innerHTML = '🔄 Sync Sheet → Database <span style="opacity:.75;">· hourly</span>'; }
+      }
+    }
+
     function openSheetViews() {
       const p = new URLSearchParams();
       if (DEMO_MODE) {
@@ -2891,6 +2910,7 @@
       // reason to scan raw tables.
       if (userData && (userData.isClerk || userData.isExecSec)) {
         tools += '<button class="btn btn-primary" onclick="openSheetViews()">📋 Sheet Views <span style="opacity:.75;">· 7 tables, in a new tab</span></button>';
+        tools += '<button class="btn btn-secondary" onclick="runSheetSync()" id="syncBtn">🔄 Sync Sheet → Database <span style="opacity:.75;">· hourly</span></button>';
       }
       tools += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       tools += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';
