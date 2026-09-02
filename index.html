@@ -2714,14 +2714,21 @@
         p.set('userId', userId || '');
         if (userData && userData.userName) p.set('name', String(userData.userName));
       }
-      // No window features — passing any makes browsers open a popup window instead
-      // of a tab. A bare name gives a normal tab that is reused on repeat clicks.
-      const win = window.open('sheets.html?' + p.toString(), 'sheetviews');
-      if (!win) {
-        showToast('Your browser blocked the tab — allow pop-ups for this site.', 'error');
-        return;
-      }
-      try { win.focus(); } catch (e) {}
+      // A clicked <a target="..."> — not window.open. Two reasons:
+      //  1. This dashboard's manifest is display:standalone, so when it runs as an
+      //     installed PWA there is no tab bar and window.open can only make a window.
+      //     An anchor hands off to the real browser, where it lands as a tab.
+      //  2. Even in a normal browser, window.open with a name is treated as a popup
+      //     request by some browsers; a user-activated anchor is not.
+      // The named target means repeat clicks reuse the same tab rather than stacking.
+      const a = document.createElement('a');
+      a.href = 'sheets.html?' + p.toString();
+      a.target = 'sheetviews';
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => a.remove(), 0);
     }
 
     function renderAwaySection() {
@@ -2883,7 +2890,7 @@
       // Clerks and secretaries only; the presidency also sees Admin Tools but has no
       // reason to scan raw tables.
       if (userData && (userData.isClerk || userData.isExecSec)) {
-        tools += '<button class="btn btn-primary" onclick="openSheetViews()">📋 Sheet Views <span style="opacity:.75;">· opens in a new tab</span></button>';
+        tools += '<button class="btn btn-primary" onclick="openSheetViews()">📋 Sheet Views <span style="opacity:.75;">· 7 tables, in a new tab</span></button>';
       }
       tools += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       tools += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';

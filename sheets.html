@@ -601,6 +601,79 @@ const TABS = {
     ],
   },
 
+  ordinations: {
+    label: '🤝 Ordinations', view: 'v_clerk_ordinations', order: 'created_at.desc',
+    statuses: ['submitted','interviewed','polling','approved','sustained','ordained','complete','declined','paused','canceled'],
+    cols: [
+      { title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input', frozen: true },
+      { title: 'Ward', field: 'ward', width: 120, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'Office', field: 'office', width: 110, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'Status', field: 'status', width: 118, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true },
+        formatter: c => {
+          const v = c.getValue() || '';
+          const tone = v === 'ordained' || v === 'complete' ? '#2e7d32'
+            : (v === 'paused' || v === 'canceled') ? '#7a4a00'
+            : v === 'declined' ? '#c62828' : '#555';
+          return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
+        } },
+      { title: 'Submitted By', field: 'submitted_by', minWidth: 145 },
+      { title: 'Stake Interview', field: 'stake_interview_at', width: 128, formatter: _d },
+      { title: 'Anticipated Sustaining', field: 'anticipated_sustaining_date', width: 150, formatter: _d },
+      { title: 'Preferred Ordination', field: 'preferred_ordination_date', width: 148, formatter: _d },
+      '@APPROVERS@',
+      { title: 'Approved', field: 'approved_count', width: 86, hozAlign: 'right' },
+      { title: 'Sustained', field: 'sustained_at', width: 108, formatter: _d },
+      { title: 'Date Ordained', field: 'ordained_at', width: 118, formatter: _d },
+      { title: 'Ordainer', field: 'ordainer', minWidth: 155 },
+      { title: 'Ordainer Office', field: 'ordainer_office', width: 130 },
+      { title: 'Stake Rep', field: 'stake_rep', minWidth: 145 },
+      { title: 'Stake Rep Calling', field: 'stake_rep_calling', minWidth: 165 },
+      { title: 'On LCR', field: 'recorded_on_lcr', width: 86, hozAlign: 'center', formatter: 'tickCross' },
+      { title: 'Cert. Printed', field: 'certificate_printed', width: 110, hozAlign: 'center', formatter: 'tickCross' },
+      { title: 'Signed', field: 'certificate_signed', width: 86, hozAlign: 'center', formatter: 'tickCross' },
+      { title: 'Delivered', field: 'certificate_delivered', width: 96, hozAlign: 'center', formatter: 'tickCross' },
+      { title: 'Ratified', field: 'ratified', width: 86, hozAlign: 'center', formatter: 'tickCross' },
+    ],
+  },
+
+  roster: {
+    label: '👥 Stake Callings', view: 'v_clerk_roster', order: 'sort_order.asc',
+    cols: [
+      { title: 'Calling', field: 'calling', minWidth: 230, headerFilter: 'input', frozen: true },
+      { title: 'Title Name', field: 'title_name', minWidth: 145 },
+      { title: 'First & Last Name', field: 'name', minWidth: 180, headerFilter: 'input' },
+      { title: 'Slack UserID', field: 'slack_id', width: 145 },
+      { title: 'Email', field: 'email', minWidth: 210 },
+      { title: 'Phone', field: 'phone', width: 135 },
+      { title: 'Ward', field: 'ward', width: 125, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'Supervisor', field: 'supervisor', minWidth: 155 },
+      { title: 'Active', field: 'active', width: 80, hozAlign: 'center', formatter: 'tickCross' },
+    ],
+  },
+
+  settings: {
+    label: '🔧 Settings', view: 'v_clerk_settings', order: 'key.asc',
+    cols: [
+      { title: 'Setting', field: 'key', minWidth: 280, headerFilter: 'input', frozen: true },
+      { title: 'Value', field: 'value', minWidth: 150,
+        formatter: c => {
+          const v = String(c.getValue() ?? '');
+          if (/^(true|false)$/i.test(v)) {
+            const on = /^true$/i.test(v);
+            return '<span style="font-weight:700;color:' + (on ? '#2e7d32' : '#999') + '">'
+              + (on ? 'TRUE' : 'FALSE') + '</span>';
+          }
+          return esc(v);
+        } },
+      { title: 'What it does', field: 'description', minWidth: 340 },
+      { title: 'Updated', field: 'updated_at', width: 120, formatter: _d },
+    ],
+  },
+
   tasks: {
     label: '✅ Action Items', view: 'v_clerk_action_items', order: 'created_at.desc',
     statuses: ['Open','Completed','Acknowledged','Dismissed','Bypassed'],
@@ -661,6 +734,46 @@ function demoRows(which) {
           conducts_sustaining:'High Councilor', times_used:2 }),
     ];
   }
+  if (which === 'ordinations') return [
+    { member:'Dallin Whitmer', ward:W, office:'Elder', status:'ordained',
+      submitted_by:'Bishop Ledger', stake_interview_at:'2026-08-02',
+      anticipated_sustaining_date:'2026-08-09', preferred_ordination_date:'2026-08-16',
+      votes:Object.fromEntries(['D_SP','D_1C','D_2C',...Array.from({length:12},(_,i)=>'D_HC'+i)]
+        .map(k=>[k,'approve'])), approved_count:15,
+      sustained_at:'2026-08-09', ordained_at:'2026-08-16', ordainer:'Bro. Demoson (you)',
+      ordainer_office:'High Priest', ordainer_mrn:null, stake_rep:'Pres. Nielsen',
+      stake_rep_calling:'Stake Presidency Second Counselor', recorded_on_lcr:true,
+      certificate_printed:true, certificate_signed:true, certificate_delivered:false,
+      ratified:false },
+    { member:'Tanner Holbrook', ward:'32nd Ward', office:'High Priest', status:'approved',
+      submitted_by:'Pres. Smith', stake_interview_at:'2026-08-24',
+      anticipated_sustaining_date:'2026-08-30', preferred_ordination_date:null,
+      votes:{ D_SP:'approve', D_1C:'approve', D_2C:'approve' }, approved_count:3,
+      sustained_at:null, ordained_at:null, ordainer:null, ordainer_office:null,
+      ordainer_mrn:null, stake_rep:null, stake_rep_calling:null, recorded_on_lcr:false,
+      certificate_printed:false, certificate_signed:false, certificate_delivered:false,
+      ratified:false },
+  ];
+  if (which === 'roster') return [
+    { calling:'Stake President', title_name:'Pres. Smith', name:'Nathan Smith',
+      slack_id:'D_SP', email:'sp@example.org', phone:'801-555-0101', ward:null,
+      supervisor:null, active:true },
+    { calling:'Stake Presidency First Counselor', title_name:'Pres. Plothow',
+      name:'Devon Plothow', slack_id:'D_1C', email:'1c@example.org',
+      phone:'801-555-0102', ward:null, supervisor:null, active:true },
+    { calling:'High Councilor', title_name:'Bro. Demoson', name:'Aaron Demoson',
+      slack_id:'D_HC0', email:'hc@example.org', phone:'801-555-0110', ward:W,
+      supervisor:'Pres. Plothow', active:true },
+  ];
+  if (which === 'settings') return [
+    { key:'poll_phases_separately', value:'false',
+      description:'Poll the presidency first, then the high council', updated_at:'2026-08-31' },
+    { key:'sustain_all_wards_before_set_apart', value:'true',
+      description:'For stake callings, wait for every ward to sustain before creating the setting-apart task',
+      updated_at:'2026-08-31' },
+    { key:'retention_days_completed', value:'30',
+      description:'How long completed action items stay visible', updated_at:'2026-08-31' },
+  ];
   if (which === 'tasks') return [
     { assignee:'Bro. Demoson (you)', action_type:'extend-calling', status:'Open', is_primary:true,
       about_member:'Porter Gladwell', about_calling:'Elders Quorum President', ward:W,
@@ -852,7 +965,7 @@ function applyFilter() {
 }
 
 async function load() {
-  if (tab === 'callings' && !APPROVERS.length) await loadApprovers();
+  if ((tab === 'callings' || tab === 'ordinations') && !APPROVERS.length) await loadApprovers();
   const spec = TABS[tab];
   // The approver columns depend on the roster, which is fetched — splice them in
   // at the placeholder now that it is known.
