@@ -1157,6 +1157,7 @@
       // Stake Business Assignments — clerks/secretaries/presidency. Lazily loaded.
       if (!DEMO_MODE && data.canReassign) {
         html += renderAssignmentsSection();
+        html += renderBlockedReleasesSection();
       }
 
       // Out-of-town dates — anyone who can be asked to conduct stake business.
@@ -2586,6 +2587,77 @@
     // A dashboard view of the assignments sheet so clerks don't have to open Sheets.
     // Collapsed and lazily fetched — it is reference data, not a task.
     let _assignmentsLoaded = false;
+    let _assignmentsData = { rows: [] };
+    let _conductingCandidates = null;
+
+    // Releases waiting on a calling row to finish approval. A release whose calling was
+    // declined, canceled or paused stays blocked on purpose — somebody has to decide whether
+    // to release the member anyway or drop the release. Without this panel that decision is
+    // invisible, which is the whole reason the gate surfaces rather than acting on its own.
+    let _blockedLoaded = false;
+
+    function renderBlockedReleasesSection() {
+      let html = '<div class="section"><div class="section-header" onclick="toggleBlockedReleases()"><div class="section-title">⏸️ Releases on hold</div><div class="section-meta"><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-blockedreleases"><div class="section-inner" id="blockedReleasesBody">';
+      html += '<div class="item-meta">Loading…</div>';
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function toggleBlockedReleases() {
+      toggleSection('blockedreleases');
+      if (!_blockedLoaded) { _blockedLoaded = true; loadBlockedReleases(); }
+    }
+
+    async function loadBlockedReleases() {
+      const box = document.getElementById('blockedReleasesBody');
+      if (!box) return;
+      try {
+        const d = await performAction('blockedReleases', {});
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not load');
+        box.innerHTML = renderBlockedReleasesBody(d);
+      } catch (e) {
+        box.innerHTML = '<div class="item-meta">Couldn\'t load: ' + escapeHtmlDisplay(e.message) + '</div>';
+      }
+    }
+
+    const BLOCKED_REASONS = {
+      'pending-approval': ['Waiting on approval', 'The calling is still going through approval. The release will be created on its own once that finishes — nothing to do here.'],
+      'declined': ['Calling was declined', 'The new calling was declined, so this release is on hold. Decide whether they should still be released.'],
+      'canceled': ['Calling was canceled', 'The new calling was canceled, so this release is on hold. Decide whether they should still be released.'],
+      'paused': ['Calling is paused', 'The new calling is paused. The release stays on hold until it resumes.'],
+      'missing': ['Linked calling not found', 'The row this release was waiting on is gone. Clear column AY on the release row to let it through.']
+    };
+
+    function renderBlockedReleasesBody(d) {
+      const rows = d.blocked || [];
+      if (!rows.length) return '<div class="item-meta">No releases are on hold.</div>';
+
+      // Anything that is merely still in approval needs no attention; the rest might.
+      const waiting = rows.filter(r => r.reason === 'pending-approval');
+      const needsAttention = rows.filter(r => r.reason !== 'pending-approval');
+
+      let h = '';
+      if (needsAttention.length) {
+        h += '<div class="item-meta" style="margin-bottom:10px;color:#b42318;"><b>' + needsAttention.length
+           + ' release' + (needsAttention.length === 1 ? '' : 's') + ' need a decision.</b></div>';
+      }
+      [].concat(needsAttention, waiting).forEach(r => {
+        const info = BLOCKED_REASONS[r.reason] || [r.reason, ''];
+        const urgent = r.reason !== 'pending-approval';
+        h += '<div class="item"' + (urgent ? ' style="border-left:3px solid #b42318;"' : '') + '>'
+          + '<div class="item-title">' + escapeHtmlDisplay(r.member) + ' — ' + escapeHtmlDisplay(r.calling)
+          + (r.ward ? ' <span class="item-meta">(' + escapeHtmlDisplay(r.ward) + ')</span>' : '') + '</div>'
+          + '<div class="item-meta" style="margin-top:4px;"><b>' + escapeHtmlDisplay(info[0]) + '</b> — ' + escapeHtmlDisplay(info[1]) + '</div>'
+          + '<div class="item-meta" style="margin-top:4px;">Waiting on: '
+          + escapeHtmlDisplay(r.waitingOnMember || '(unknown)')
+          + (r.waitingOnCalling ? ' — ' + escapeHtmlDisplay(r.waitingOnCalling) : '')
+          + (r.waitingOnRow ? ' · row ' + r.waitingOnRow : '')
+          + ' · release on row ' + r.row + '</div>'
+          + '</div>';
+      });
+      return h;
+    }
 
     function renderAssignmentsSection() {
       let html = '<div class="section"><div class="section-header" onclick="toggleAssignments()"><div class="section-title">🗓️ Stake Business Assignments</div><div class="section-meta">' + helpBtn('assignments') + '<span class="chevron">▼</span></div></div>';
@@ -2604,8 +2676,13 @@
       const box = document.getElementById('assignmentsBody');
       if (!box) return;
       try {
-        const d = await performAction('getStakeBusinessAssignments', {});
+        const [d, cand] = await Promise.all([
+          performAction('getStakeBusinessAssignments', {}),
+          _conductingCandidates ? Promise.resolve(_conductingCandidates)
+                                : performAction('conductingCandidates', {})
+        ]);
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not load assignments');
+        if (cand && cand.success) _conductingCandidates = cand;
         box.innerHTML = renderAssignmentsBody(d);
       } catch (e) {
         box.innerHTML = '<div class="item-meta">Couldn\'t load the assignments: ' + escapeHtmlDisplay(e.message) + '</div>';
@@ -2613,6 +2690,7 @@
     }
 
     function renderAssignmentsBody(d) {
+      _assignmentsData = d;
       const rows = d.rows || [];
       const anyShuffled = rows.some(r => r.shuffled);
       let h = '<div class="item-meta" style="margin-bottom:10px;">Conducting assignments for <b>' + escapeHtmlDisplay(d.sunday) + '</b>. Edit a name to change who is asked on Thursday.</div>';
@@ -2632,7 +2710,7 @@
         h += '<tr>'
           + '<td><b>' + escapeHtmlDisplay(r.ward) + '</b><div class="item-meta" style="font-size:11px;">' + escapeHtmlDisplay(r.building) + (r.room ? ' · ' + escapeHtmlDisplay(r.room) : '') + '</div></td>'
           + '<td style="white-space:nowrap;">' + escapeHtmlDisplay(r.meeting) + '</td>'
-          + '<td>' + escapeHtmlDisplay(r.conducting || '—') + '</td>'
+          + '<td>' + conductingCell(r) + '</td>'
           + '<td>' + assignCell(r.row, 'wardHC', r.wardHC) + (r.wardHCAway ? awayTag : '')
             + (r.shuffled ? '<div class="item-meta" style="font-size:11px;">normally ' + escapeHtmlDisplay(r.normalWardHC) + '</div>' : '') + '</td>'
           + '<td>' + assignCell(r.row, 'backupHC', r.backupHC) + (r.backupHCAway ? awayTag : '') + '</td>'
@@ -2657,6 +2735,89 @@
       }
       h += '</div>';
       return h;
+    }
+
+    // Who is conducting. A dropdown of the high council and stake presidency, plus the
+    // literal states the sheet already uses. Picking somebody only stages the choice — the
+    // clerk then either asks them to confirm or records them as already confirmed, because
+    // those do different things to the action items.
+    const CONDUCTING_LITERALS = ['Stake Presidency', 'N/A', 'Needs Replacement'];
+
+    function conductingCell(r) {
+      const id = 'conducting_' + r.row;
+      const cur = r.conducting || '';
+      const people = (_conductingCandidates && _conductingCandidates.people) || [];
+      // Whatever is in the cell now must remain selectable even if it is somebody who has
+      // since left the high council — otherwise opening the menu silently changes the value.
+      const known = people.some(p => p.name === cur) || CONDUCTING_LITERALS.indexOf(cur) !== -1;
+
+      let h = '<select id="' + id + '" class="form-input" style="font-size:13px;padding:5px 7px;min-width:150px;"'
+            + ' onchange="onConductingPick(' + r.row + ')">';
+      h += '<option value=""' + (cur ? '' : ' selected') + '>—</option>';
+      if (cur && !known) h += '<option value="' + escapeHtml(cur) + '" selected>' + escapeHtmlDisplay(cur) + '</option>';
+      CONDUCTING_LITERALS.forEach(v => {
+        h += '<option value="' + escapeHtml(v) + '"' + (v === cur ? ' selected' : '') + '>' + escapeHtmlDisplay(v) + '</option>';
+      });
+      ['Stake Presidency', 'High Council'].forEach(group => {
+        const inGroup = people.filter(p => p.group === group);
+        if (!inGroup.length) return;
+        h += '<optgroup label="' + escapeHtml(group) + '">';
+        inGroup.forEach(p => {
+          h += '<option value="' + escapeHtml(p.name) + '" data-id="' + escapeHtml(p.id) + '"'
+             + (p.name === cur ? ' selected' : '') + '>' + escapeHtmlDisplay(p.name)
+             + (p.away ? ' (away)' : '') + '</option>';
+        });
+        h += '</optgroup>';
+      });
+      h += '</select>';
+      h += '<div id="' + id + '_actions" style="margin-top:5px;"></div>';
+      return h;
+    }
+
+    function onConductingPick(row) {
+      const sel = document.getElementById('conducting_' + row);
+      const box = document.getElementById('conducting_' + row + '_actions');
+      if (!sel || !box) return;
+      const opt = sel.options[sel.selectedIndex];
+      const personId = opt ? (opt.getAttribute('data-id') || '') : '';
+      const name = sel.value;
+      if (!name) { box.innerHTML = ''; return; }
+
+      // A literal like "N/A" is a state, not somebody who can be asked to confirm.
+      let h = '';
+      if (personId) {
+        h += '<button class="btn btn-primary btn-sm" onclick="setConducting(' + row + ', \'request\', this)">Ask to confirm</button> ';
+      }
+      h += '<button class="btn btn-secondary btn-sm" onclick="setConducting(' + row + ', \'confirm\', this)">Mark confirmed</button>';
+      box.innerHTML = h;
+    }
+
+    async function setConducting(row, mode, btn) {
+      const sel = document.getElementById('conducting_' + row);
+      const box = document.getElementById('conducting_' + row + '_actions');
+      if (!sel) return;
+      const opt = sel.options[sel.selectedIndex];
+      const personId = opt ? (opt.getAttribute('data-id') || '') : '';
+      const ward = (_assignmentsData.rows.find(x => x.row === row) || {}).ward;
+      if (!ward) return;
+
+      if (btn) { btn.disabled = true; btn.textContent = mode === 'request' ? 'Asking…' : 'Saving…'; }
+      setSyncing(true);
+      try {
+        const d = await performAction('setConducting', { ward: ward, mode: mode, personId: personId, name: sel.value });
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
+        let msg = mode === 'request'
+          ? 'Asked ' + d.person + ' to confirm'
+          : d.person + ' recorded as conducting';
+        if (d.closedTasks) msg += ' · closed ' + d.closedTasks + ' open item' + (d.closedTasks === 1 ? '' : 's');
+        showToast(msg, 'success');
+        if (box) box.innerHTML = '';
+        _assignmentsLoaded = true;
+        await loadAssignments();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = mode === 'request' ? 'Ask to confirm' : 'Mark confirmed'; }
+      } finally { setSyncing(false); }
     }
 
     function assignCell(row, field, value, wide) {
