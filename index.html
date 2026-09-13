@@ -1794,6 +1794,13 @@
           : spOptions;
         const selectPrompt = item.allowHC ? 'Select SP member or HC...' : 'Select SP member...';
 
+        // Why this landed here. Only set when the calling did NOT reach the bin by design —
+        // a missing high councilor, a blank column Q — so it doubles as "here is what to fix
+        // in the sheet so the next one routes itself".
+        const binReasonInfo = item.binReason
+          ? `<div class="item-meta" style="margin-top:4px;color:#856404;background:#fff8e1;border-left:3px solid #f0c000;padding:5px 8px;border-radius:3px;">⚠️ ${escapeHtmlDisplay(item.binReason)}</div>`
+          : '';
+
         // Collapsed "record response" drawer — for callings already extended without ever
         // assigning an extender here, so you don't have to assign someone just to mark it.
         // A release-scope task has no accept/decline, only "release extended".
@@ -1816,6 +1823,7 @@
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
           ${assignedInfo}
+          ${binReasonInfo}
           <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <select id="extAssignSp_${item.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
