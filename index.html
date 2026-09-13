@@ -837,16 +837,29 @@
         const url = `${API_URL}?${urlParams.toString()}`;
 
         const _t0 = performance.now();
-        const response = await fetch(url, {
-          method: 'GET'
-        });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        // Apps Script intermittently answers /exec with its own "Page Not Found" (HTTP 404)
+        // even for routes that exist — measured at roughly 1 request in 3 for a spell after a
+        // deployment, across every action including ones untouched for months. It is transient
+        // infrastructure behaviour, not a missing route, and the same URL succeeds moments
+        // later. Retrying a couple of times turns a visible error into a slightly slower load.
+        //
+        // Only 404 and 5xx are retried: those are the transient shapes. A real failure comes
+        // back as HTTP 200 with success:false and is thrown below without retrying, so a
+        // genuine "Not authorized" still surfaces immediately.
+        let response, attempt = 0;
+        for (;;) {
+          response = await fetch(url, { method: 'GET' });
+          if (response.ok) break;
+          const transient = response.status === 404 || response.status >= 500;
+          if (!transient || attempt >= 2) throw new Error(`HTTP ${response.status}`);
+          attempt++;
+          await new Promise(r => setTimeout(r, 400 * attempt));
         }
 
         const result = await response.json();
         recordPerf(action, performance.now() - _t0, result);
+        if (attempt) console.warn('performAction(' + action + ') succeeded after ' + attempt + ' retr' + (attempt === 1 ? 'y' : 'ies'));
 
         if (!result.success) {
           throw new Error(result.error || 'Action failed');
