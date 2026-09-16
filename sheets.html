@@ -126,6 +126,7 @@
     <button onclick="toggleColPanel(event)" id="colBtn">⚙ Columns</button>
     <div class="colpanel" id="colPanel" hidden></div>
   </span>
+  <button onclick="addBusinessRow()" id="addRowBtn" hidden>＋ Add row</button>
   <button onclick="reload()" id="reloadBtn">↻ Refresh</button>
   <span class="meta" id="meta"></span>
 </div>
@@ -363,6 +364,75 @@ async function saveCell(cell, gridName, keyField) {
   }
 }
 
+// ── Stake Business cells ──────────────────────────────────────────────────
+// A separate save path from ed()/saveCell(): the Stake Business sheet has its own route
+// (sbUpdateCell), its own key (col R "Row ID" rather than a timestamp), and a wider audience —
+// the stake presidency may edit here, which they may not on the Calling Approvals grid.
+async function saveBusinessCell(cell) {
+  const row = cell.getRow().getData();
+  const field = cell.getField();
+  const before = cell.getOldValue();
+  const el = cell.getElement();
+
+  if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
+  if (!USER_ID) {
+    cell.setValue(before, true);
+    toast('No user — reopen this window from the dashboard', 'err');
+    return;
+  }
+  if (el) el.style.outline = '2px solid #f0b429';
+  try {
+    const v = cell.getValue();
+    const params = new URLSearchParams({
+      action: 'sbUpdateCell', userId: USER_ID,
+      rowKey: String(row.rowId ?? ''), field: field,
+      value: v === null || v === undefined ? '' : v
+    });
+    const data = await apiJson(API_URL + '?' + params.toString());
+    if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    if (el) {
+      el.style.outline = '2px solid #4caf50';
+      setTimeout(() => { el.style.outline = ''; }, 900);
+    }
+    // Sustained-ness can change with the row, so the grouping may be stale now.
+    if (field === 'meeting_date' || field === 'where_') scheduleRegroup();
+  } catch (e) {
+    cell.setValue(before, true);          // the sheet did not change; do not pretend it did
+    if (el) el.style.outline = '';
+    toast('Not saved: ' + (e.message || e), 'err');
+  }
+}
+
+function edSB(col, editor, params) {
+  return Object.assign({}, col, {
+    editor: editor || 'input',
+    editorParams: params || {},
+    cellEdited: saveBusinessCell,
+  });
+}
+
+// A date or Where change can move a row between groups. Reload rather than guess, but only
+// once per burst of edits.
+let _regroupTimer = null;
+function scheduleRegroup() {
+  clearTimeout(_regroupTimer);
+  _regroupTimer = setTimeout(() => { load(); }, 1200);
+}
+
+// fetch + JSON with the same transient-404 retry the dashboard uses: Apps Script intermittently
+// answers /exec with its own "Page Not Found" for routes that exist.
+async function apiJson(url) {
+  let attempt = 0;
+  for (;;) {
+    const r = await fetch(url);
+    if (r.ok) return r.json();
+    const transient = r.status === 404 || r.status >= 500;
+    if (!transient || attempt >= 2) throw new Error('HTTP ' + r.status);
+    attempt++;
+    await new Promise(res => setTimeout(res, 400 * attempt));
+  }
+}
+
 function ed(col, gridName, keyField, editor, params) {
   return Object.assign({}, col, {
     editor: editor || 'input',
@@ -517,26 +587,46 @@ const TABS = {
     ],
   },
 
+  // The Sunday agenda. Read through the Apps Script API rather than the Supabase view, because
+  // the grid needs two things the view cannot give it: the sheet's own Row ID (col R), and a
+  // `sustained` flag. Sustained is NOT the ward tick boxes — those are how each ward reports a
+  // STAKE sustaining, and ward-level rows barely use them (13 of 147 on 2026-09-16). It comes
+  // from Calling Approvals col AO, or the Priesthood Ordinations sheet for an "Ordain" row.
   business: {
-    label: '📅 Stake Business', view: 'v_clerk_stake_business', order: 'meeting_date.desc',
+    label: '📅 Stake Business', api: 'sbQueue', key: 'rowId', addRow: true,
+    groupBy: '_group',
+    groupHeader: (value, count) => esc(value) + ' <span style="opacity:.6">(' + count + ')</span>',
+    // Newest first inside each group; the queue arrives in sheet order.
+    sort: (a, b) => String(b.meeting_date || '').localeCompare(String(a.meeting_date || '')),
+    decorate: (rows, today) => rows.forEach(r => {
+      r._group = r.sustained ? 'Reported'
+        : (String(r.meeting_date || '') >= today ? '📣 Coming up — not yet sustained'
+                                                 : '⚠️ Past, never recorded');
+    }),
     cols: (() => {
-      const t = c => c.getValue()
-        ? '<span style="color:#1a3a6b;font-weight:700">✓</span>'
-        : '<span style="opacity:.25">·</span>';
+      const WARDS = ['16th Ward','19th Ward','24th Ward','25th Ward','27th Ward','32nd Ward','33rd Ward','49th Ward'];
       const base = [
-        { title: 'Date', field: 'meeting_date', width: 112, formatter: _d, frozen: true },
-        { title: 'Member', field: 'member', minWidth: 160, headerFilter: 'input' },
-        { title: 'Calling', field: 'calling', minWidth: 195, headerFilter: 'input' },
-        { title: 'Ward', field: 'ward', width: 118, headerFilter: 'list',
-          headerFilterParams: { valuesLookup: true, clearable: true } },
-        { title: 'Action', field: 'action', width: 100 },
-        { title: 'Where', field: 'where_', width: 82, headerFilter: 'list',
-          headerFilterParams: { valuesLookup: true, clearable: true } },
-        { title: 'Released', field: 'released', minWidth: 140 },
+        edSB({ title: 'Date', field: 'meeting_date', width: 118, frozen: true }, 'input'),
+        edSB({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input' }, 'input'),
+        edSB({ title: 'Calling', field: 'calling', minWidth: 200, headerFilter: 'input' }, 'input'),
+        edSB({ title: 'Ward', field: 'ward', width: 122, headerFilter: 'list',
+               headerFilterParams: { valuesLookup: true, clearable: true } },
+             'list', { values: [''].concat(WARDS), autocomplete: true, freetext: true }),
+        edSB({ title: 'Action', field: 'action', width: 128 },
+             'list', { values: ['Sustain', 'Release', 'Ordain', 'Sustain & Ordain'] }),
+        edSB({ title: 'Where', field: 'where_', width: 86, headerFilter: 'list',
+               headerFilterParams: { valuesLookup: true, clearable: true } },
+             'list', { values: ['Ward', 'Stake', 'None'] }),
+        edSB({ title: 'Gender', field: 'gender', width: 92 },
+             'list', { values: ['', 'Male', 'Female'] }),
+        edSB({ title: 'On LCR', field: 'lcr', width: 82, hozAlign: 'center',
+               formatter: tickFormatter }, 'tickCross'),
       ];
-      ['16th','19th','24th','25th','27th','32nd','33rd','49th'].forEach((w, i) => {
-        base.push({ title: w, field: 'w' + w.replace(/\D/g, ''), width: 58,
-          hozAlign: 'center', formatter: t });
+      // The eight per-ward report boxes. Only meaningful for a Stake item, but editable on any
+      // row — a clerk correcting history should not be second-guessed by the grid.
+      ['16th','19th','24th','25th','27th','32nd','33rd','49th'].forEach(w => {
+        base.push(edSB({ title: w, field: 'w' + w.replace(/\D/g, ''), width: 58,
+                         hozAlign: 'center', formatter: tickFormatter }, 'tickCross'));
       });
       return base;
     })(),
@@ -979,6 +1069,9 @@ async function load() {
   box.innerHTML = '<p style="padding:16px;color:#777;font-size:13px">Loading…</p>';
 
   // status dropdown, per table
+  const addBtn = document.getElementById('addRowBtn');
+  if (addBtn) addBtn.hidden = !spec.addRow;
+
   const sf = document.getElementById('statusFilter');
   sf.hidden = !spec.statuses;
   if (spec.statuses) {
@@ -987,7 +1080,22 @@ async function load() {
   }
 
   try {
-    const rows = DEMO ? demoRows(tab) : await sbSelect(spec.view, 'select=*&order=' + spec.order);
+    // A tab with `api` reads through Apps Script instead of Supabase — Stake Business needs the
+    // sheet's Row ID and a computed `sustained` flag, neither of which the Supabase view has.
+    let rows, today = '';
+    if (DEMO) {
+      rows = demoRows(tab);
+      today = new Date().toISOString().slice(0, 10);
+    } else if (spec.api) {
+      const d = await apiJson(API_URL + '?action=' + spec.api + '&userId=' + encodeURIComponent(USER_ID || ''));
+      if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+      rows = d.rows || [];
+      today = d.today || new Date().toISOString().slice(0, 10);
+    } else {
+      rows = await sbSelect(spec.view, 'select=*&order=' + spec.order);
+    }
+    if (spec.decorate) spec.decorate(rows, today);
+    if (spec.sort) rows.sort(spec.sort);
     const ms = Date.now() - t0;
     box.innerHTML = '';
     const hidden = new Set(hiddenFor(tab));
@@ -1005,6 +1113,11 @@ async function load() {
       rowFormatter: spec.rowFormatter || undefined,
       movableColumns: true,
       columnDefaults: { resizable: true, headerWordWrap: true },
+      groupBy: spec.groupBy || undefined,
+      groupHeader: spec.groupHeader || undefined,
+      // Everything still to happen opens; the settled history stays folded away.
+      groupStartOpen: spec.groupStartOpen
+        || (g => String(g).indexOf('Reported') === -1),
     });
     grid.on('columnResized', col => {
       try { rememberWidth(col.getField(), col.getWidth()); } catch (e) {}
@@ -1018,6 +1131,49 @@ async function load() {
   } catch (e) {
     box.innerHTML = '<p style="padding:16px;color:#b3261e;font-size:13px">Could not load: '
       + esc(e.message || e) + '</p>';
+  }
+}
+
+// Add a row straight to the Stake Business sheet. This bypasses the approval pipeline — there
+// is no Calling Approvals row behind it — so it asks first and says so plainly. It is for
+// corrections and genuine one-offs; the recommendation form is the normal route.
+async function addBusinessRow() {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!USER_ID) { toast('No user — reopen this window from the dashboard', 'err'); return; }
+
+  const member = prompt('Who is this for?  (full name)');
+  if (!member) return;
+  const calling = prompt('Which calling?');
+  if (!calling) return;
+  const action = prompt('Action — Sustain, Release, Ordain, or Sustain & Ordain', 'Sustain');
+  if (!action) return;
+  const ward = prompt('Ward  (blank for a stake-wide item)', '') || '';
+  const where = (prompt('Read in one ward or every ward?  Ward / Stake / None',
+                        ward ? 'Ward' : 'Stake') || 'Ward');
+  const date = prompt('Stake business date  (yyyy-mm-dd, blank = the next one)', '') || '';
+
+  if (!confirm(
+      'Add ' + member + ' — ' + calling + ' (' + action + ')?\n\n'
+    + 'This goes straight onto the Sunday agenda and does NOT go through the approval '
+    + 'pipeline, so there will be no Calling Approvals row behind it.')) return;
+
+  const btn = document.getElementById('addRowBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  try {
+    // `action` is the route; the row's own action travels as `rowAction`.
+    const params = new URLSearchParams({
+      action: 'sbAddRow', userId: USER_ID,
+      member: member, calling: calling, rowAction: action,
+      ward: ward, where_: where, meeting_date: date
+    });
+    const data = await apiJson(API_URL + '?' + params.toString());
+    if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    toast('Added to the agenda');
+    load();
+  } catch (e) {
+    toast('Not added: ' + (e.message || e), 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '＋ Add row'; }
   }
 }
 
