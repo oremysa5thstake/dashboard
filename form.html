@@ -475,7 +475,23 @@
       var qs = new URLSearchParams();
       qs.set('action', action);
       if (params) { for (var k in params) { if (params.hasOwnProperty(k)) qs.set(k, params[k] == null ? '' : params[k]); } }
-      return fetch(API_URL + '?' + qs.toString(), { method: 'GET' }).then(function (r) { return r.json(); });
+      var url = API_URL + '?' + qs.toString();
+
+      // Apps Script intermittently answers /exec with its own "Page Not Found" for routes that
+      // exist — measured at 5 of 14 requests after a deployment. Surfacing that as an error
+      // made people submit the form again, which is one of the ways duplicates were created.
+      // Retry 404 and 5xx twice; a real failure arrives as HTTP 200 with success:false.
+      var attempt = 0;
+      function go() {
+        return fetch(url, { method: 'GET' }).then(function (r) {
+          if (r.ok) return r.json();
+          var transient = r.status === 404 || r.status >= 500;
+          if (!transient || attempt >= 2) throw new Error('HTTP ' + r.status);
+          attempt++;
+          return new Promise(function (res) { setTimeout(res, 400 * attempt); }).then(go);
+        });
+      }
+      return go();
     }
 
     var formData = {
@@ -1576,7 +1592,16 @@
 
     function ri(l, v) { return '<div class="review-item"><span class="review-label">' + l + '</span><span class="review-value">' + (v || '-') + '</span></div>'; }
 
+    // Set while a submission is in flight. The submit button is hidden behind the loading page
+    // (.page is display:none), but a tap already queued keeps its original target and its
+    // handler still runs — so a fast triple-tap called submitForm() three times and produced
+    // three identical rows on 2026-09-13 and 2026-09-15. Cleared only when the submission
+    // fails, so the button genuinely can be used again after a real error.
+    var isSubmitting = false;
+
     function submitForm() {
+      if (isSubmitting) return;
+      isSubmitting = true;
       hideError(7);
       document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
       document.getElementById('loadingPage').classList.add('active');
@@ -1594,7 +1619,7 @@
     }
 
     function handleSubmitSuccess(r) { r = r || {}; if (r.success) { clearDraft(); document.getElementById('successMessage').textContent = r.message || 'Your submission has been recorded.'; document.getElementById('loadingPage').classList.remove('active'); document.getElementById('successPage').classList.add('active'); } else { handleSubmitError(r.message || r.error || 'Submission failed'); } }
-    function handleSubmitError(e) { document.getElementById('loadingPage').classList.remove('active'); document.getElementById('page7').classList.add('active'); document.getElementById('progressBar').style.display = 'flex'; showError(7, 'Error: ' + (e.message || e)); }
+    function handleSubmitError(e) { isSubmitting = false; document.getElementById('loadingPage').classList.remove('active'); document.getElementById('page7').classList.add('active'); document.getElementById('progressBar').style.display = 'flex'; showError(7, 'Error: ' + (e.message || e)); }
 
     function resetForm() {
       clearDraft();
