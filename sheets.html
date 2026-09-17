@@ -403,6 +403,51 @@ async function saveBusinessCell(cell) {
   }
 }
 
+// A cell on a sheet-backed grid (roster, ordinations). Same route as the Supabase-backed
+// grids — updateGridCell — but the row key comes from the sheet read, and `expect` guards a
+// row-number key against somebody inserting a row since the grid loaded.
+async function saveGridCell(cell, gridName) {
+  const row = cell.getRow().getData();
+  const field = cell.getField();
+  const before = cell.getOldValue();
+  const el = cell.getElement();
+
+  if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
+  if (!USER_ID) {
+    cell.setValue(before, true);
+    toast('No user — reopen this window from the dashboard', 'err');
+    return;
+  }
+  if (el) el.style.outline = '2px solid #f0b429';
+  try {
+    const v = cell.getValue();
+    const qs = {
+      action: 'updateGridCell', userId: USER_ID, grid: gridName,
+      rowKey: String(row._key ?? ''), field: field,
+      value: v === null || v === undefined ? '' : v
+    };
+    if (row._expect !== undefined) qs.expect = String(row._expect);
+    const data = await apiJson(API_URL + '?' + new URLSearchParams(qs).toString());
+    if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    if (el) {
+      el.style.outline = '2px solid #4caf50';
+      setTimeout(() => { el.style.outline = ''; }, 900);
+    }
+  } catch (e) {
+    cell.setValue(before, true);          // the sheet did not change; do not pretend it did
+    if (el) el.style.outline = '';
+    toast('Not saved: ' + (e.message || e), 'err');
+  }
+}
+
+function edG(col, gridName, editor, params) {
+  return Object.assign({}, col, {
+    editor: editor || 'input',
+    editorParams: params || {},
+    cellEdited: cell => saveGridCell(cell, gridName),
+  });
+}
+
 function edSB(col, editor, params) {
   return Object.assign({}, col, {
     editor: editor || 'input',
@@ -691,57 +736,86 @@ const TABS = {
     ],
   },
 
+  // Sheet-backed and editable, like the roster. The approver vote columns (L-Z) and the
+  // sustaining-report flag are deliberately absent — those are written by the approval flow
+  // and the Sunday cascade, and hand-editing them would desync the cascade.
+  //
+  // Careful with types here: `sustained` and `ratified` are DATES on this sheet, though
+  // `sustained` is a checkbox on Calling Approvals. The backend keeps per-grid type maps.
   ordinations: {
-    label: '🤝 Ordinations', view: 'v_clerk_ordinations', order: 'created_at.desc',
-    statuses: ['submitted','interviewed','polling','approved','sustained','ordained','complete','declined','paused','canceled'],
+    label: '🤝 Ordinations', api: 'gridRows', apiGrid: 'ordinations', key: '_key', grid: 'ordinations',
+    statuses: ['submitted','interviewed','sustained','ordained','paused','canceled'],
     cols: [
-      { title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input', frozen: true },
-      { title: 'Ward', field: 'ward', width: 120, headerFilter: 'list',
-        headerFilterParams: { valuesLookup: true, clearable: true } },
-      { title: 'Office', field: 'office', width: 110, headerFilter: 'list',
-        headerFilterParams: { valuesLookup: true, clearable: true } },
-      { title: 'Status', field: 'status', width: 118, headerFilter: 'list',
+      edG({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input', frozen: true }, 'ordinations'),
+      // Derived, not stored — read-only on purpose. Change the dates and the status follows.
+      { title: 'Status', field: 'status', width: 120, headerFilter: 'list',
         headerFilterParams: { valuesLookup: true, clearable: true },
         formatter: c => {
           const v = c.getValue() || '';
-          const tone = v === 'ordained' || v === 'complete' ? '#2e7d32'
-            : (v === 'paused' || v === 'canceled') ? '#7a4a00'
-            : v === 'declined' ? '#c62828' : '#555';
+          const tone = v === 'ordained' ? '#2e7d32'
+            : (v === 'paused' || v === 'canceled') ? '#7a4a00' : '#555';
           return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
         } },
-      { title: 'Submitted By', field: 'submitted_by', minWidth: 145 },
-      { title: 'Stake Interview', field: 'stake_interview_at', width: 128, formatter: _d },
-      { title: 'Anticipated Sustaining', field: 'anticipated_sustaining_date', width: 150, formatter: _d },
-      { title: 'Preferred Ordination', field: 'preferred_ordination_date', width: 148, formatter: _d },
-      '@APPROVERS@',
-      { title: 'Approved', field: 'approved_count', width: 86, hozAlign: 'right' },
-      { title: 'Sustained', field: 'sustained_at', width: 108, formatter: _d },
-      { title: 'Date Ordained', field: 'ordained_at', width: 118, formatter: _d },
-      { title: 'Ordainer', field: 'ordainer', minWidth: 155 },
-      { title: 'Ordainer Office', field: 'ordainer_office', width: 130 },
-      { title: 'Stake Rep', field: 'stake_rep', minWidth: 145 },
-      { title: 'Stake Rep Calling', field: 'stake_rep_calling', minWidth: 165 },
-      { title: 'On LCR', field: 'recorded_on_lcr', width: 86, hozAlign: 'center', formatter: 'tickCross' },
-      { title: 'Cert. Printed', field: 'certificate_printed', width: 110, hozAlign: 'center', formatter: 'tickCross' },
-      { title: 'Signed', field: 'certificate_signed', width: 86, hozAlign: 'center', formatter: 'tickCross' },
-      { title: 'Delivered', field: 'certificate_delivered', width: 96, hozAlign: 'center', formatter: 'tickCross' },
-      { title: 'Ratified', field: 'ratified', width: 86, hozAlign: 'center', formatter: 'tickCross' },
+      edG({ title: 'Ward', field: 'ward', width: 122, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'ordinations'),
+      edG({ title: 'Office', field: 'office', width: 118, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'ordinations',
+          'list', { values: ['', 'Deacon', 'Teacher', 'Priest', 'Elder', 'High Priest'] }),
+      edG({ title: 'Submitted By', field: 'submitted_by', minWidth: 145 }, 'ordinations'),
+      edG({ title: 'Priority', field: 'urgency', width: 104 }, 'ordinations',
+          'list', { values: ['', 'Standard', 'Urgent', 'Paused', 'Canceled'] }),
+      edG({ title: 'Bishop Interview', field: 'bishop_interview_date', width: 130 }, 'ordinations'),
+      edG({ title: 'Bishop Submitted', field: 'bishop_submission_date', width: 132 }, 'ordinations'),
+      // Free text, not a date: this column holds "HP Calling" as often as a date.
+      edG({ title: 'Stake Interview', field: 'stake_interview_at', width: 130 }, 'ordinations'),
+      edG({ title: 'Anticipated Sustaining', field: 'anticipated_sustaining_date', width: 152 }, 'ordinations'),
+      edG({ title: 'Preferred Ordination', field: 'preferred_ordination_date', width: 150 }, 'ordinations'),
+      edG({ title: 'Added to SB', field: 'added_to_stake_business', width: 104, hozAlign: 'center',
+            formatter: tickFormatter }, 'ordinations', 'tickCross'),
+      edG({ title: 'Sustained', field: 'sustained', width: 116 }, 'ordinations'),
+      edG({ title: 'Date Ordained', field: 'ordained_at', width: 122 }, 'ordinations'),
+      edG({ title: 'Ordainer', field: 'ordainer', minWidth: 155 }, 'ordinations'),
+      edG({ title: 'Ordainer Birthdate', field: 'ordainer_birthdate', width: 140 }, 'ordinations'),
+      edG({ title: 'Ordainer MRN', field: 'ordainer_mrn', width: 140 }, 'ordinations'),
+      edG({ title: 'Ordainer Office', field: 'ordainer_office', width: 132 }, 'ordinations',
+          'list', { values: ['', 'Elder', 'High Priest'] }),
+      edG({ title: 'Stake Rep', field: 'stake_rep', minWidth: 145 }, 'ordinations'),
+      edG({ title: 'Stake Rep Calling', field: 'stake_rep_calling', minWidth: 165 }, 'ordinations'),
+      edG({ title: 'On LCR', field: 'recorded_on_lcr', width: 88, hozAlign: 'center',
+            formatter: tickFormatter }, 'ordinations', 'tickCross'),
+      edG({ title: 'Cert. Printed', field: 'certificate_printed', width: 112, hozAlign: 'center',
+            formatter: tickFormatter }, 'ordinations', 'tickCross'),
+      edG({ title: 'Signed', field: 'certificate_signed', width: 88, hozAlign: 'center',
+            formatter: tickFormatter }, 'ordinations', 'tickCross'),
+      edG({ title: 'Delivered', field: 'certificate_delivered', width: 98, hozAlign: 'center',
+            formatter: tickFormatter }, 'ordinations', 'tickCross'),
+      edG({ title: 'Ratified', field: 'ratified', width: 110 }, 'ordinations'),
     ],
   },
 
+  // Read through Apps Script, not the Supabase view: an edit here must be visible on the next
+  // refresh, and the mirror RPC only understands the callings and chart grids. The roster is
+  // also the sheet most worth getting right — ward text, Slack IDs and the supervisor column
+  // are what the routing reads, and several bugs have come from typos in them.
   roster: {
-    label: '👥 Stake Callings', view: 'v_clerk_roster', order: 'sort_order.asc',
+    label: '👥 Stake Callings', api: 'gridRows', apiGrid: 'roster', key: '_key', grid: 'roster',
     cols: [
-      { title: 'Calling', field: 'calling', minWidth: 230, headerFilter: 'input', frozen: true },
-      { title: 'Title Name', field: 'title_name', minWidth: 145 },
-      { title: 'First & Last Name', field: 'name', minWidth: 180, headerFilter: 'input' },
-      { title: 'Slack UserID', field: 'slack_id', width: 145 },
-      { title: 'Email', field: 'email', minWidth: 210 },
-      { title: 'Phone', field: 'phone', width: 135 },
-      { title: 'Ward', field: 'ward', width: 125, headerFilter: 'list',
-        headerFilterParams: { valuesLookup: true, clearable: true } },
-      { title: 'Supervisor', field: 'supervisor', minWidth: 155 },
-      { title: 'Active', field: 'active', width: 80, hozAlign: 'center', formatter: 'tickCross' },
+      edG({ title: 'Calling', field: 'calling', minWidth: 230, headerFilter: 'input', frozen: true }, 'roster'),
+      edG({ title: 'Title Name', field: 'title_name', minWidth: 145 }, 'roster'),
+      edG({ title: 'First & Last Name', field: 'name', minWidth: 180, headerFilter: 'input' }, 'roster'),
+      edG({ title: 'Slack UserID', field: 'slack_id', width: 150 }, 'roster'),
+      edG({ title: 'Email', field: 'email', minWidth: 210 }, 'roster'),
+      edG({ title: 'Phone', field: 'phone', width: 135 }, 'roster'),
+      edG({ title: 'Ward', field: 'ward', width: 130, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'roster'),
+      edG({ title: 'First Responsibility', field: 'first_responsibility', minWidth: 165 }, 'roster'),
+      edG({ title: 'Second Responsibility', field: 'second_responsibility', minWidth: 165 }, 'roster'),
+      edG({ title: 'Presidency', field: 'presidency', width: 130 }, 'roster'),
+      edG({ title: 'Supervisor Slack ID', field: 'supervisor', minWidth: 160 }, 'roster'),
+      edG({ title: 'Primary Notifications', field: 'primary_pref', width: 150 }, 'roster',
+          'list', { values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] }),
+      edG({ title: "CC'd Notifications", field: 'cc_pref', width: 150 }, 'roster',
+          'list', { values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] }),
     ],
   },
 
@@ -1087,7 +1161,9 @@ async function load() {
       rows = demoRows(tab);
       today = new Date().toISOString().slice(0, 10);
     } else if (spec.api) {
-      const d = await apiJson(API_URL + '?action=' + spec.api + '&userId=' + encodeURIComponent(USER_ID || ''));
+      const d = await apiJson(API_URL + '?action=' + spec.api
+        + '&userId=' + encodeURIComponent(USER_ID || '')
+        + (spec.apiGrid ? '&grid=' + encodeURIComponent(spec.apiGrid) : ''));
       if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
       rows = d.rows || [];
       today = d.today || new Date().toISOString().slice(0, 10);
