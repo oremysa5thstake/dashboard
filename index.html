@@ -1734,6 +1734,15 @@
               <input type="time" id="saAssignTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <button class="btn btn-primary" onclick="assignSettingApart('${item.actionId}', this, true)">Schedule &amp; Assign</button>
             </div>
+            <div style="margin-top:10px;border-top:1px solid #eee;padding-top:8px;width:100%;">
+              <span onclick="toggleSaRecord('${item.actionId}')" style="cursor:pointer;font-size:13px;color:#5865F2;user-select:none;">
+                <span id="saRecordCaret_${item.actionId}">▸</span> Already done?
+              </span>
+              <div id="saRecord_${item.actionId}" style="display:none;margin-top:8px;">
+                <div class="item-meta" style="margin-bottom:6px;">Set apart already, without assigning it here? Record it directly — this completes the task and marks them set apart, the same as finishing the assigned one would.</div>
+                <button class="btn btn-success btn-sm" onclick="recordSettingApartDone('${item.actionId}', this)">✓ It was already done</button>
+              </div>
+            </div>
           </div>
           ${renderCallingControls(item)}
         </div>`;
@@ -1741,6 +1750,36 @@
 
       html += '</div></div></div>';
       return html;
+    }
+
+    function toggleSaRecord(actionId) {
+      const box = document.getElementById('saRecord_' + actionId);
+      const caret = document.getElementById('saRecordCaret_' + actionId);
+      if (!box) return;
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      if (caret) caret.textContent = open ? '▸' : '▾';
+    }
+
+    // The setting apart happened outside the tool. Closes the assign task and marks the member
+    // set apart — the same end state as assigning somebody and then completing that task.
+    async function recordSettingApartDone(actionId, btn) {
+      if (!confirm('Record this setting apart as already done?\n\nThis completes the task and marks them set apart.')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        const d = await performAction('recordSettingApartDone', { itemId: actionId });
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not record');
+        if (itemEl) itemEl.remove();
+        showToast(d.ordinationTask
+          ? 'Recorded — and the Record Ordination form is now waiting for you'
+          : 'Recorded as set apart', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = 'auto'; }
+        showToast('Error: ' + e.message, 'error');
+      } finally { setSyncing(false); }
     }
 
     // withSchedule=false → assign with no time set; true → requires a date + time.
