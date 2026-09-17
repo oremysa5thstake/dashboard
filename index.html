@@ -1170,6 +1170,7 @@
       // Stake Business Assignments — clerks/secretaries/presidency. Lazily loaded.
       if (!DEMO_MODE && data.canReassign) {
         html += renderAssignmentsSection();
+        html += renderBlockoutSection();
         html += renderBlockedReleasesSection();
       }
 
@@ -2616,6 +2617,101 @@
     // to release the member anyway or drop the release. Without this panel that decision is
     // invisible, which is the whole reason the gate surfaces rather than acting on its own.
     let _blockedLoaded = false;
+
+    // Sundays with no stake business — stake conference, general conference, a cancelled
+    // meeting. Nothing schedules onto them, and anything already there moves to the next
+    // open Sunday. Clerks and secretaries set them; the presidency can see them.
+    let _blockoutsLoaded = false;
+
+    function renderBlockoutSection() {
+      let html = '<div class="section"><div class="section-header" onclick="toggleBlockouts()"><div class="section-title">🚫 Stake Business blockout dates</div><div class="section-meta"><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content" id="section-blockouts"><div class="section-inner" id="blockoutsBody">';
+      html += '<div class="item-meta">Loading…</div>';
+      html += '</div></div></div>';
+      return html;
+    }
+
+    function toggleBlockouts() {
+      toggleSection('blockouts');
+      if (!_blockoutsLoaded) { _blockoutsLoaded = true; loadBlockouts(); }
+    }
+
+    async function loadBlockouts() {
+      const box = document.getElementById('blockoutsBody');
+      if (!box) return;
+      try {
+        const d = await performAction('sbBlockouts', {});
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not load');
+        box.innerHTML = renderBlockoutBody(d);
+      } catch (e) {
+        box.innerHTML = '<div class="item-meta">Couldn\'t load: ' + escapeHtmlDisplay(e.message) + '</div>';
+      }
+    }
+
+    function renderBlockoutBody(d) {
+      const rows = d.blockouts || [];
+      const today = new Date().toISOString().slice(0, 10);
+      const upcoming = rows.filter(r => r.date >= today);
+      const past = rows.filter(r => r.date < today);
+
+      let h = '<div class="item-meta" style="margin-bottom:10px;">Stake business is never scheduled on these Sundays. Anything due on one moves to the next Sunday that is open.'
+        + (d.nextOpen ? ' Next open Sunday: <b>' + escapeHtmlDisplay(d.nextOpen) + '</b>.' : '') + '</div>';
+
+      h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">'
+        + '<input type="date" id="blockoutDate" class="form-input" style="max-width:170px;font-size:13px;padding:6px;">'
+        + '<input type="text" id="blockoutReason" class="form-input" placeholder="Reason (e.g. Stake conference)" style="flex:1 1 200px;min-width:170px;font-size:13px;padding:6px;">'
+        + '<button class="btn btn-primary btn-sm" onclick="addBlockout(this)">Block this Sunday</button>'
+        + '</div>';
+
+      if (!upcoming.length) h += '<div class="item-meta">No upcoming blockout dates.</div>';
+      else upcoming.forEach(r => {
+        h += '<div class="item"><div class="item-title">' + escapeHtmlDisplay(r.display) + '</div>'
+          + '<div class="item-meta">' + escapeHtmlDisplay(r.reason)
+          + (r.addedBy ? ' · added by ' + escapeHtmlDisplay(r.addedBy) : '') + '</div>'
+          + '<div class="item-actions"><button class="btn btn-secondary btn-sm" onclick="removeBlockout(\'' + r.date + '\', this)">Remove</button></div>'
+          + '</div>';
+      });
+
+      if (past.length) {
+        h += '<div class="item-meta" style="margin-top:14px;padding-top:10px;border-top:1px solid #eee;">Past: '
+          + past.map(r => escapeHtmlDisplay(r.date)).join(' · ') + '</div>';
+      }
+      return h;
+    }
+
+    async function addBlockout(btn) {
+      const date = (document.getElementById('blockoutDate') || {}).value || '';
+      const reason = (document.getElementById('blockoutReason') || {}).value || '';
+      if (!date) { showToast('Pick a Sunday first', 'error'); return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      setSyncing(true);
+      try {
+        const d = await performAction('sbAddBlockout', { date: date, reason: reason });
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
+        if (d.already) showToast('That Sunday was already blocked out', 'success');
+        else if (d.moved && d.moved.length) {
+          showToast('Blocked out · moved ' + d.moved.length + ' item' + (d.moved.length === 1 ? '' : 's') + ' to ' + d.nextOpen, 'success');
+        } else showToast('Blocked out', 'success');
+        loadBlockouts();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally { btn.disabled = false; btn.textContent = 'Block this Sunday'; setSyncing(false); }
+    }
+
+    async function removeBlockout(date, btn) {
+      if (!confirm('Allow stake business on ' + date + ' again?\n\nAnything already moved off it stays where it is.')) return;
+      btn.disabled = true; btn.textContent = '…';
+      setSyncing(true);
+      try {
+        const d = await performAction('sbRemoveBlockout', { date: date });
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not remove');
+        showToast('Removed', 'success');
+        loadBlockouts();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = 'Remove';
+      } finally { setSyncing(false); }
+    }
 
     function renderBlockedReleasesSection() {
       let html = '<div class="section"><div class="section-header" onclick="toggleBlockedReleases()"><div class="section-title">⏸️ Releases on hold</div><div class="section-meta"><span class="chevron">▼</span></div></div>';
