@@ -819,24 +819,41 @@ const TABS = {
     ],
   },
 
+  // The Settings sheet is two unrelated blocks side by side: A/B are the settings, C/D are the
+  // stake links. The grid mirrors the sheet literally — one row per sheet row — rather than
+  // pretending it is one uniform table, because Apps Script reads this sheet by CELL ADDRESS
+  // (B2, B3, B4, B5, C3, C5:D…). Row position is meaningful, so rows must not be reordered.
+  //
+  // It reads through Apps Script rather than v_clerk_settings: that view was showing values
+  // that disagreed with the sheet (fixed in migration 0027), and reading the sheet directly
+  // means the grid can never drift from what the scripts actually use.
   settings: {
-    label: '🔧 Settings', view: 'v_clerk_settings', order: 'key.asc',
+    label: '🔧 Settings', api: 'gridRows', apiGrid: 'settings', key: '_key', grid: 'settings',
     cols: [
-      { title: 'Setting', field: 'key', minWidth: 280, headerFilter: 'input', frozen: true },
-      { title: 'Value', field: 'value', minWidth: 150,
-        formatter: c => {
-          const v = String(c.getValue() ?? '');
-          if (/^(true|false)$/i.test(v)) {
-            const on = /^true$/i.test(v);
-            return '<span style="font-weight:700;color:' + (on ? '#2e7d32' : '#999') + '">'
-              + (on ? 'TRUE' : 'FALSE') + '</span>';
-          }
-          return esc(v);
-        } },
-      { title: 'What it does', field: 'description', minWidth: 340 },
-      { title: 'Updated', field: 'updated_at', width: 120, formatter: _d },
+      { title: 'Row', field: '_row', width: 58, hozAlign: 'right', frozen: true,
+        formatter: c => '<span style="color:#999;font-size:11px">' + esc(c.getValue()) + '</span>' },
+      edG({ title: 'Setting', field: 'label', minWidth: 300, headerFilter: 'input' }, 'settings'),
+      edG({ title: 'Value', field: 'value', minWidth: 130,
+            formatter: c => {
+              const v = String(c.getValue() ?? '');
+              if (/^(true|false)$/i.test(v)) {
+                const on = /^true$/i.test(v);
+                return '<span style="font-weight:700;color:' + (on ? '#2e7d32' : '#999') + '">'
+                  + (on ? 'TRUE' : 'FALSE') + '</span>';
+              }
+              return esc(v);
+            } }, 'settings'),
+      edG({ title: 'Link label', field: 'link_label', minWidth: 200 }, 'settings'),
+      edG({ title: 'Link URL', field: 'link_url', minWidth: 380,
+            formatter: c => {
+              const v = String(c.getValue() ?? '');
+              if (!/^https?:\/\//i.test(v)) return esc(v);
+              return '<a href="' + esc(v) + '" target="_blank" rel="noopener" style="color:#1a3a6b">'
+                + esc(v.length > 70 ? v.slice(0, 68) + '…' : v) + '</a>';
+            } }, 'settings'),
     ],
-  },
+  }
+,
 
   tasks: {
     label: '✅ Action Items', view: 'v_clerk_action_items', order: 'created_at.desc',
