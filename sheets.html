@@ -95,6 +95,47 @@
   .colpanel .pin.on{opacity:1;filter:none;background:#e7f0ff}
   .colpanel .row{min-width:0}
   .colpanel label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* ── Action Items task browser ───────────────────────────────────────── */
+  .tb{display:flex;flex-direction:column;height:100%;min-height:0}
+  .tb-filters{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:10px 14px;
+    border-bottom:1px solid #e2e5e9;background:#fafbfc;flex:none}
+  .tb-filters label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.06em;color:#8a929b}
+  .tb-filters label.grow{flex:1 1 220px}
+  .tb-filters select,.tb-filters input{font:inherit;font-size:13px;font-weight:400;text-transform:none;
+    letter-spacing:0;color:#222;padding:5px 7px;border:1px solid #ccd1d6;border-radius:5px;min-width:130px}
+  .tb-filters .grow input{width:100%}
+  .tb-filters button{font-size:12px;padding:6px 10px;border:1px solid #ccd1d6;background:#fff;
+    border-radius:5px;cursor:pointer}
+  .tb-body{display:flex;flex:1;min-height:0}
+  .tb-list{flex:1 1 48%;overflow:auto;border-right:1px solid #e2e5e9;min-width:0}
+  .tb-detail{flex:1 1 52%;overflow:auto;padding:14px 16px;min-width:0}
+  .tb-row{padding:9px 14px;border-bottom:1px solid #f0f2f4;cursor:pointer}
+  .tb-row:hover{background:#f6f8fa}
+  .tb-row.sel{background:#e7f0ff;box-shadow:inset 3px 0 0 #1a3a6b}
+  .tb-row-top{display:flex;gap:8px;align-items:baseline;font-size:11px}
+  .tb-status{font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+  .tb-type{color:#8a929b}
+  .tb-title{font-size:13.5px;margin:2px 0 1px;line-height:1.35}
+  .tb-sub{font-size:11.5px;color:#777}
+  .tb-empty{padding:18px;color:#888;font-size:13px}
+  .tb-d-title{font-size:15px;font-weight:600;line-height:1.35;margin-bottom:10px}
+  .tb-d-meta{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px;margin-bottom:14px}
+  .tb-f{display:contents}
+  .tb-f span{color:#8a929b}
+  .tb-f b{font-weight:600;word-break:break-word}
+  .tb-lab{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+    color:#8a929b;margin-bottom:10px}
+  .tb-lab select,.tb-lab input,.tb-lab textarea{display:block;width:100%;font:inherit;font-size:13px;
+    font-weight:400;text-transform:none;letter-spacing:0;color:#222;margin-top:3px;padding:6px 8px;
+    border:1px solid #ccd1d6;border-radius:5px;box-sizing:border-box}
+  .tb-acts{display:flex;gap:8px;margin:4px 0 10px}
+  .tb-del,.tb-restore{font-size:13px;padding:7px 12px;border-radius:5px;cursor:pointer;border:1px solid}
+  .tb-del{border-color:#e6b4b4;background:#fff5f5;color:#b3261e}
+  .tb-del:hover{background:#ffeaea}
+  .tb-restore{border-color:#b7d7c0;background:#f2fbf5;color:#1a7a4c}
+  .tb-note{font-size:11.5px;color:#888;line-height:1.5;border-top:1px solid #eee;padding-top:8px}
+  @media (max-width:820px){ .tb-body{flex-direction:column} .tb-list{border-right:0;border-bottom:1px solid #e2e5e9;max-height:45%} }
   .colwrap{position:relative}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:#666;padding:6px 16px;flex:none;background:#fff;border-bottom:1px solid #e2e5e9}
   .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
@@ -902,31 +943,13 @@ const TABS = {
   }
 ,
 
+  // Not a grid. A task is a GROUP of rows -- one primary plus a CC row per person, sharing a
+  // baseId -- so a spreadsheet of rows invites editing or deleting half of one. This tab is a
+  // filter + list + detail panel that works on whole groups. See renderTaskBrowser().
   tasks: {
-    label: '✅ Action Items', view: 'v_clerk_action_items', order: 'created_at.desc',
-    statuses: ['Open','Completed','Acknowledged','Dismissed','Bypassed'],
-    cols: [
-      { title: 'Assignee', field: 'assignee', minWidth: 160, headerFilter: 'input', frozen: true },
-      { title: 'Type', field: 'action_type', minWidth: 180, headerFilter: 'list',
-        headerFilterParams: { valuesLookup: true, clearable: true } },
-      { title: 'Status', field: 'status', width: 122, headerFilter: 'list',
-        headerFilterParams: { valuesLookup: true, clearable: true },
-        formatter: c => {
-          const v = c.getValue() || '';
-          const tone = v === 'Open' ? '#b26500' : v === 'Completed' ? '#2e7d32' : '#777';
-          return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
-        } },
-      { title: 'P/CC', field: 'is_primary', width: 64, hozAlign: 'center',
-        formatter: c => c.getValue() ? 'P' : 'CC' },
-      { title: 'About', field: 'about_member', minWidth: 150 },
-      { title: 'Calling', field: 'about_calling', minWidth: 180 },
-      { title: 'Ward', field: 'ward', width: 116, headerFilter: 'list',
-        headerFilterParams: { valuesLookup: true, clearable: true } },
-      { title: 'Meeting', field: 'meeting_date', width: 108, formatter: _d },
-      { title: 'Due', field: 'due_date', width: 102, formatter: _d },
-      { title: 'Completed', field: 'completed_at', width: 110, formatter: _d },
-    ],
-  },
+    label: '✅ Action Items', custom: 'tasks',
+  }
+,
 };
 
 // ── demo data ─────────────────────────────────────────────────────────────
@@ -1248,6 +1271,17 @@ async function load() {
   if (grid) { try { grid.destroy(); } catch (e) {} grid = null; }
   box.innerHTML = '<p style="padding:16px;color:#777;font-size:13px">Loading…</p>';
 
+  // Tabs that are not tables render themselves and return.
+  if (spec.custom === 'tasks') {
+    document.getElementById('statusFilter').hidden = true;
+    const addBtn = document.getElementById('addRowBtn');
+    if (addBtn) addBtn.hidden = true;
+    document.getElementById('colBtn').hidden = true;
+    await loadTaskBrowser(box, t0);
+    return;
+  }
+  document.getElementById('colBtn').hidden = false;
+
   // status dropdown, per table
   const addBtn = document.getElementById('addRowBtn');
   if (addBtn) addBtn.hidden = !spec.addRow;
@@ -1360,6 +1394,161 @@ async function addBusinessRow() {
     toast('Not added: ' + (e.message || e), 'err');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '＋ Add row'; }
+  }
+}
+
+// ── Action Items: the clerk task browser ──────────────────────────────────
+// A task is a GROUP (one primary row + a CC row per person, sharing a baseId), so everything
+// here — edit, complete, delete — acts on the group. Editing one row is how a task ends up
+// half-done, showing as complete for one person and open for another.
+let TASKS = { groups: [], people: [], types: [], statuses: [] };
+let taskFilters = { assignee: '', type: '', status: '', q: '' };
+let selectedTask = null;
+
+async function loadTaskBrowser(box, t0) {
+  try {
+    const qs = new URLSearchParams({ action: 'aiAdmin', userId: USER_ID || '' });
+    Object.keys(taskFilters).forEach(k => { if (taskFilters[k]) qs.set(k, taskFilters[k]); });
+    const d = await apiJson(API_URL + '?' + qs.toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    TASKS = d;
+    box.innerHTML = renderTaskBrowser(d);
+    counts[tab] = d.total;
+    renderTabs();
+    document.getElementById('meta').textContent =
+      d.total + ' task' + (d.total === 1 ? '' : 's') + ' · ' + (Date.now() - t0) + 'ms';
+  } catch (e) {
+    box.innerHTML = '<p style="padding:16px;color:#b3261e;font-size:13px">Could not load: '
+      + esc(e.message || e) + '</p>';
+  }
+}
+
+function renderTaskBrowser(d) {
+  const opt = (list, cur) => ['<option value=""></option>']
+    .concat(list.map(v => '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>'))
+    .join('');
+  return `
+  <div class="tb">
+    <div class="tb-filters">
+      <label>Person
+        <select onchange="setTaskFilter('assignee', this.value)">${opt(d.people, taskFilters.assignee)}</select>
+      </label>
+      <label>Type
+        <select onchange="setTaskFilter('type', this.value)">${opt(d.types, taskFilters.type)}</select>
+      </label>
+      <label>Status
+        <select onchange="setTaskFilter('status', this.value)">${opt(d.statuses, taskFilters.status)}</select>
+      </label>
+      <label class="grow">Search
+        <input type="search" value="${esc(taskFilters.q)}" placeholder="name, calling, notes…"
+               onchange="setTaskFilter('q', this.value)">
+      </label>
+      <button onclick="clearTaskFilters()">Clear</button>
+    </div>
+    <div class="tb-body">
+      <div class="tb-list">${d.groups.map(renderTaskRow).join('') || '<div class="tb-empty">Nothing matches.</div>'}</div>
+      <div class="tb-detail" id="taskDetail">${selectedTask ? renderTaskDetail(selectedTask) : '<div class="tb-empty">Pick a task on the left.</div>'}</div>
+    </div>
+  </div>`;
+}
+
+const TASK_TONE = { Open: '#b26500', Completed: '#2e7d32', Deleted: '#b3261e', mixed: '#b3261e' };
+
+function renderTaskRow(g) {
+  const p = g.primary || {};
+  const sel = selectedTask && selectedTask.baseId === g.baseId;
+  return `<div class="tb-row${sel ? ' sel' : ''}" onclick="selectTask('${esc(g.baseId)}')">
+    <div class="tb-row-top">
+      <span class="tb-status" style="color:${TASK_TONE[g.status] || '#777'}">${esc(g.status)}</span>
+      <span class="tb-type">${esc(g.actionType)}</span>
+    </div>
+    <div class="tb-title">${esc(g.displayText || '(no description)')}</div>
+    <div class="tb-sub">${esc(p.name || 'unassigned')}${g.ccs.length ? ' + ' + g.ccs.length + ' CC' : ''}
+      · ${esc(g.created)}${g.dueDate ? ' · due ' + esc(g.dueDate) : ''}</div>
+  </div>`;
+}
+
+function renderTaskDetail(g) {
+  const p = g.primary || {};
+  const row = (k, v) => v ? `<div class="tb-f"><span>${esc(k)}</span><b>${esc(v)}</b></div>` : '';
+  const isDeleted = g.status === 'Deleted';
+  return `
+    <div class="tb-d-title">${esc(g.displayText || '(no description)')}</div>
+    <div class="tb-d-meta">
+      ${row('Type', g.actionType)}
+      ${row('Status', g.status)}
+      ${row('Assigned to', p.name)}
+      ${g.ccs.length ? row('CC', g.ccs.map(c => c.name).filter(Boolean).join(', ')) : ''}
+      ${row('Created', g.created)}
+      ${row('Created by', g.createdByName || g.createdBy)}
+      ${row('Reference', g.referenceId)}
+      ${row('Completed', g.completedDate)}
+      ${row('Completed by', g.completedBy)}
+      ${row('Rows in this task', String(g.rowCount))}
+    </div>
+    <label class="tb-lab">Status
+      <select onchange="saveTask('${esc(g.baseId)}','status',this.value)">
+        ${TASKS.statuses.map(v => '<option' + (v === g.status ? ' selected' : '') + '>' + esc(v) + '</option>').join('')}
+      </select>
+    </label>
+    <label class="tb-lab">Due date
+      <input type="date" value="${esc((g.dueDate || '').slice(0, 10))}"
+             onchange="saveTask('${esc(g.baseId)}','dueDate',this.value)">
+    </label>
+    <label class="tb-lab">Notes
+      <textarea rows="4" onchange="saveTask('${esc(g.baseId)}','notes',this.value)">${esc(g.notes || '')}</textarea>
+    </label>
+    <div class="tb-acts">
+      ${isDeleted
+        ? `<button class="tb-restore" onclick="deleteTask('${esc(g.baseId)}', true)">↺ Restore</button>`
+        : `<button class="tb-del" onclick="deleteTask('${esc(g.baseId)}', false)">🗑 Delete task</button>`}
+    </div>
+    <div class="tb-note">Every change applies to all ${g.rowCount} row${g.rowCount === 1 ? '' : 's'} of this task, so the person assigned and everyone CC'd stay in step. Deleting is recoverable — the rows are kept and hidden.</div>`;
+}
+
+function selectTask(baseId) {
+  selectedTask = TASKS.groups.find(g => g.baseId === baseId) || null;
+  document.getElementById('taskDetail').innerHTML =
+    selectedTask ? renderTaskDetail(selectedTask) : '';
+  document.querySelectorAll('.tb-row').forEach(el => el.classList.remove('sel'));
+  const rows = [...document.querySelectorAll('.tb-row')];
+  const idx = TASKS.groups.findIndex(g => g.baseId === baseId);
+  if (rows[idx]) rows[idx].classList.add('sel');
+}
+
+function setTaskFilter(k, v) { taskFilters[k] = v; selectedTask = null; load(); }
+function clearTaskFilters() { taskFilters = { assignee: '', type: '', status: '', q: '' }; selectedTask = null; load(); }
+
+async function saveTask(baseId, field, value) {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!USER_ID) { toast('No user — reopen from the dashboard', 'err'); return; }
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({
+      action: 'aiUpdate', userId: USER_ID, baseId, field, value: value == null ? '' : value
+    }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    toast('Saved to ' + d.rows + ' row' + (d.rows === 1 ? '' : 's'));
+    load();
+  } catch (e) {
+    toast('Not saved: ' + (e.message || e), 'err');
+  }
+}
+
+async function deleteTask(baseId, restore) {
+  const g = TASKS.groups.find(x => x.baseId === baseId);
+  const n = g ? g.rowCount : '?';
+  if (!restore && !confirm('Delete this task?\n\n' + (g ? g.displayText : '')
+      + '\n\nIt disappears from every dashboard (' + n + ' rows). The rows are kept, so this can be undone.')) return;
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({
+      action: 'aiDelete', userId: USER_ID || '', baseId, restore: restore ? 'true' : 'false'
+    }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    toast(restore ? 'Restored' : 'Deleted — it can be restored from the Deleted status filter');
+    selectedTask = null;
+    load();
+  } catch (e) {
+    toast((restore ? 'Not restored: ' : 'Not deleted: ') + (e.message || e), 'err');
   }
 }
 
