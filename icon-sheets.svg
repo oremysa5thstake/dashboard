@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#1a7a4c"/>
+  <!-- A grid: header band plus two body rows and three columns, matching the flat,
+       single-glyph style of icon-dashboard.svg and icon-form.svg. -->
+  <rect x="13" y="14" width="38" height="36" rx="3.5" fill="#fff"/>
+  <rect x="13" y="14" width="38" height="9" fill="#0f5c39"/>
+  <rect x="13" y="14" width="38" height="4" rx="3.5" fill="#0f5c39"/>
+  <rect x="25.5" y="23" width="2.6" height="27" fill="#1a7a4c"/>
+  <rect x="38.5" y="23" width="2.6" height="27" fill="#1a7a4c"/>
+  <rect x="13" y="32" width="38" height="2.6" fill="#1a7a4c"/>
+  <rect x="13" y="41" width="38" height="2.6" fill="#1a7a4c"/>
+</svg>

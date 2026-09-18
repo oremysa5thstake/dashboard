@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sheet Views — Orem YSA 5th Stake</title>
-<link rel="icon" href="icon-192.png">
+<link rel="icon" type="image/svg+xml" href="icon-sheets.svg">
 <link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css">
 <style>
   :root{
@@ -87,7 +87,14 @@
   .colpanel label{cursor:pointer;flex:1}
   .colpanel .grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:#8a929b;padding:8px 5px 3px}
-  .colpanel .acts{display:flex;gap:6px;padding:6px 4px 2px;border-top:1px solid #eee;margin-top:6px}
+  .colpanel .acts{display:flex;gap:6px;padding:6px 4px 2px;border-top:1px solid #eee;margin-top:6px;flex-wrap:wrap}
+  /* Pin-to-left toggle. Dimmed until it is on, so the pinned columns read at a glance. */
+  .colpanel .pin{border:0;background:none;cursor:pointer;font-size:12px;line-height:1;padding:2px 3px;
+    border-radius:4px;opacity:.22;filter:grayscale(1)}
+  .colpanel .pin:hover{opacity:.6;background:#e8ebee}
+  .colpanel .pin.on{opacity:1;filter:none;background:#e7f0ff}
+  .colpanel .row{min-width:0}
+  .colpanel label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .colwrap{position:relative}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:#666;padding:6px 16px;flex:none;background:#fff;border-bottom:1px solid #e2e5e9}
   .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
@@ -220,8 +227,35 @@ function notApplicable(field, row) {
     case 'key_done':             return !RX.key.test(calling);
     case 'accepted':             return released;
     case 'set_apart':            return released;
+
+    // ── Stake Business ──────────────────────────────────────────────────
+    // Sheet rule on H2:H211 — Not(EQ(F2,"Release")) greys the fill to #B7B7B7.
+    // "Released on LCR" only means anything on a release row.
+    case 'lcr':                  return !/release/i.test(String(row.action || ''));
+
+    // ── Priesthood Ordinations ──────────────────────────────────────────
+    // Sheet rule on AG5:AQ37 — EQ($AF5,"") greys everything downstream of Date
+    // Ordained until the ordination has actually happened.
+    case 'recorded_on_lcr':
+    case 'certificate_printed':
+    case 'certificate_signed':
+    case 'certificate_delivered':
+      return row.ordained_at !== undefined && !String(row.ordained_at || '').trim();
+
     default: return false;
   }
+}
+
+/** The post-ordination text columns carry the same greying as the tick boxes above. */
+function ordDetailFormatter(cell) {
+  const row = cell.getRow().getData();
+  const el = cell.getElement();
+  const na = !String(row.ordained_at || '').trim();
+  if (el) {
+    el.style.background = na ? 'var(--cf-na-bg)' : '';
+    el.style.color = na ? 'var(--cf-na-fg)' : '';
+  }
+  return esc(String(cell.getValue() ?? ''));
 }
 
 /** Tick boxes: blue when set, grey when the step does not apply to this calling. */
@@ -770,17 +804,30 @@ const TABS = {
       edG({ title: 'Stake Interview', field: 'stake_interview_at', width: 130 }, 'ordinations'),
       edG({ title: 'Anticipated Sustaining', field: 'anticipated_sustaining_date', width: 152 }, 'ordinations'),
       edG({ title: 'Preferred Ordination', field: 'preferred_ordination_date', width: 150 }, 'ordinations'),
+      // Read-only tally of the approver votes in cols L-Z. The workbook fills that block green
+      // when every vote is in and every one is a sustain; here the cell itself goes green.
+      { title: 'Sustains', field: 'votes', width: 96, hozAlign: 'center',
+        formatter: c => {
+          const row = c.getRow().getData();
+          const el = c.getElement();
+          if (el) {
+            el.style.background = row.allSustained ? 'var(--cf-approved)' : '';
+            el.style.color = row.allSustained ? '#fff' : '';
+            el.style.fontWeight = row.allSustained ? '700' : '';
+          }
+          return esc(String(c.getValue() ?? ''));
+        } },
       edG({ title: 'Added to SB', field: 'added_to_stake_business', width: 104, hozAlign: 'center',
             formatter: tickFormatter }, 'ordinations', 'tickCross'),
       edG({ title: 'Sustained', field: 'sustained', width: 116 }, 'ordinations'),
       edG({ title: 'Date Ordained', field: 'ordained_at', width: 122 }, 'ordinations'),
-      edG({ title: 'Ordainer', field: 'ordainer', minWidth: 155 }, 'ordinations'),
-      edG({ title: 'Ordainer Birthdate', field: 'ordainer_birthdate', width: 140 }, 'ordinations'),
-      edG({ title: 'Ordainer MRN', field: 'ordainer_mrn', width: 140 }, 'ordinations'),
+      edG({ title: 'Ordainer', field: 'ordainer', minWidth: 155 , formatter: ordDetailFormatter }, 'ordinations'),
+      edG({ title: 'Ordainer Birthdate', field: 'ordainer_birthdate', width: 140 , formatter: ordDetailFormatter }, 'ordinations'),
+      edG({ title: 'Ordainer MRN', field: 'ordainer_mrn', width: 140 , formatter: ordDetailFormatter }, 'ordinations'),
       edG({ title: 'Ordainer Office', field: 'ordainer_office', width: 132 }, 'ordinations',
           'list', { values: ['', 'Elder', 'High Priest'] }),
-      edG({ title: 'Stake Rep', field: 'stake_rep', minWidth: 145 }, 'ordinations'),
-      edG({ title: 'Stake Rep Calling', field: 'stake_rep_calling', minWidth: 165 }, 'ordinations'),
+      edG({ title: 'Stake Rep', field: 'stake_rep', minWidth: 145 , formatter: ordDetailFormatter }, 'ordinations'),
+      edG({ title: 'Stake Rep Calling', field: 'stake_rep_calling', minWidth: 165 , formatter: ordDetailFormatter }, 'ordinations'),
       edG({ title: 'On LCR', field: 'recorded_on_lcr', width: 88, hozAlign: 'center',
             formatter: tickFormatter }, 'ordinations', 'tickCross'),
       edG({ title: 'Cert. Printed', field: 'certificate_printed', width: 112, hozAlign: 'center',
@@ -1019,6 +1066,9 @@ function demoRows(which) {
 // remembered too, so a clerk who narrows a column keeps it narrow.
 const LS_HIDDEN = 'sheetviews_hidden_v1';
 const LS_WIDTHS = 'sheetviews_widths_v1';
+// Which columns are pinned to the left. Tabulator freezes from the left edge inwards, so the
+// frozen set is applied in the table's own column order rather than the order they were picked.
+const LS_FROZEN = 'sheetviews_frozen_v1';
 
 function readLS(key) {
   try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch (e) { return {}; }
@@ -1029,6 +1079,15 @@ function writeLS(key, val) {
 const hiddenFor = t => (readLS(LS_HIDDEN)[t] || []);
 function setHidden(t, list) {
   const all = readLS(LS_HIDDEN); all[t] = list; writeLS(LS_HIDDEN, all);
+}
+// null = "this table has never been customised", so the column defaults (frozen: true on the
+// name column, say) still apply. An empty ARRAY means the user deliberately unpinned everything.
+const frozenFor = t => {
+  const v = readLS(LS_FROZEN)[t];
+  return Array.isArray(v) ? v : null;
+};
+function setFrozen(t, list) {
+  const all = readLS(LS_FROZEN); all[t] = list; writeLS(LS_FROZEN, all);
 }
 
 function rememberWidth(field, w) {
@@ -1061,18 +1120,29 @@ function renderColPanel() {
     ['Approvers', cols.filter(c => isApprover(c.field))],
   ].filter(g => g[1].length);
 
-  panel.innerHTML = groups.map(([label, list]) =>
-    `<div class="grp">${label}</div>` + list.map(c => {
+  const frozenList = frozenFor(tab);
+  const frozen = new Set(frozenList === null
+    ? cols.filter(c => c.frozen).map(c => c.field)
+    : frozenList);
+
+  panel.innerHTML =
+    '<div class="grp">Show · Pin left</div>'
+    + groups.map(([label, list]) =>
+    (label === 'Columns' ? '' : `<div class="grp">${label}</div>`) + list.map(c => {
       const on = !hidden.has(c.field);
+      const pinned = frozen.has(c.field);
       return `<div class="row">
         <input type="checkbox" id="cb_${esc(c.field)}" ${on ? 'checked' : ''}
                onchange="setColVisible('${esc(c.field)}', this.checked)">
         <label for="cb_${esc(c.field)}">${esc(String(c.title))}</label>
+        <button class="pin${pinned ? ' on' : ''}" title="${pinned ? 'Unpin from the left' : 'Pin to the left'}"
+                onclick="toggleFrozen('${esc(c.field)}')">📌</button>
       </div>`;
     }).join('')).join('')
     + `<div class="acts">
          <button onclick="showAllCols()">Show all</button>
          <button onclick="hideApprovers()">Hide approvers</button>
+         <button onclick="resetCols()">Reset</button>
        </div>`;
 }
 
@@ -1084,10 +1154,29 @@ function setColVisible(field, visible) {
   try { visible ? grid.showColumn(field) : grid.hideColumn(field); } catch (e) {}
 }
 
+// Pinning changes the column definition, which Tabulator only reads when the table is built —
+// so this reloads. Cheap for these table sizes and far simpler than rebuilding columns in place.
+function toggleFrozen(field) {
+  const cols = TABS[tab].cols;
+  const cur = frozenFor(tab);
+  const set = new Set(cur === null ? cols.filter(c => c.frozen).map(c => c.field) : cur);
+  if (set.has(field)) set.delete(field); else set.add(field);
+  setFrozen(tab, [...set]);
+  load();
+}
+
 function showAllCols() {
   setHidden(tab, []);
   if (grid) TABS[tab].cols.forEach(c => { try { grid.showColumn(c.field); } catch (e) {} });
   renderColPanel();
+}
+
+// Back to how the table ships: nothing hidden, default pins, default widths.
+function resetCols() {
+  setHidden(tab, []);
+  const f = readLS(LS_FROZEN); delete f[tab]; writeLS(LS_FROZEN, f);
+  const w = readLS(LS_WIDTHS); delete w[tab]; writeLS(LS_WIDTHS, w);
+  load();
 }
 
 function hideApprovers() {
@@ -1193,8 +1282,12 @@ async function load() {
     box.innerHTML = '';
     const hidden = new Set(hiddenFor(tab));
     const savedWidths = (readLS(LS_WIDTHS)[tab]) || {};
+    const frozenSaved = frozenFor(tab);
+    const frozenSet = frozenSaved === null ? null : new Set(frozenSaved);
     const cols = spec.cols.map(c => Object.assign({}, c, {
       visible: !hidden.has(c.field),
+      // null → keep whatever the column definition says; a saved list wins outright.
+      frozen: frozenSet === null ? !!c.frozen : frozenSet.has(c.field),
       width: savedWidths[c.field] || c.width,
       // Every header gets its full text on hover, so a narrowed column is still readable.
       headerTooltip: c.headerTooltip || String(c.title),
