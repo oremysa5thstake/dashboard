@@ -2693,20 +2693,30 @@
       const upcoming = rows.filter(r => r.date >= today);
       const past = rows.filter(r => r.date < today);
 
-      let h = '<div class="item-meta" style="margin-bottom:10px;">Stake business is never scheduled on these Sundays. Anything due on one moves to the next Sunday that is open.'
+      let h = '<div class="item-meta" style="margin-bottom:10px;">Mark a Sunday as having <b>no stake business</b>, or <b>stake-wide business only</b> (stake conference — no ward sacrament meetings, so ward items move on and the stake clerks confirm and report the stake-wide ones).'
         + (d.nextOpen ? ' Next open Sunday: <b>' + escapeHtmlDisplay(d.nextOpen) + '</b>.' : '') + '</div>';
 
       h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">'
-        + '<input type="date" id="blockoutDate" class="form-input" style="max-width:170px;font-size:13px;padding:6px;">'
-        + '<input type="text" id="blockoutReason" class="form-input" placeholder="Reason (e.g. Stake conference)" style="flex:1 1 200px;min-width:170px;font-size:13px;padding:6px;">'
-        + '<button class="btn btn-primary btn-sm" onclick="addBlockout(this)">Block this Sunday</button>'
+        + '<input type="date" id="blockoutDate" class="form-input" style="max-width:165px;font-size:13px;padding:6px;">'
+        + '<select id="blockoutKind" class="form-input" style="max-width:215px;font-size:13px;padding:6px;">'
+        +   '<option value="none">No stake business at all</option>'
+        +   '<option value="stake-only">Stake-wide business only</option>'
+        + '</select>'
+        + '<input type="text" id="blockoutReason" class="form-input" placeholder="Reason (e.g. Stake conference)" style="flex:1 1 180px;min-width:160px;font-size:13px;padding:6px;">'
+        + '<button class="btn btn-primary btn-sm" onclick="addBlockout(this)">Mark this Sunday</button>'
         + '</div>';
 
-      if (!upcoming.length) h += '<div class="item-meta">No upcoming blockout dates.</div>';
+      if (!upcoming.length) h += '<div class="item-meta">No upcoming marked Sundays.</div>';
       else upcoming.forEach(r => {
-        h += '<div class="item"><div class="item-title">' + escapeHtmlDisplay(r.display) + '</div>'
+        const stakeOnly = r.kind === 'stake-only';
+        const chip = stakeOnly
+          ? '<span style="background:#e7f0ff;color:#1a3a6b;border:1px solid #c5d9f5;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;">Stake-wide only</span>'
+          : '<span style="background:#fdecea;color:#b3261e;border:1px solid #f3c2bd;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;">No stake business</span>';
+        h += '<div class="item"' + (stakeOnly ? ' style="border-left:3px solid #1a3a6b;"' : '') + '>'
+          + '<div class="item-header"><div class="item-title">' + escapeHtmlDisplay(r.display) + '</div>' + chip + '</div>'
           + '<div class="item-meta">' + escapeHtmlDisplay(r.reason)
           + (r.addedBy ? ' · added by ' + escapeHtmlDisplay(r.addedBy) : '') + '</div>'
+          + (stakeOnly ? '<div class="item-meta" style="margin-top:3px;">Ward items move to the next ordinary Sunday. Stake-wide items stay, and confirming &amp; reporting them goes to the stake clerks.</div>' : '')
           + '<div class="item-actions"><button class="btn btn-secondary btn-sm" onclick="removeBlockout(\'' + r.date + '\', this)">Remove</button></div>'
           + '</div>';
       });
@@ -2725,16 +2735,17 @@
       btn.disabled = true; btn.textContent = 'Saving…';
       setSyncing(true);
       try {
-        const d = await performAction('sbAddBlockout', { date: date, reason: reason });
+        const kind = (document.getElementById('blockoutKind') || {}).value || 'none';
+        const d = await performAction('sbAddBlockout', { date: date, reason: reason, kind: kind });
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
-        if (d.already) showToast('That Sunday was already blocked out', 'success');
+        if (d.already) showToast('That Sunday was already marked', 'success');
         else if (d.moved && d.moved.length) {
           showToast('Blocked out · moved ' + d.moved.length + ' item' + (d.moved.length === 1 ? '' : 's') + ' to ' + d.nextOpen, 'success');
         } else showToast('Blocked out', 'success');
         loadBlockouts();
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
-      } finally { btn.disabled = false; btn.textContent = 'Block this Sunday'; setSyncing(false); }
+      } finally { btn.disabled = false; btn.textContent = 'Mark this Sunday'; setSyncing(false); }
     }
 
     async function removeBlockout(date, btn) {
