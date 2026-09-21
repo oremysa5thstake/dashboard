@@ -1123,6 +1123,10 @@
         html += renderOrdinationInterviewSchedulesSection(data.ordinationInterviewSchedules, data.stakePresidency || []);
       }
 
+      if (data.sbReplacementItems && data.sbReplacementItems.length > 0) {
+        html += renderSbReplacementSection(data.sbReplacementItems, data.stakePresidency || [], data.highCouncilors || []);
+      }
+
       if (data.settingApartAssignItems && data.settingApartAssignItems.length > 0) {
         html += renderSettingApartAssignSection(data.settingApartAssignItems, data.stakePresidency || [], data.highCouncilors || []);
       }
@@ -1699,6 +1703,87 @@
     // Setting aparts flagged SPB on the Callings Chart (col T): nobody is pre-assigned, so a
     // secretary picks who sets the member apart — a member of the presidency or a high
     // councilor — and optionally sets a time.
+    // "Find a replacement to conduct stake business." Same shape as the confirm card: pick
+    // somebody and either ask them to confirm, or record that they have already agreed.
+    // Both go through setConducting, which closes every open item for that ward and Sunday —
+    // including this one — so the task cannot be left behind.
+    function renderSbReplacementSection(items, stakePresidency, highCouncilors) {
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'sbReplace\')"><div class="section-title">🔁 Stake Business — replacement needed</div><div class="section-meta"><span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-sbReplace"><div class="section-inner">';
+
+      const spOptions = (stakePresidency || []).map(sp =>
+        `<option value="${escapeHtml(sp.id)}">${escapeHtml(sp.name)}</option>`).join('');
+      const hcOptions = (highCouncilors || []).map(hc =>
+        `<option value="${escapeHtml(hc.id)}">${escapeHtml(hc.name)}</option>`).join('');
+
+      items.forEach(item => {
+        const past = !!item.rpIsPast;
+        const ccNote = item.isCC
+          ? '<div class="item-meta" style="color:#888;font-style:italic;">CC\'d — you may also handle this</div>' : '';
+        html += `<div class="item"${past ? ' style="border-left:3px solid #999;"' : ''}>
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          ${ccNote}
+          ${item.rpUnavailable ? '<div class="item-meta">Unavailable: ' + escapeHtmlDisplay(item.rpUnavailable) + '</div>' : ''}
+          ${past
+            ? `<div class="item-meta" style="color:#7a4a00;">That Sunday has passed, so nobody can be assigned to it now. Close it to clear it out.</div>
+               <div class="item-actions"><button class="btn btn-secondary btn-sm" onclick="dismissSbReplacement('${item.actionId}', this)">Close this</button></div>`
+            : `<div class="item-actions" style="flex-direction:column;align-items:flex-start;">
+                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                   <select id="sbRep_${item.actionId}" class="form-input" style="flex:1 1 200px;min-width:170px;max-width:340px;font-size:13px;padding:6px;">
+                     <option value="">Who will conduct instead?</option>
+                     <optgroup label="High Council">${hcOptions}</optgroup>
+                     <optgroup label="Stake Presidency">${spOptions}</optgroup>
+                   </select>
+                   <button class="btn btn-primary btn-sm" onclick="sbReplace('${item.actionId}', '${escapeHtml(item.rpWard)}', '${escapeHtml(item.rpSunday)}', 'request', this)">Ask to confirm</button>
+                   <button class="btn btn-secondary btn-sm" onclick="sbReplace('${item.actionId}', '${escapeHtml(item.rpWard)}', '${escapeHtml(item.rpSunday)}', 'confirm', this)">Already agreed</button>
+                 </div>
+               </div>`}
+        </div>`;
+      });
+
+      html += '</div></div></div>';
+      return html;
+    }
+
+    async function sbReplace(actionId, ward, sunday, mode, btn) {
+      const sel = document.getElementById('sbRep_' + actionId);
+      const personId = sel ? sel.value : '';
+      if (!personId) { showToast('Pick who will conduct instead', 'error'); return; }
+      const sibs = btn ? Array.from(btn.parentElement.querySelectorAll('button')) : [];
+      sibs.forEach(b => b.disabled = true);
+      setSyncing(true);
+      try {
+        const d = await performAction('setConducting', {
+          ward: ward, sunday: sunday, mode: mode, personId: personId
+        });
+        if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
+        let msg = mode === 'request' ? 'Asked ' + d.person + ' to confirm' : d.person + ' recorded as conducting';
+        if (d.closedTasks) msg += ' · closed ' + d.closedTasks + ' open item' + (d.closedTasks === 1 ? '' : 's');
+        showToast(msg, 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        sibs.forEach(b => b.disabled = false);
+      } finally { setSyncing(false); }
+    }
+
+    // A Sunday that has already passed cannot be covered; just close the task.
+    async function dismissSbReplacement(actionId, btn) {
+      if (!confirm('Close this? That Sunday has passed, so no replacement can be assigned.')) return;
+      const itemEl = btn ? btn.closest('.item') : null;
+      btn.disabled = true;
+      setSyncing(true);
+      try {
+        await performAction('complete', { itemId: actionId });
+        if (itemEl) itemEl.remove();
+        showToast('Closed', 'success');
+        scheduleSilentRefresh(800);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        btn.disabled = false;
+      } finally { setSyncing(false); }
+    }
+
     function renderSettingApartAssignSection(items, stakePresidency, highCouncilors) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingApartAssign\')"><div class="section-title">🤲 Setting Aparts to Schedule/Assign</div><div class="section-meta">' + helpBtn('settingApartAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-settingApartAssign"><div class="section-inner">';
