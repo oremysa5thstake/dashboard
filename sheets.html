@@ -134,6 +134,16 @@
   .tb-del{border-color:#e6b4b4;background:#fff5f5;color:#b3261e}
   .tb-del:hover{background:#ffeaea}
   .tb-restore{border-color:#b7d7c0;background:#f2fbf5;color:#1a7a4c}
+  .tb-people{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;max-height:132px;overflow:auto;
+    border:1px solid #e2e5e9;border-radius:6px;padding:6px;background:#fcfdfe}
+  .tb-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:400;
+    text-transform:none;letter-spacing:0;color:#444;border:1px solid #d7dbe0;border-radius:12px;
+    padding:2px 9px 2px 6px;cursor:pointer;background:#fff;white-space:nowrap}
+  .tb-chip.on{background:#e7f0ff;border-color:#9dbdf0;color:#1a3a6b;font-weight:600}
+  .tb-chip input{margin:0}
+  .tb-save{margin-top:7px;font-size:12.5px;padding:6px 11px;border:1px solid #9dbdf0;background:#e7f0ff;
+    color:#1a3a6b;border-radius:5px;cursor:pointer;font-weight:600}
+  .tb-save:hover{background:#d8e7ff}
   .tb-note{font-size:11.5px;color:#888;line-height:1.5;border-top:1px solid #eee;padding-top:8px}
   @media (max-width:820px){ .tb-body{flex-direction:column} .tb-list{border-right:0;border-bottom:1px solid #e2e5e9;max-height:45%} }
   .colwrap{position:relative}
@@ -1482,7 +1492,7 @@ function renderTaskDetail(g) {
     <div class="tb-d-meta">
       ${row('Type', g.actionType)}
       ${row('Status', g.status)}
-      ${row('Assigned to', p.name)}
+      ${row('Assigned to', (g.primaries || []).map(x => x.name).filter(Boolean).join(', '))}
       ${g.ccs.length ? row('CC', g.ccs.map(c => c.name).filter(Boolean).join(', ')) : ''}
       ${row('Created', g.created)}
       ${row('Created by', g.createdByName || g.createdBy)}
@@ -1490,6 +1500,25 @@ function renderTaskDetail(g) {
       ${row('Completed', g.completedDate)}
       ${row('Completed by', g.completedBy)}
       ${row('Rows in this task', String(g.rowCount))}
+    </div>
+    <div class="tb-lab">Assigned to · primary
+      <div class="tb-people" id="tbPri_${cssId(g.baseId)}">
+        ${(TASKS.roster || []).map(p => {
+          const on = (g.primaries || []).some(x => x.id === p.id);
+          return `<label class="tb-chip${on ? ' on' : ''}"><input type="checkbox" value="${esc(p.id)}" ${on ? 'checked' : ''}
+                    onchange="this.closest('label').classList.toggle('on', this.checked)"> ${esc(p.name)}</label>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="tb-lab">CC
+      <div class="tb-people" id="tbCC_${cssId(g.baseId)}">
+        ${(TASKS.roster || []).map(p => {
+          const on = g.ccs.some(c => c.id === p.id);
+          return `<label class="tb-chip${on ? ' on' : ''}"><input type="checkbox" value="${esc(p.id)}" ${on ? 'checked' : ''}
+                    onchange="this.closest('label').classList.toggle('on', this.checked)"> ${esc(p.name)}</label>`;
+        }).join('')}
+      </div>
+      <button class="tb-save" onclick="saveAssignees('${esc(g.baseId)}')">Save who it's assigned to</button>
     </div>
     <label class="tb-lab">Status
       <select onchange="saveTask('${esc(g.baseId)}','status',this.value)">
@@ -1538,6 +1567,33 @@ async function saveTask(baseId, field, value) {
     toast('Not saved: ' + (e.message || e), 'err');
   }
 }
+
+async function saveAssignees(baseId) {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!USER_ID) { toast('No user — reopen from the dashboard', 'err'); return; }
+  const picked = id => [...document.querySelectorAll('#' + id + ' input:checked')].map(i => i.value);
+  const primaryIds = picked('tbPri_' + cssId(baseId));
+  const ccIds = picked('tbCC_' + cssId(baseId));
+  if (!primaryIds.length) { toast('A task needs at least one person assigned', 'err'); return; }
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({
+      action: 'aiAssign', userId: USER_ID, baseId,
+      primaryIds: primaryIds.join(','), ccIds: ccIds.join(',')
+    }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    const bits = [];
+    if (d.added && d.added.length) bits.push('added ' + d.added.join(', '));
+    if (d.removed && d.removed.length) bits.push('removed ' + d.removed.join(', '));
+    if (d.changed && d.changed.length) bits.push(d.changed.join(', '));
+    toast(bits.length ? bits.join(' · ') : 'No change');
+    load();
+  } catch (e) {
+    toast('Not saved: ' + (e.message || e), 'err');
+  }
+}
+
+// Ids contain characters querySelector would treat as syntax, so escape them.
+function cssId(v) { return String(v).replace(/[^A-Za-z0-9_-]/g, '_'); }
 
 async function deleteTask(baseId, restore) {
   const g = TASKS.groups.find(x => x.baseId === baseId);
