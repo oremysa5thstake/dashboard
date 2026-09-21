@@ -1134,7 +1134,7 @@ document.addEventListener('click', e => {
 
 function renderColPanel() {
   const panel = document.getElementById('colPanel');
-  if (!grid) { panel.innerHTML = '<div class="row">Nothing loaded yet</div>'; return; }
+  if (!grid || !TABS[tab].cols) { panel.innerHTML = '<div class="row">Nothing loaded yet</div>'; return; }
   const hidden = new Set(hiddenFor(tab));
   const cols = TABS[tab].cols;
   const isApprover = f => String(f || '').startsWith('vote_');
@@ -1181,6 +1181,7 @@ function setColVisible(field, visible) {
 // so this reloads. Cheap for these table sizes and far simpler than rebuilding columns in place.
 function toggleFrozen(field) {
   const cols = TABS[tab].cols;
+  if (!cols) return;
   const cur = frozenFor(tab);
   const set = new Set(cur === null ? cols.filter(c => c.frozen).map(c => c.field) : cur);
   if (set.has(field)) set.delete(field); else set.add(field);
@@ -1190,7 +1191,7 @@ function toggleFrozen(field) {
 
 function showAllCols() {
   setHidden(tab, []);
-  if (grid) TABS[tab].cols.forEach(c => { try { grid.showColumn(c.field); } catch (e) {} });
+  if (grid && TABS[tab].cols) TABS[tab].cols.forEach(c => { try { grid.showColumn(c.field); } catch (e) {} });
   renderColPanel();
 }
 
@@ -1203,6 +1204,7 @@ function resetCols() {
 }
 
 function hideApprovers() {
+  if (!TABS[tab].cols) return;
   const list = TABS[tab].cols.map(c => c.field).filter(f => String(f || '').startsWith('vote_'));
   const hidden = new Set(hiddenFor(tab));
   list.forEach(f => hidden.add(f));
@@ -1258,20 +1260,15 @@ function applyFilter() {
 }
 
 async function load() {
-  if ((tab === 'callings' || tab === 'ordinations') && !APPROVERS.length) await loadApprovers();
   const spec = TABS[tab];
-  // The approver columns depend on the roster, which is fetched — splice them in
-  // at the placeholder now that it is known.
-  if (spec.cols.includes('@APPROVERS@')) {
-    const i = spec.cols.indexOf('@APPROVERS@');
-    spec.cols.splice(i, 1, ...approverColumns());
-  }
   const box = document.getElementById('grid');
   const t0 = Date.now();
   if (grid) { try { grid.destroy(); } catch (e) {} grid = null; }
   box.innerHTML = '<p style="padding:16px;color:#777;font-size:13px">Loading…</p>';
 
-  // Tabs that are not tables render themselves and return.
+  // A tab that is not a table renders itself and returns. This has to come BEFORE anything
+  // that touches spec.cols — the task browser has no columns, and reading .includes() off
+  // undefined threw before the tab ever drew anything.
   if (spec.custom === 'tasks') {
     document.getElementById('statusFilter').hidden = true;
     const addBtn = document.getElementById('addRowBtn');
@@ -1281,6 +1278,14 @@ async function load() {
     return;
   }
   document.getElementById('colBtn').hidden = false;
+
+  if ((tab === 'callings' || tab === 'ordinations') && !APPROVERS.length) await loadApprovers();
+  // The approver columns depend on the roster, which is fetched — splice them in
+  // at the placeholder now that it is known.
+  if (spec.cols.includes('@APPROVERS@')) {
+    const i = spec.cols.indexOf('@APPROVERS@');
+    spec.cols.splice(i, 1, ...approverColumns());
+  }
 
   // status dropdown, per table
   const addBtn = document.getElementById('addRowBtn');
