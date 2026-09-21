@@ -1774,7 +1774,9 @@
       btn.disabled = true;
       setSyncing(true);
       try {
-        await performAction('complete', { itemId: actionId });
+        // Not 'complete': that route ends in completeTask(), which only matches rows whose
+        // action type is literally 'task', so it returned false and reported a failure.
+        await performAction('sbDismissReplacement', { itemId: actionId });
         if (itemEl) itemEl.remove();
         showToast('Closed', 'success');
         scheduleSilentRefresh(800);
