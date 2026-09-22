@@ -95,6 +95,37 @@
   .colpanel .pin.on{opacity:1;filter:none;background:#e7f0ff}
   .colpanel .row{min-width:0}
   .colpanel label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* ── Row form: adding a person, a calling or a link ──────────────────── */
+  /* A roster row is thirteen fields. A chain of thirteen prompt() boxes cannot be reviewed
+     before it commits and cannot be corrected halfway, so adding a row gets a real form. */
+  .modal{position:fixed;inset:0;z-index:200;background:rgba(20,24,28,.45);
+    display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px 16px;overflow:auto}
+  .modal .sheetform{background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);
+    width:min(560px,100%);padding:18px 20px 16px}
+  .sheetform h2{margin:0 0 3px;font-size:16px}
+  .sheetform .sub{margin:0 0 14px;font-size:12.5px;color:#777;line-height:1.45}
+  .sheetform .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+  .sheetform label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.06em;color:#8a929b;min-width:0}
+  .sheetform label.wide{grid-column:1/-1}
+  .sheetform input,.sheetform select{font:inherit;font-size:13px;font-weight:400;text-transform:none;
+    letter-spacing:0;color:#222;padding:6px 8px;border:1px solid #ccd1d6;border-radius:5px;
+    width:100%;box-sizing:border-box}
+  .sheetform input:focus,.sheetform select:focus{outline:2px solid #1a3a6b;outline-offset:-1px}
+  .sheetform .req{color:#b3261e}
+  .sheetform .hint{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:#999}
+  .sheetform .err{margin:12px 0 0;padding:7px 10px;border-radius:6px;background:#fdecea;
+    border:1px solid #f5c2bd;color:#8a1c12;font-size:12.5px}
+  .sheetform .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;
+    padding-top:13px;border-top:1px solid #eee}
+  .sheetform .acts button{font-size:13px;padding:7px 14px}
+  .sheetform .acts .go{background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600}
+  .sheetform .acts .go:hover{background:#16305a}
+  @media (max-width:560px){ .sheetform .fields{grid-template-columns:1fr} }
+  /* The ✕ that removes a roster person or a stake link, in its own narrow column. */
+  .rowdel{border:0;background:none;cursor:pointer;color:#b3261e;font-size:13px;line-height:1;
+    padding:2px 5px;border-radius:4px;opacity:.3}
+  .rowdel:hover{opacity:1;background:#fdecea}
   /* ── Action Items task browser ───────────────────────────────────────── */
   .tb{display:flex;flex-direction:column;height:100%;min-height:0}
   .tb-filters{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:10px 14px;
@@ -184,7 +215,7 @@
     <button onclick="toggleColPanel(event)" id="colBtn">⚙ Columns</button>
     <div class="colpanel" id="colPanel" hidden></div>
   </span>
-  <button onclick="addBusinessRow()" id="addRowBtn" hidden>＋ Add row</button>
+  <button onclick="addRowClick()" id="addRowBtn" hidden>＋ Add row</button>
   <button onclick="reload()" id="reloadBtn">↻ Refresh</button>
   <span class="meta" id="meta"></span>
 </div>
@@ -723,7 +754,7 @@ const TABS = {
   // STAKE sustaining, and ward-level rows barely use them (13 of 147 on 2026-09-16). It comes
   // from Calling Approvals col AO, or the Priesthood Ordinations sheet for an "Ordain" row.
   business: {
-    label: '📅 Stake Business', api: 'sbQueue', key: 'rowId', addRow: true,
+    label: '📅 Stake Business', api: 'sbQueue', key: 'rowId', addRow: { label: '＋ Add row', run: addBusinessRow },
     groupBy: '_group',
     groupHeader: (value, count) => esc(value) + ' <span style="opacity:.6">(' + count + ')</span>',
     // Newest first inside each group; the queue arrives in sheet order.
@@ -763,9 +794,14 @@ const TABS = {
   },
 
   chart: {
-    label: '⚙️ Callings Chart', view: 'v_clerk_callings_chart', order: 'calling.asc',
+    addRow: { label: '＋ Add calling', run: () => openRowForm('chart') },
+    // Reads the sheet, not v_clerk_callings_chart: a calling added here has to appear on the
+    // next refresh rather than after the hourly sync, and deleting one needs the sheet row.
+    // The view's one derived column, times_used, is computed by getGridRows instead.
+    label: '⚙️ Callings Chart', api: 'gridRows', apiGrid: 'chart',
     grid: 'chart', key: 'calling',
     cols: [
+      delColumn('chart'),
       { title: 'Calling', field: 'calling', minWidth: 240, headerFilter: 'input', frozen: true },
       ed({ title: 'Recommended By', field: 'recommended_by', minWidth: 180 }, 'chart', 'calling'),
       ed({ title: 'Approved By', field: 'approved_by', minWidth: 180 }, 'chart', 'calling'),
@@ -897,7 +933,9 @@ const TABS = {
   // are what the routing reads, and several bugs have come from typos in them.
   roster: {
     label: '👥 Stake Callings', api: 'gridRows', apiGrid: 'roster', key: '_key', grid: 'roster',
+    addRow: { label: '＋ Add person', run: () => openRowForm('roster') },
     cols: [
+      delColumn('roster'),
       edG({ title: 'Calling', field: 'calling', minWidth: 230, headerFilter: 'input', frozen: true }, 'roster'),
       edG({ title: 'Title Name', field: 'title_name', minWidth: 145 }, 'roster'),
       edG({ title: 'First & Last Name', field: 'name', minWidth: 180, headerFilter: 'input' }, 'roster'),
@@ -927,7 +965,9 @@ const TABS = {
   // means the grid can never drift from what the scripts actually use.
   settings: {
     label: '🔧 Settings', api: 'gridRows', apiGrid: 'settings', key: '_key', grid: 'settings',
+    addRow: { label: '＋ Add link', run: () => openRowForm('link') },
     cols: [
+      delColumn('link'),
       { title: 'Row', field: '_row', width: 58, hozAlign: 'right', frozen: true,
         formatter: c => '<span style="color:#999;font-size:11px">' + esc(c.getValue()) + '</span>' },
       edG({ title: 'Setting', field: 'label', minWidth: 300, headerFilter: 'input' }, 'settings'),
@@ -1148,8 +1188,10 @@ function renderColPanel() {
   const hidden = new Set(hiddenFor(tab));
   const cols = TABS[tab].cols;
   const isApprover = f => String(f || '').startsWith('vote_');
+  // The ✕ column has no title and is the only way to remove a row — it is not a column the
+  // user hides or pins, so it stays out of the panel entirely.
   const groups = [
-    ['Columns', cols.filter(c => c.field && !isApprover(c.field))],
+    ['Columns', cols.filter(c => c.field && c.field !== '_del' && !isApprover(c.field))],
     ['Approvers', cols.filter(c => isApprover(c.field))],
   ].filter(g => g[1].length);
 
@@ -1299,7 +1341,10 @@ async function load() {
 
   // status dropdown, per table
   const addBtn = document.getElementById('addRowBtn');
-  if (addBtn) addBtn.hidden = !spec.addRow;
+  if (addBtn) {
+    addBtn.hidden = !spec.addRow;
+    if (spec.addRow) addBtn.textContent = spec.addRow.label;
+  }
 
   const sf = document.getElementById('statusFilter');
   sf.hidden = !spec.statuses;
@@ -1410,6 +1455,275 @@ async function addBusinessRow() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '＋ Add row'; }
   }
+}
+
+// ── Adding and removing rows ──────────────────────────────────────────────
+// Three routes do all of this: gridAddRow, gridDeleteRow and settingsLink. The form below is
+// generic — each grid supplies a field list and the fixed params its route needs.
+//
+// Why a form and not a chain of prompt() boxes: a roster person is thirteen fields. Thirteen
+// prompts cannot be reviewed before they commit and cannot be corrected halfway through, and
+// the roster is the sheet most bugs have traced back to. Stake Business keeps its prompts —
+// it asks four questions and carries a warning that wants reading on its own.
+
+// A field: { f, label, hint, req, wide, values, list }
+//   values → a fixed <select>;  list → suggestions drawn from the rows already loaded, so
+//   the options are whatever the sheet actually uses rather than something guessed here.
+const ROW_FORMS = {
+  roster: {
+    title: 'Add someone to the roster',
+    sub: 'This appends a row to <b>Stake Callings</b>. Only the calling is required — anything '
+       + 'left blank can be filled in on the grid afterwards. A Slack ID is what puts the '
+       + 'dashboard in front of them, so it is worth having.',
+    route: { action: 'gridAddRow', grid: 'roster' },
+    fields: [
+      { f: 'calling', label: 'Calling', req: true, wide: true, list: true,
+        hint: 'Exactly as it is written on the Callings Chart' },
+      { f: 'name', label: 'First & last name' },
+      { f: 'title_name', label: 'Title name', hint: 'e.g. Bishop Powelson' },
+      { f: 'slack_id', label: 'Slack user ID', hint: 'Starts with U' },
+      { f: 'ward', label: 'Ward', list: true, hint: 'Needs a number, e.g. 25th Ward' },
+      { f: 'email', label: 'Email' },
+      { f: 'phone', label: 'Phone' },
+      { f: 'first_responsibility', label: 'First responsibility', list: true },
+      { f: 'second_responsibility', label: 'Second responsibility', list: true },
+      { f: 'presidency', label: 'Presidency', list: true },
+      { f: 'supervisor', label: 'Supervisor Slack ID' },
+      { f: 'primary_pref', label: 'Primary notifications',
+        values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] },
+      { f: 'cc_pref', label: "CC'd notifications",
+        values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] },
+    ],
+  },
+  chart: {
+    title: 'Add a calling to the chart',
+    sub: 'The <b>Callings Chart</b> is what tells the pipeline who approves a calling, who '
+       + 'extends it and who sets it apart. A calling missing from it routes to the bin with '
+       + 'no requirements, so the routing fields are worth setting now. Every other column — '
+       + 'the temple-recommend and priesthood ticks, the notes — is editable on the grid.',
+    route: { action: 'gridAddRow', grid: 'chart' },
+    fields: [
+      { f: 'calling', label: 'Calling', req: true, wide: true,
+        hint: 'Must be unique — this name is the key every other sheet refers to' },
+      { f: 'approval_level', label: 'Approval level', list: true },
+      { f: 'sustaining_body', label: 'Sustaining body', list: true },
+      { f: 'recommended_by', label: 'Recommended by', list: true },
+      { f: 'approved_by', label: 'Approved by', list: true },
+      { f: 'extend_routing', label: 'Extended by', list: true },
+      { f: 'set_apart_routing', label: 'Set apart by', list: true },
+      { f: 'conducts_sustaining', label: 'Conducts sustaining', list: true },
+      { f: 'can_be_submitted_by', label: 'Can be submitted by', list: true },
+      { f: 'sustaining_title', label: 'Sustaining title', wide: true,
+        hint: 'How it is read aloud, if that differs from the calling name' },
+    ],
+  },
+  link: {
+    title: 'Add a stake link',
+    sub: 'Links appear on everyone&rsquo;s dashboard. This fills the first free row in the '
+       + 'links block (column C/D of <b>Settings</b>) and never moves the settings beside it.',
+    route: { action: 'settingsLink', mode: 'add' },
+    fields: [
+      { f: 'label', label: 'Link name', req: true, wide: true, hint: 'What the button says' },
+      { f: 'url', label: 'URL', req: true, wide: true, hint: 'Must start with http:// or https://' },
+    ],
+  },
+};
+
+let formKey = null;
+
+/** The toolbar's add button. Each tab says what it adds; Stake Business runs its own flow. */
+function addRowClick() {
+  const spec = TABS[tab];
+  if (spec && spec.addRow && spec.addRow.run) spec.addRow.run();
+}
+
+/** Distinct non-empty values for a field among the rows currently loaded. */
+function suggestionsFor(field) {
+  if (!grid) return [];
+  const seen = new Set();
+  try {
+    grid.getData().forEach(r => {
+      const v = String(r[field] == null ? '' : r[field]).trim();
+      if (v) seen.add(v);
+    });
+  } catch (e) { return []; }
+  return [...seen].sort((a, b) => a.localeCompare(b)).slice(0, 300);
+}
+
+function openRowForm(key) {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!USER_ID) { toast('No user — reopen this window from the dashboard', 'err'); return; }
+  const spec = ROW_FORMS[key];
+  if (!spec) return;
+  formKey = key;
+
+  const body = spec.fields.map(fl => {
+    const id = 'ff_' + fl.f;
+    let input;
+    if (fl.values) {
+      input = `<select id="${id}">` + fl.values.map(v =>
+        `<option value="${esc(v)}">${esc(v || '—')}</option>`).join('') + '</select>';
+    } else if (fl.list) {
+      const opts = suggestionsFor(fl.f);
+      input = `<input type="text" id="${id}" list="dl_${fl.f}" autocomplete="off">`
+        + `<datalist id="dl_${fl.f}">`
+        + opts.map(v => `<option value="${esc(v)}"></option>`).join('') + '</datalist>';
+    } else {
+      input = `<input type="text" id="${id}" autocomplete="off">`;
+    }
+    return `<label class="${fl.wide ? 'wide' : ''}">`
+      + esc(fl.label) + (fl.req ? ' <span class="req">*</span>' : '')
+      + input
+      + (fl.hint ? `<span class="hint">${fl.hint}</span>` : '')
+      + '</label>';
+  }).join('');
+
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.id = 'rowFormModal';
+  wrap.innerHTML = `<div class="sheetform" role="dialog" aria-modal="true" aria-label="${esc(spec.title)}">
+      <h2>${esc(spec.title)}</h2>
+      <p class="sub">${spec.sub}</p>
+      <div class="fields">${body}</div>
+      <p class="err" id="formErr" hidden></p>
+      <div class="acts">
+        <button type="button" onclick="closeRowForm()">Cancel</button>
+        <button type="button" class="go" id="formGo" onclick="submitRowForm()">Add</button>
+      </div>
+    </div>`;
+  // A click on the backdrop closes; a click inside must not.
+  wrap.addEventListener('mousedown', e => { if (e.target === wrap) closeRowForm(); });
+  document.body.appendChild(wrap);
+  const first = wrap.querySelector('input,select');
+  if (first) first.focus();
+  // Enter submits from any single-line field; Escape backs out.
+  wrap.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); closeRowForm(); }
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); submitRowForm(); }
+  });
+}
+
+function closeRowForm() {
+  const m = document.getElementById('rowFormModal');
+  if (m) m.remove();
+  formKey = null;
+}
+
+async function submitRowForm() {
+  const spec = ROW_FORMS[formKey];
+  if (!spec) return;
+  const errBox = document.getElementById('formErr');
+  const show = msg => { errBox.hidden = false; errBox.textContent = msg; };
+
+  const params = new URLSearchParams(Object.assign({ userId: USER_ID }, spec.route));
+  for (const fl of spec.fields) {
+    const el = document.getElementById('ff_' + fl.f);
+    const v = String((el && el.value) || '').trim();
+    if (fl.req && !v) { show(fl.label + ' is required.'); if (el) el.focus(); return; }
+    if (v) params.set(fl.f, v);
+  }
+
+  const go = document.getElementById('formGo');
+  go.disabled = true; go.textContent = 'Adding…';
+  errBox.hidden = true;
+  try {
+    const d = await apiJson(API_URL + '?' + params.toString());
+    // The backend validates too (unique calling name, Slack ID shape, ward number, URL
+    // scheme). Its refusal is the useful message, so it goes in the form rather than a toast
+    // that disappears — the typed values are still on screen to correct.
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    closeRowForm();
+    toast('Added');
+    load();
+  } catch (e) {
+    show(e.message || String(e));
+    go.disabled = false; go.textContent = 'Add';
+  }
+}
+
+/**
+ * Remove a roster row.
+ *
+ * `expect` is the calling as the grid last saw it, and the backend refuses if the sheet no
+ * longer agrees. The key is a row NUMBER, so a row inserted on the sheet since this grid
+ * loaded would otherwise mean deleting whoever sits there now.
+ */
+async function deleteGridRowAt(gridName, key, expect, note, prompt_) {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!confirm(prompt_ + '\n\n' + expect + (note ? '\n' + note : ''))) return;
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({
+      action: 'gridDeleteRow', userId: USER_ID || '',
+      grid: gridName, rowKey: String(key), expect: String(expect)
+    }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    toast('Removed');
+    load();
+  } catch (e) {
+    toast('Not removed: ' + (e.message || e), 'err');
+  }
+}
+
+/**
+ * Remove a roster person. `expect` is the calling as the grid last saw it; the backend refuses
+ * if the sheet no longer agrees, because the key is a row NUMBER and a row inserted since this
+ * grid loaded would otherwise mean deleting whoever sits there now.
+ */
+function deleteRosterRow(key, expect, who) {
+  return deleteGridRowAt('roster', key, expect, who,
+    'Remove this row from Stake Callings?\n\nThis deletes the row on the sheet. '
+    + 'Their action items and history stay.');
+}
+
+/**
+ * Remove a calling from the chart. The backend refuses while anything still refers to the
+ * name — a live request or someone holding it — because every lookup is by name and a missing
+ * chart row routes to the bin with no requirements.
+ */
+function deleteChartRow(row, calling) {
+  return deleteGridRowAt('chart', row, calling, '',
+    'Remove this calling from the Callings Chart?\n\nThis is refused if any request or any '
+    + 'person on the roster still refers to it.');
+}
+
+/** Remove a stake link. Clears C/D on that row only — the setting beside it stays put. */
+async function removeSettingsLink(row, label) {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!confirm('Remove the "' + label + '" link from everyone’s dashboard?')) return;
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({
+      action: 'settingsLink', userId: USER_ID || '',
+      mode: 'remove', row: String(row), expect: String(label)
+    }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    toast('Link removed');
+    load();
+  } catch (e) {
+    toast('Not removed: ' + (e.message || e), 'err');
+  }
+}
+
+/** The ✕ column. `kind` is 'roster' or 'link'; a row that cannot be removed shows nothing. */
+function delColumn(kind) {
+  return {
+    title: '', field: '_del', width: 34, hozAlign: 'center', headerSort: false,
+    frozen: true, resizable: false, download: false,
+    formatter: c => {
+      const r = c.getData();
+      if (kind === 'link' && !String(r.link_label || '').trim()) return '';
+      if (kind !== 'link' && !String(r.calling || '').trim()) return '';
+      return '<button class="rowdel" title="Remove this row" aria-label="Remove this row">✕</button>';
+    },
+    cellClick: (e, c) => {
+      if (!e.target.classList.contains('rowdel')) return;
+      const r = c.getData();
+      const calling = String(r.calling || '').trim();
+      // The chart is keyed by name, so its _key is that name — the sheet row is in _row.
+      if (kind === 'link') removeSettingsLink(r._row, String(r.link_label || '').trim());
+      else if (kind === 'chart') deleteChartRow(r._row, calling);
+      else deleteRosterRow(r._key, calling, String(r.name || '').trim());
+    },
+  };
 }
 
 // ── Action Items: the clerk task browser ──────────────────────────────────
