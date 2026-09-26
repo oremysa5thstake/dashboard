@@ -1774,8 +1774,11 @@
       btn.disabled = true;
       setSyncing(true);
       try {
-        // Not 'complete': that route ends in completeTask(), which only matches rows whose
-        // action type is literally 'task', so it returned false and reported a failure.
+        // A dedicated route rather than 'complete': what this button does is *close* a past
+        // replacement request nobody can cover any more, which is not the same act as
+        // completing a task, and it leaves its own log line. ('complete' would work now —
+        // completeTask() matches on ID regardless of type — but the distinction is worth
+        // keeping.)
         await performAction('sbDismissReplacement', { itemId: actionId });
         if (itemEl) itemEl.remove();
         showToast('Closed', 'success');
