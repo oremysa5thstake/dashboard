@@ -1220,13 +1220,26 @@
       items.forEach(item => {
         // Construct itemId in format: "calling_ROWINDEX" or "ordination_ROWINDEX"
         const itemId = (item.type || 'calling') + '_' + item.rowIndex;
+        // A release and a call are opposite decisions and used to render identically. The
+        // badge and the wording both have to say which one this is — a release read as a
+        // calling is the approver agreeing to the wrong thing.
+        const isRelease = item.isRelease || String(item.action || '').toLowerCase() === 'released';
+        const badge = isRelease
+          ? '<span style="display:inline-block;background:#8a4b00;color:#fff;font-size:11px;font-weight:700;'
+            + 'letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px;margin-left:8px;'
+            + 'vertical-align:middle">Release</span>'
+          : '';
+        const line = isRelease
+          ? `Being released <strong>from</strong> ${item.calling || 'N/A'} - ${item.unit || 'N/A'}`
+          : `${item.calling || 'N/A'} - ${item.unit || 'N/A'}`;
         html += `<div class="item">
-          <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
-          <div class="item-meta">${item.calling || 'N/A'} - ${item.unit || 'N/A'}</div>
+          <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}${badge}</div></div>
+          <div class="item-meta">${line}</div>
+          ${(!isRelease && item.releases) ? '<div class="item-meta">Replaces <strong>' + item.releases + '</strong>, who is released from this calling</div>' : ''}
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           ${item.hpNote ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + item.hpNote + '</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this)">✓ Approve</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this)">${isRelease ? '✓ Approve release' : '✓ Approve'}</button>
             <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this)">⚠️ Concerns</button>
           </div>
         </div>`;
