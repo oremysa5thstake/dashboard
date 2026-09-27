@@ -662,6 +662,7 @@ const TABS = {
     grid: 'callings', key: 'sheet_ref', rowFormatter: rowFormatter,
     statuses: ['submitted','polling','approved','complete','declined','paused','canceled'],
     cols: [
+      delColumn('request'),
       ed({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input',
            frozen: true, formatter: nameFormatter }, 'callings', 'sheet_ref'),
       ed({ title: 'Calling', field: 'calling', minWidth: 205, headerFilter: 'input',
@@ -1686,6 +1687,53 @@ function deleteChartRow(row, calling) {
     + 'person on the roster still refers to it.');
 }
 
+/**
+ * Delete a Calling Approvals row.
+ *
+ * Cancelling is almost always what someone actually wants — it stops the calling and keeps the
+ * record of who approved what. This is for a row that should never have existed. The wording
+ * says so plainly rather than relying on the person to know the difference.
+ */
+async function deleteCallingRow(sheetRef, member, calling) {
+  if (DEMO) { toast('Demo — nothing is saved'); return; }
+  if (!USER_ID) { toast('No user — reopen this window from the dashboard', 'err'); return; }
+  if (!sheetRef) { toast('That row has no timestamp to identify it', 'err'); return; }
+
+  if (!confirm(
+      'Delete this row completely?\n\n'
+    + member + ' — ' + (calling || '(no calling)') + '\n\n'
+    + 'This destroys the approval record: who approved, when, and every task behind it. '
+    + 'It cannot be undone from here.\n\n'
+    + 'If the calling simply should not go ahead, CANCEL it instead — that stops it, takes it '
+    + 'off the Sunday agenda, and keeps the history.\n\n'
+    + 'Delete anyway?')) return;
+
+  // A second, typed confirmation. The first click is easy to make by accident on a touch
+  // screen, and this one is not reversible from the dashboard.
+  const typed = prompt('To confirm, type the member\u2019s first name exactly:');
+  if (typed === null) return;
+  const firstName = String(member || '').trim().split(/\s+/)[0] || '';
+  if (typed.trim().toLowerCase() !== firstName.toLowerCase()) {
+    toast('That did not match — nothing was deleted', 'err');
+    return;
+  }
+
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({
+      action: 'deleteCallingRow', userId: USER_ID,
+      timestamp: String(sheetRef), expect: String(member)
+    }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    const bits = [];
+    if (d.stakeBusinessRemoved) bits.push(d.stakeBusinessRemoved + ' agenda row(s) removed');
+    if (d.tasksClosed) bits.push(d.tasksClosed + ' task(s) closed');
+    toast('Deleted' + (bits.length ? ' — ' + bits.join(', ') : ''));
+    load();
+  } catch (e) {
+    toast('Not deleted: ' + (e.message || e), 'err');
+  }
+}
+
 /** Remove a stake link. Clears C/D on that row only — the setting beside it stays put. */
 async function removeSettingsLink(row, label) {
   if (DEMO) { toast('Demo — nothing is saved'); return; }
@@ -1711,7 +1759,8 @@ function delColumn(kind) {
     formatter: c => {
       const r = c.getData();
       if (kind === 'link' && !String(r.link_label || '').trim()) return '';
-      if (kind !== 'link' && !String(r.calling || '').trim()) return '';
+      if (kind === 'request' && !String(r.member || '').trim()) return '';
+      if (kind !== 'link' && kind !== 'request' && !String(r.calling || '').trim()) return '';
       return '<button class="rowdel" title="Remove this row" aria-label="Remove this row">✕</button>';
     },
     cellClick: (e, c) => {
@@ -1721,6 +1770,7 @@ function delColumn(kind) {
       // The chart is keyed by name, so its _key is that name — the sheet row is in _row.
       if (kind === 'link') removeSettingsLink(r._row, String(r.link_label || '').trim());
       else if (kind === 'chart') deleteChartRow(r._row, calling);
+      else if (kind === 'request') deleteCallingRow(r.sheet_ref, String(r.member || '').trim(), calling);
       else deleteRosterRow(r._key, calling, String(r.name || '').trim());
     },
   };
