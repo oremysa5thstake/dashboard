@@ -891,7 +891,9 @@
           pg: pgIds.size, dash: dashIds.size,
           missing: missing.length, extra: extra.length,
           pgMs: pgMs, dashMs: (window.__lastDashMs || ''),
-          detail: detail
+          detail: (detail ? detail + ' | ' : '')
+            + 'appsScript server=' + (window.__lastDashServerMs || '?') + 'ms'
+            + ' cacheHit=' + String(window.__lastDashCacheHit)
         }).catch(function () {});
       } catch (e) {
         // Deliberately quiet on screen. A Phase 2 experiment failing is not the user's problem.
@@ -1056,6 +1058,16 @@
           + (sv != null ? (' | server ' + sv + 'ms | overhead ' + gap + 'ms') : '')
           + (hit !== '' ? (' | cacheHit ' + hit) : '')
           + (t ? (' | reads ' + t.reads + 'ms build ' + t.build + 'ms') : ''));
+        // Hand the dashboard's own round-trip to the Phase 2 comparison, so the log records
+        // both read paths side by side rather than only the Postgres one. (It previously read
+        // window.__lastDashMs, which nothing ever set — the column was always blank.)
+        if (action === 'getDashboard') {
+          try {
+            window.__lastDashMs = rtMs;
+            window.__lastDashServerMs = (sv == null ? '' : sv);
+            window.__lastDashCacheHit = hit;
+          } catch (e) {}
+        }
         let buf = [];
         try { buf = JSON.parse(localStorage.getItem('perfLog_v1') || '[]'); } catch (e) {}
         buf.push({ ts: Date.now(), act: action, rt: rtMs, sv: sv, gap: gap, hit: hit,
