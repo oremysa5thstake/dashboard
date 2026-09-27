@@ -822,6 +822,77 @@
       }
     }
 
+    // ── Phase 2 shadow comparison ────────────────────────────────────────────
+    // Runs only for accounts enrolled by a Script Property, and changes nothing on screen. The
+    // dashboard has already rendered from Apps Script; this reads the same person's open action
+    // items straight from Postgres and reports whether the two agree.
+    //
+    // The direction that matters is `missing`: items Postgres says are open and assigned to this
+    // user that the dashboard did not render ANYWHERE. That is the failure that has happened
+    // twice — the action-item dispatch had no catch-all and silently dropped nine open tasks, and
+    // nothing noticed until somebody went looking.
+    //
+    // Everything here is wrapped so a failure is invisible: a Phase 2 experiment must never be
+    // able to break a working dashboard.
+    async function phase2Shadow(data) {
+      try {
+        const p2 = data && data.phase2;
+        if (!p2 || !p2.enabled || p2.mode !== 'shadow' || !p2.url || !p2.key) return;
+
+        // Every open item the dashboard rendered, from ANY array in the payload. Scanning for an
+        // `actionId` rather than naming the arrays is deliberate: a new section added later is
+        // included automatically, and a section someone forgets to wire up shows as a mismatch
+        // instead of hiding.
+        const baseOf = id => String(id || '').replace(/_[PC]\d*$/, '');
+        const dashIds = new Set();
+        Object.values(data).forEach(v => {
+          if (!Array.isArray(v)) return;
+          v.forEach(x => { if (x && x.actionId) dashIds.add(baseOf(x.actionId)); });
+        });
+
+        const t0 = Date.now();
+        const url = p2.url + '/rest/v1/v_dash_open_items'
+          + '?slack_id=eq.' + encodeURIComponent(userId)
+          + '&select=base_id,action_type,is_primary,display_text';
+        const r = await fetch(url, { headers: { apikey: p2.key } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const rows = await r.json();
+        const pgMs = Date.now() - t0;
+        if (!Array.isArray(rows)) throw new Error('unexpected response');
+
+        const pgIds = new Set(rows.map(x => baseOf(x.base_id)));
+        const missing = [...pgIds].filter(x => !dashIds.has(x));
+        const extra = [...dashIds].filter(x => !pgIds.has(x));
+
+        // Name the missing ones by type, which is what makes a report actionable.
+        const byId = {};
+        rows.forEach(x => { byId[baseOf(x.base_id)] = x; });
+        const detail = missing.slice(0, 8).map(id => {
+          const x = byId[id] || {};
+          return (x.action_type || '?') + ':' + id;
+        }).join(' | ');
+
+        if (missing.length) {
+          console.warn('Phase 2: ' + missing.length
+            + ' open item(s) in Postgres that the dashboard did not render — ' + detail);
+        } else {
+          console.log('Phase 2: Postgres and the dashboard agree ('
+            + pgIds.size + ' open items, ' + pgMs + 'ms)');
+        }
+
+        // Fire and forget — the report must not delay or affect the page.
+        performAction('phase2Log', {
+          pg: pgIds.size, dash: dashIds.size,
+          missing: missing.length, extra: extra.length,
+          pgMs: pgMs, dashMs: (window.__lastDashMs || ''),
+          detail: detail
+        }).catch(function () {});
+      } catch (e) {
+        // Deliberately quiet on screen. A Phase 2 experiment failing is not the user's problem.
+        console.log('Phase 2 shadow comparison skipped: ' + (e && e.message ? e.message : e));
+      }
+    }
+
     // ── Scheduling a Stake Business Sunday ───────────────────────────────────
     // One control, used from the approval summary and from an extend task, so the two cannot
     // offer different Sundays. The list comes from the backend, which derives ward and
@@ -1058,6 +1129,9 @@
 
     // Rendering functions
     function renderDashboard(data) {
+      // Runs after the render, never before, and never blocks it — see phase2Shadow().
+      try { setTimeout(function () { phase2Shadow(data); }, 0); } catch (e) {}
+
       let html = '';
 
       // Dashboard message
