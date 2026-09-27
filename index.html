@@ -843,11 +843,17 @@
         // `actionId` rather than naming the arrays is deliberate: a new section added later is
         // included automatically, and a section someone forgets to wire up shows as a mismatch
         // instead of hiding.
+        // Only OPEN items: several sections (ccItems especially) also carry completed history,
+        // and counting that made `extra` read as a disagreement when it was not one.
         const baseOf = id => String(id || '').replace(/_[PC]\d*$/, '');
         const dashIds = new Set();
         Object.values(data).forEach(v => {
           if (!Array.isArray(v)) return;
-          v.forEach(x => { if (x && x.actionId) dashIds.add(baseOf(x.actionId)); });
+          v.forEach(x => {
+            if (x && x.actionId && (x.status === undefined || x.status === 'Open')) {
+              dashIds.add(baseOf(x.actionId));
+            }
+          });
         });
 
         const t0 = Date.now();
