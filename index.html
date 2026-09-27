@@ -822,6 +822,97 @@
       }
     }
 
+    // ── Scheduling a Stake Business Sunday ───────────────────────────────────
+    // One control, used from the approval summary and from an extend task, so the two cannot
+    // offer different Sundays. The list comes from the backend, which derives ward and
+    // stake-wide-ness from the row itself and marks blocked Sundays with the reason — a picker
+    // that silently omitted General Conference would just raise "where did that Sunday go?".
+    //
+    // Loaded on demand rather than with the dashboard: most cards are never scheduled by hand,
+    // and one request per card on every load would be wasteful.
+    function schedulePickerHtml(ts, current) {
+      if (!ts) return '';
+      const id = 'sbpick_' + String(ts).replace(/[^A-Za-z0-9]/g, '');
+      const shown = current
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(current)
+            ? new Date(current + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
+            : current)
+        : '';
+      return `<div class="item-meta" id="${id}" style="margin-top:6px">`
+        + (shown
+            ? `📅 Stake business: <strong>${escapeHtmlDisplay(shown)}</strong> `
+            : '📅 Stake business: <em>next available</em> ')
+        + `<button class="btn btn-secondary btn-sm" style="margin-left:4px"
+             onclick="loadSundayPicker('${escapeHtml(String(ts))}','${id}')">Change…</button></div>`;
+    }
+
+    async function loadSundayPicker(ts, boxId) {
+      const box = document.getElementById(boxId);
+      if (!box) return;
+      box.innerHTML = '📅 <em>Loading Sundays…</em>';
+      try {
+        const d = await performAction('sbOpenSundays', { timestamp: ts, weeks: 14 });
+        if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+
+        if (d.addedToAgenda) {
+          box.innerHTML = '📅 Already on the '
+            + escapeHtmlDisplay(d.scheduled || 'agenda')
+            + ' agenda — move it on the Stake Business tab.';
+          return;
+        }
+
+        const opts = (d.sundays || []).map(x =>
+          `<option value="${x.ymd}" ${x.available ? '' : 'disabled'} ${x.ymd === d.scheduled ? 'selected' : ''}>`
+          + escapeHtmlDisplay(x.label) + (x.available ? '' : ' — ' + escapeHtmlDisplay(x.note))
+          + '</option>').join('');
+
+        box.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+            <span>📅 ${d.kind === 'stake' ? 'Stake-wide' : escapeHtmlDisplay(d.ward || 'Ward')}:</span>
+            <select id="${boxId}_sel" style="font:inherit;font-size:13px;padding:4px 6px;border:1px solid #ccd1d6;border-radius:5px;max-width:100%">
+              <option value="">Next available (automatic)</option>
+              ${opts}
+            </select>
+            <button class="btn btn-success btn-sm" onclick="saveSunday('${escapeHtml(String(ts))}','${boxId}')">Set</button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelSundayPicker('${escapeHtml(String(ts))}','${boxId}','${escapeHtml(String(d.scheduled || ''))}')">Cancel</button>
+          </div>`;
+      } catch (e) {
+        box.innerHTML = '📅 <span style="color:#b3261e">Could not load Sundays: '
+          + escapeHtmlDisplay(e.message || String(e)) + '</span>';
+      }
+    }
+
+    /** Put the picker back to its one-line summary without reloading anything. */
+    function cancelSundayPicker(ts, boxId, current) {
+      const box = document.getElementById(boxId);
+      if (!box) return;
+      const html = schedulePickerHtml(ts, current);
+      // schedulePickerHtml returns the wrapper too, so swap the element rather than nest it.
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const fresh = tmp.firstElementChild;
+      if (fresh && box.parentNode) box.parentNode.replaceChild(fresh, box);
+    }
+
+    async function saveSunday(ts, boxId) {
+      const sel = document.getElementById(boxId + '_sel');
+      if (!sel) return;
+      const box = document.getElementById(boxId);
+      const chosen = sel.value;
+      if (box) box.innerHTML = '📅 <em>Saving…</em>';
+      try {
+        const d = await performAction('sbSetScheduled', { timestamp: ts, date: chosen });
+        if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+        showToast(d.cleared ? 'Back to the next available Sunday'
+          : d.addedToAgenda ? ('Scheduled for ' + d.label + ' and added to the agenda')
+          : ('Scheduled for ' + d.label), 'success');
+        scheduleSilentRefresh(600);
+      } catch (e) {
+        showToast('Not scheduled: ' + (e.message || e), 'error');
+        // Put the control back so the message can be acted on rather than losing the card.
+        loadSundayPicker(ts, boxId);
+      }
+    }
+
     async function performAction(action, params = {}) {
       // 🎓 Demo mode: route every action to the local simulator.
       if (DEMO_MODE) return demoPerformAction(action, params);
@@ -1273,6 +1364,7 @@
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          ${schedulePickerHtml(item.callingRefId || item.referenceId, item.scheduledStakeBusiness)}
           ${assignedInfo}
           ${appointmentStatusHtml}
           <div class="item-actions">
@@ -2698,6 +2790,7 @@
             <div class="item-badges"><span class="badge badge-info">${typeLabel}</span></div>
           </div>
           <div class="item-meta">Phase: ${escapeHtmlDisplay(item.phase || '—')}</div>
+          ${item.type !== 'ordination' ? schedulePickerHtml(item.timestamp, item.scheduled) : ''}
           ${progressBar}
           ${approvedNames ? `<div class="item-meta" style="color:#28a745;">✓ Approved: ${approvedNames}</div>` : ''}
           ${waitingBlock}
