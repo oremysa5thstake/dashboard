@@ -363,6 +363,17 @@
         </div>
       </div>
       <div class="form-group">
+        <label for="targetSustainingDate">Target sustaining date (optional)</label>
+        <select id="targetSustainingDate" style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; font-family: inherit;">
+          <option value="">No preference — the next available Sunday</option>
+        </select>
+        <div style="font-size: 14px; color: #666; margin-top: 6px; line-height: 1.45;">
+          Leave this alone unless there is a reason to aim for a particular Sunday. It is a
+          target, not a commitment: if the calling is not approved in time, or that Sunday turns
+          out to have no stake business, it moves to the next available one.
+        </div>
+      </div>
+      <div class="form-group">
         <label for="comments">Comments (optional)</label>
         <textarea id="comments" rows="5" placeholder="Enter any additional comments or information here..." style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; font-family: inherit; resize: vertical;"></textarea>
       </div>
@@ -1339,6 +1350,8 @@
           formData.releaseeName = document.getElementById('releaseeName').value.trim();
           formData.releaseWard = document.getElementById('releaseWard').value;
           formData.comments = document.getElementById('comments').value.trim();
+          var tgtSel = document.getElementById('targetSustainingDate');
+          formData.targetSustainingDate = tgtSel ? tgtSel.value : '';
           var holdCb = document.getElementById('holdForCommentReview');
           formData.holdForCommentReview = !!(formData.comments && holdCb && holdCb.checked &&
                                              document.getElementById('holdCommentGroup').style.display !== 'none');
@@ -1420,6 +1433,7 @@
           }
           break;
         case 65:
+          loadTargetSundays();
           // The "hold polling for clerk review" checkbox only applies to stake
           // clerk/secretary/presidency submitters — they ARE the reviewer, so their own
           // comment shouldn't auto-create a review task for themselves.
@@ -1599,6 +1613,33 @@
     // fails, so the button genuinely can be used again after a real error.
     var isSubmitting = false;
 
+    // The target-Sunday list comes from the backend so the form cannot offer a Sunday the
+    // pipeline would refuse. Blocked ones are shown disabled with the reason — "why can't I pick
+    // the 4th?" is the obvious question and General Conference is the answer.
+    var _targetSundaysLoaded = false;
+    function loadTargetSundays() {
+      if (_targetSundaysLoaded) return;
+      var sel = document.getElementById('targetSustainingDate');
+      if (!sel) return;
+      var kind = (callingRequirements && /stake/i.test(callingRequirements.sustainingBody || '')) ? 'stake' : 'ward';
+      apiCall('sbOpenSundays', { kind: kind, ward: formData.ward || '', weeks: 16 })
+        .then(function (d) {
+          if (!d || d.success === false || !d.sundays) return;
+          _targetSundaysLoaded = true;
+          d.sundays.forEach(function (x) {
+            var o = document.createElement('option');
+            o.value = x.available ? x.ymd : '';
+            o.disabled = !x.available;
+            o.textContent = x.label + (x.available ? '' : ' — ' + x.note);
+            sel.appendChild(o);
+          });
+        })
+        .catch(function (e) {
+          // A missing list must never block a submission: the field stays on "No preference".
+          console.log('target Sundays unavailable: ' + e);
+        });
+    }
+
     function submitForm() {
       if (isSubmitting) return;
       isSubmitting = true;
@@ -1610,10 +1651,10 @@
         apiCall('submitPriesthoodOrdination', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, memberName: formData.memberName, ward: formData.ward, ordinationOffice: formData.ordinationOffice, bishopInterviewDate: formData.bishopInterviewDate, bishopSubmissionDate: formData.bishopSubmissionDate, preferredOrdinationDate: formData.preferredOrdinationDate })
           .then(handleSubmitSuccess).catch(handleSubmitError);
       } else if (formData.type === 'release') {
-        apiCall('submitReleaseOnly', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', comments: formData.comments, sustaineeGender: formData.sustaineeGender, verbalSPApproval: formData.verbalSPApproval, urgency: formData.urgency })
+        apiCall('submitReleaseOnly', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', comments: formData.comments, sustaineeGender: formData.sustaineeGender, verbalSPApproval: formData.verbalSPApproval, urgency: formData.urgency, targetSustainingDate: formData.targetSustainingDate || '' })
           .then(handleSubmitSuccess).catch(handleSubmitError);
       } else {
-        apiCall('submitCallingRecommendation', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, holdForCommentReview: formData.holdForCommentReview, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard })
+        apiCall('submitCallingRecommendation', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, holdForCommentReview: formData.holdForCommentReview, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard, targetSustainingDate: formData.targetSustainingDate || '' })
           .then(handleSubmitSuccess).catch(handleSubmitError);
       }
     }
