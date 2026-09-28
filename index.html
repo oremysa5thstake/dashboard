@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-09-28 09:56';
+    const BUILD_STAMP = '2026-09-28 10:10';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -792,8 +792,15 @@
     // Fails soft in every direction. No row, a stale row, a bad response, anything thrown — it
     // returns null and the caller uses Apps Script exactly as before. The worst outcome is the
     // speed we already had.
-    const PHASE2_MAX_AGE_S = 900;    // refuse a payload older than 15 minutes
-    const PHASE2_REFRESH_AGE_S = 60; // and quietly ask Apps Script to rebuild past a minute
+    // Age is NOT staleness. Every write rebuilds and re-pushes the payload, so an old one means
+    // nothing has changed — not that it is wrong. A 15-minute ceiling made a quiet afternoon end
+    // in an 8-second Apps Script load for a payload that was perfectly correct.
+    //
+    // Two hours is the backstop for the case age cannot see: something changed the sheet without
+    // going through the dashboard. A 15-minute background warm (installPhase2Triggers) keeps it
+    // well inside that anyway.
+    const PHASE2_MAX_AGE_S = 7200;
+    const PHASE2_REFRESH_AGE_S = 300; // quietly rebuild past five minutes
 
     // ── The Phase 2 session token ────────────────────────────────────────────
     // The browser cannot hold the sync secret, and the publishable key is public by design — so
