@@ -464,6 +464,7 @@ async function saveCell(cell, gridName, keyField) {
     const res = await fetch(API_URL + '?' + params.toString());
     const data = await res.json();
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    markGridsStale();   // stored grids no longer reflect the sheet
     if (el) {
       el.style.outline = '2px solid #4caf50';
       setTimeout(() => { el.style.outline = ''; }, 900);
@@ -506,6 +507,7 @@ async function saveBusinessCell(cell) {
     });
     const data = await apiJson(API_URL + '?' + params.toString());
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    markGridsStale();   // stored grids no longer reflect the sheet
     if (el) {
       el.style.outline = '2px solid #4caf50';
       setTimeout(() => { el.style.outline = ''; }, 900);
@@ -545,6 +547,7 @@ async function saveGridCell(cell, gridName) {
     if (row._expect !== undefined) qs.expect = String(row._expect);
     const data = await apiJson(API_URL + '?' + new URLSearchParams(qs).toString());
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
+    markGridsStale();   // stored grids no longer reflect the sheet
     if (el) {
       el.style.outline = '2px solid #4caf50';
       setTimeout(() => { el.style.outline = ''; }, 900);
@@ -582,6 +585,90 @@ function scheduleRegroup() {
 
 // fetch + JSON with the same transient-404 retry the dashboard uses: Apps Script intermittently
 // answers /exec with its own "Page Not Found" for routes that exist.
+// ── Phase 2: the grids from Postgres ─────────────────────────────────────
+// Every tab used to be its own Apps Script call — 4.2-7.1s apiece. They are now built together
+// (which shares the sheet reads) and stored as one payload, read here in ~0.4s.
+//
+// Falls back silently to Apps Script for anything at all: not enrolled, no token, nothing stored,
+// a tab the payload does not carry. The worst case is the speed this page already had.
+const P2_TOKEN_KEY = 'phase2_session_v1';
+let _gridPayload = null, _gridPayloadAt = 0;
+
+function p2Token() {
+  try {
+    const t = JSON.parse(localStorage.getItem(P2_TOKEN_KEY) || 'null');
+    if (!t || !t.token || !t.expiresAt) return null;
+    if (new Date(t.expiresAt).getTime() - Date.now() < 5 * 60 * 1000) return null;
+    return t.token;
+  } catch (e) { return null; }
+}
+
+async function ensureP2Token() {
+  const have = p2Token();
+  if (have) return have;
+  try {
+    // Minted by Apps Script for a user it has already authenticated. Shared with the dashboard
+    // through localStorage, so opening Sheet Views after the dashboard costs nothing.
+    const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(USER_ID || ''));
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || !d.success || !d.token) return null;
+    localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
+      token: d.token, expiresAt: d.expiresAt, userId: USER_ID
+    }));
+    return d.token;
+  } catch (e) { return null; }
+}
+
+/** One stored payload holding every tab. Cached for the session; refresh reloads it. */
+async function gridsFromPostgres() {
+  if (_gridPayload && Date.now() - _gridPayloadAt < 60000) return _gridPayload;
+  try {
+    const token = await ensureP2Token();
+    if (!token) return null;
+    const t0 = Date.now();
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/ui_payload_get', {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_kind: 'grids', p_slack_id: USER_ID, p_token: token })
+    });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
+    if (Number(rows[0].age_seconds) > 7200) return null;   // same backstop as the dashboard
+    _gridPayload = rows[0].payload; _gridPayloadAt = Date.now();
+    console.log('⚡ Phase 2: grids from Postgres in ' + (Date.now() - t0)
+      + 'ms (' + rows[0].age_seconds + 's old)');
+    return _gridPayload;
+  } catch (e) {
+    console.log('Phase 2: grid read failed, using Apps Script — ' + (e && e.message ? e.message : e));
+    return null;
+  }
+}
+
+/**
+ * After an edit the stored payload is out of date — it is rebuilt by the background warm, not by
+ * the edit. So an edit marks the stored copy untrusted and the next load goes to Apps Script,
+ * which is authoritative. One slow load immediately after editing, in exchange for never showing
+ * somebody their own change missing.
+ */
+let _storedStaleUntil = 0;
+function markGridsStale() {
+  _gridPayload = null; _gridPayloadAt = 0;
+  _storedStaleUntil = Date.now() + 90000;   // ~long enough for the warm to catch up
+}
+
+/** The stored equivalent of one `api` tab, or null to fall back. */
+async function storedTab(spec) {
+  if (Date.now() < _storedStaleUntil) return null;   // just edited — read the sheet
+  const p = await gridsFromPostgres();
+  if (!p) return null;
+  if (spec.api === 'sbQueue')  return p.sbQueue || null;
+  if (spec.api === 'aiAdmin')  return p.aiAdmin || null;
+  if (spec.api === 'gridRows') return p['grid_' + spec.apiGrid] || null;
+  return null;
+}
+
 async function apiJson(url) {
   let attempt = 0;
   for (;;) {
@@ -1362,9 +1449,13 @@ async function load() {
       rows = demoRows(tab);
       today = new Date().toISOString().slice(0, 10);
     } else if (spec.api) {
-      const d = await apiJson(API_URL + '?action=' + spec.api
-        + '&userId=' + encodeURIComponent(USER_ID || '')
-        + (spec.apiGrid ? '&grid=' + encodeURIComponent(spec.apiGrid) : ''));
+      // Postgres first; Apps Script if anything is missing.
+      let d = await storedTab(spec);
+      if (!d) {
+        d = await apiJson(API_URL + '?action=' + spec.api
+          + '&userId=' + encodeURIComponent(USER_ID || '')
+          + (spec.apiGrid ? '&grid=' + encodeURIComponent(spec.apiGrid) : ''));
+      }
       if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
       rows = d.rows || [];
       today = d.today || new Date().toISOString().slice(0, 10);
@@ -1449,7 +1540,8 @@ async function addBusinessRow() {
     });
     const data = await apiJson(API_URL + '?' + params.toString());
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
-    toast('Added to the agenda');
+    markGridsStale();   // stored grids no longer reflect the sheet
+    markGridsStale(); toast('Added to the agenda');
     load();
   } catch (e) {
     toast('Not added: ' + (e.message || e), 'err');
@@ -1634,7 +1726,7 @@ async function submitRowForm() {
     // that disappears — the typed values are still on screen to correct.
     if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
     closeRowForm();
-    toast('Added');
+    markGridsStale(); toast('Added');
     load();
   } catch (e) {
     show(e.message || String(e));
@@ -1658,7 +1750,7 @@ async function deleteGridRowAt(gridName, key, expect, note, prompt_) {
       grid: gridName, rowKey: String(key), expect: String(expect)
     }).toString());
     if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
-    toast('Removed');
+    markGridsStale(); toast('Removed');
     load();
   } catch (e) {
     toast('Not removed: ' + (e.message || e), 'err');
@@ -1727,7 +1819,7 @@ async function deleteCallingRow(sheetRef, member, calling) {
     const bits = [];
     if (d.stakeBusinessRemoved) bits.push(d.stakeBusinessRemoved + ' agenda row(s) removed');
     if (d.tasksClosed) bits.push(d.tasksClosed + ' task(s) closed');
-    toast('Deleted' + (bits.length ? ' — ' + bits.join(', ') : ''));
+    markGridsStale(); toast('Deleted' + (bits.length ? ' — ' + bits.join(', ') : ''));
     load();
   } catch (e) {
     toast('Not deleted: ' + (e.message || e), 'err');
@@ -1744,7 +1836,7 @@ async function removeSettingsLink(row, label) {
       mode: 'remove', row: String(row), expect: String(label)
     }).toString());
     if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
-    toast('Link removed');
+    markGridsStale(); toast('Link removed');
     load();
   } catch (e) {
     toast('Not removed: ' + (e.message || e), 'err');
@@ -1925,7 +2017,7 @@ async function saveTask(baseId, field, value) {
       action: 'aiUpdate', userId: USER_ID, baseId, field, value: value == null ? '' : value
     }).toString());
     if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
-    toast('Saved to ' + d.rows + ' row' + (d.rows === 1 ? '' : 's'));
+    markGridsStale(); toast('Saved to ' + d.rows + ' row' + (d.rows === 1 ? '' : 's'));
     load();
   } catch (e) {
     toast('Not saved: ' + (e.message || e), 'err');
