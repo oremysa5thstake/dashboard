@@ -799,11 +799,16 @@
       const p2 = phase2Config();
       if (!p2) return null;
       try {
+        // An RPC, not a table read. A view with SELECT for anon could be queried with no filter
+        // at all, which returned every stored payload — see migration 0044. This takes the Slack
+        // ID as an argument and returns one row, so knowing the ID is still the whole of the
+        // authentication, exactly as it already is everywhere else, and nothing is enumerable.
         const t0 = performance.now();
-        const url = p2.url + '/rest/v1/v_dash_payload'
-          + '?slack_id=eq.' + encodeURIComponent(userId)
-          + '&select=payload,built_at,age_seconds&limit=1';
-        const r = await fetch(url, { headers: { apikey: p2.key } });
+        const r = await fetch(p2.url + '/rest/v1/rpc/dash_payload_get', {
+          method: 'POST',
+          headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_slack_id: userId })
+        });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const rows = await r.json();
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
