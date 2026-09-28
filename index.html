@@ -795,6 +795,51 @@
       return (p && p.enabled && p.mode === 'live' && p.url && p.key) ? p : null;
     }
 
+    /**
+     * Any pre-built per-user payload, from Postgres. Same contract as loadFromPostgres: returns
+     * null for anything at all wrong, and the caller then uses Apps Script exactly as before.
+     *
+     * Member Status is why this exists — 10.7s and 2.1MB through Apps Script against 0.66s and
+     * 222KB gzipped from here, for byte-identical data.
+     */
+    async function loadUiPayloadFromPostgres(kind, maxAgeS) {
+      const p2 = phase2Config();
+      if (!p2) return null;
+      try {
+        const t0 = performance.now();
+        const r = await fetch(p2.url + '/rest/v1/rpc/ui_payload_get', {
+          method: 'POST',
+          headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_kind: kind, p_slack_id: getActorUserId() })
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const rows = await r.json();
+        if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
+
+        const age = Number(rows[0].age_seconds);
+        if (!(age >= 0) || age > (maxAgeS || 900)) {
+          console.log('Phase 2: stored ' + kind + ' is ' + age + 's old — using Apps Script');
+          return null;
+        }
+        const data = rows[0].payload;
+        data.success = true;
+        data._fromPostgres = true;
+        console.log('⚡ Phase 2: ' + kind + ' from Postgres in '
+          + Math.round(performance.now() - t0) + 'ms (' + age + 's old)');
+
+        // Refresh the stored copy in the background past a minute, so it does not drift.
+        if (age > 60) {
+          fetch(API_URL + '?action=getMemberStatus&userId=' + encodeURIComponent(userId)
+                + '&actorUserId=' + encodeURIComponent(getActorUserId())).catch(function () {});
+        }
+        return data;
+      } catch (e) {
+        console.log('Phase 2: ' + kind + ' read failed, using Apps Script — '
+          + (e && e.message ? e.message : e));
+        return null;
+      }
+    }
+
     async function loadFromPostgres() {
       const p2 = phase2Config();
       if (!p2) return null;
@@ -4639,7 +4684,8 @@
         '<div class="loading"><div class="spinner"></div><p>Loading member status…</p></div>';
       document.getElementById('memberStatusOverlay').classList.add('open');
       try {
-        const res = await performAction('getMemberStatus', { actorUserId: getActorUserId() });
+        const res = (await loadUiPayloadFromPostgres('memberStatus'))
+          || await performAction('getMemberStatus', { actorUserId: getActorUserId() });
         memberStatusData = res;
         renderMemberStatus();
       } catch (e) {
@@ -4769,7 +4815,8 @@
     // Re-fetch member data and re-render, preserving search/ward filter + open card.
     async function reloadMemberStatus() {
       try {
-        const res = await performAction('getMemberStatus', { actorUserId: getActorUserId() });
+        const res = (await loadUiPayloadFromPostgres('memberStatus'))
+          || await performAction('getMemberStatus', { actorUserId: getActorUserId() });
         memberStatusData = res;
         filterMemberStatus();
       } catch (e) {
