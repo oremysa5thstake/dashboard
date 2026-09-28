@@ -768,7 +768,85 @@
     }
 
     // API Functions
+    // ── Phase 2: read the dashboard from Postgres ────────────────────────────
+    // Apps Script still BUILDS the payload — every rule stays in one implementation — and stores
+    // the finished JSON in Postgres. This reads that row. Measured on the stake clerk:
+    //
+    //   Apps Script /exec   ~3000ms   (of which ~2200ms is transport that no cache touches)
+    //   Postgres row        ~100ms
+    //
+    // The enrolment (and the URL and publishable key) come from the payload itself, so this
+    // cannot switch anybody on by accident: a user who is not enrolled never gets `phase2.live`.
+    //
+    // Fails soft in every direction. No row, a stale row, a bad response, anything thrown — it
+    // returns null and the caller uses Apps Script exactly as before. The worst outcome is the
+    // speed we already had.
+    const PHASE2_MAX_AGE_S = 900;    // refuse a payload older than 15 minutes
+    const PHASE2_REFRESH_AGE_S = 60; // and quietly ask Apps Script to rebuild past a minute
+
+    function phase2Config() {
+      // currentData is the last payload rendered this session; on the very first load there is
+      // none, so fall back to the browser-cached payload. Without that, every fresh session paid
+      // one slow Apps Script load before it could learn it was allowed to use the fast path.
+      let p = (currentData && currentData.phase2) || null;
+      if (!p) {
+        try { const c = loadDashboardCache(); p = (c && c.phase2) || null; } catch (e) {}
+      }
+      return (p && p.enabled && p.mode === 'live' && p.url && p.key) ? p : null;
+    }
+
+    async function loadFromPostgres() {
+      const p2 = phase2Config();
+      if (!p2) return null;
+      try {
+        const t0 = performance.now();
+        const url = p2.url + '/rest/v1/v_dash_payload'
+          + '?slack_id=eq.' + encodeURIComponent(userId)
+          + '&select=payload,built_at,age_seconds&limit=1';
+        const r = await fetch(url, { headers: { apikey: p2.key } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const rows = await r.json();
+        if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
+
+        const age = Number(rows[0].age_seconds);
+        if (!(age >= 0) || age > PHASE2_MAX_AGE_S) {
+          console.log('Phase 2: stored payload is ' + age + 's old — using Apps Script');
+          return null;
+        }
+
+        const data = rows[0].payload;
+        data.success = true;                 // the router adds this after the payload is cached
+        data._fromPostgres = true;
+        data._postgresAgeS = age;
+        console.log('⚡ Phase 2: dashboard from Postgres in '
+          + Math.round(performance.now() - t0) + 'ms (payload ' + age + 's old)');
+
+        // Past a minute, ask Apps Script to rebuild in the background so the stored copy stays
+        // fresh. Deliberately not awaited: the render must not wait on it.
+        if (age > PHASE2_REFRESH_AGE_S) {
+          fetch(API_URL + '?action=getDashboard&userId=' + encodeURIComponent(userId)
+                + '&forceRefresh=true').catch(function () {});
+        }
+        return data;
+      } catch (e) {
+        console.log('Phase 2: Postgres read failed, falling back to Apps Script — '
+          + (e && e.message ? e.message : e));
+        return null;
+      }
+    }
+
     async function loadDashboardData(forceRefresh = false) {
+      // Phase 2 first. One ~100ms read replaces a ~3s round trip; if anything at all is wrong
+      // with it, loadFromPostgres returns null and the original path runs untouched below.
+      {
+        const fast = await loadFromPostgres();
+        if (fast) {
+          saveDashboardCache(fast);
+          onDataLoaded(fast);
+          return;
+        }
+      }
+
       // Show cached data immediately — eliminates blank spinner for returning users
       if (!forceRefresh) {
         const cached = loadDashboardCache();
