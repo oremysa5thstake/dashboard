@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-09-28 08:32';
+    const BUILD_STAMP = '2026-09-28 08:44';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -925,6 +925,45 @@
         return data;
       } catch (e) {
         console.log('Phase 2: ' + kind + ' read failed, using Apps Script — '
+          + (e && e.message ? e.message : e));
+        return null;
+      }
+    }
+
+    /**
+     * Write straight to Postgres, when Phase 2 is live and the action has been moved.
+     *
+     * Returns null if the write could not be attempted at all (not enrolled, no token, network
+     * failure) so the caller falls back to Apps Script. A refusal FROM Postgres throws, because
+     * that is a real answer and must not be silently retried against the sheet.
+     *
+     * The change lands in Postgres immediately and in `write_outbox`; Apps Script mirrors it to
+     * the Google Sheet moments later. That is what makes a tap ~0.2s instead of ~2.5s.
+     */
+    async function writeToPostgres(fn, args) {
+      const p2 = phase2Config();
+      if (!p2) return null;
+      try {
+        const token = await ensurePhase2Token();
+        if (!token) return null;
+        const t0 = performance.now();
+        const r = await fetch(p2.url + '/rest/v1/rpc/' + fn, {
+          method: 'POST',
+          headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.assign({ p_slack_id: getActorUserId(), p_token: token }, args))
+        });
+        if (!r.ok) {
+          const body = await r.text();
+          console.log('Phase 2 write ' + fn + ' refused (' + r.status + '): ' + body.slice(0, 160));
+          return null;                       // fall back rather than lose the action
+        }
+        const out = await r.json();
+        console.log('⚡ Phase 2 write ' + fn + ' in ' + Math.round(performance.now() - t0) + 'ms');
+        // Nudge Apps Script to mirror it to the sheet now rather than on the next hourly pass.
+        fetch(API_URL + '?action=outboxDrain&userId=' + encodeURIComponent(userId)).catch(function () {});
+        return out;
+      } catch (e) {
+        console.log('Phase 2 write ' + fn + ' failed, using Apps Script — '
           + (e && e.message ? e.message : e));
         return null;
       }
@@ -2863,7 +2902,9 @@
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
-        await performAction('ackCCGroup', { ids: list.join(',') });
+        // Phase 2 first: ~0.2s against ~2.5s. Falls back to Apps Script on any doubt.
+        const fast = await writeToPostgres('act_acknowledge_cc', { p_action_ids: list });
+        if (!fast) await performAction('ackCCGroup', { ids: list.join(',') });
         showToast('Acknowledged ' + list.length + ' item' + (list.length === 1 ? '' : 's'), 'success');
         scheduleSilentRefresh(800);
       } catch (e) {
