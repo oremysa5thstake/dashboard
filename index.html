@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-09-28 08:53';
+    const BUILD_STAMP = '2026-09-28 09:40';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -943,10 +943,30 @@
     // Actions that may be queued in Postgres instead of waiting on Apps Script. This list must
     // match QUEUED_ACTION_REPLAY in SlackAndMisc.js — an action here with no replay handler would
     // sit unapplied in the outbox, so anything not on BOTH lists keeps the old path.
+    // NOTE: an action belongs here only if the UI does NOT use its response. Queueing returns
+    // {queued:true}, so anything whose result is displayed — syncSheets' counts, undoAction's
+    // warnings, sbSetScheduled's chosen date — must keep the synchronous path.
     const P2_QUEUEABLE = new Set([
-      'ackCCGroup', 'ackAllCC', 'dismissAllMentions', 'acknowledge', 'dismissMention',
-      'ccComplete', 'approve', 'concern', 'accepted', 'declined', 'extended', 'complete',
-      'setApart', 'coordinated', 'ackOrdNotify', 'scheduled', 'reviewComplete'
+      // acknowledgements and dismissals
+      'ackCCGroup', 'ackAllCC', 'dismissAllMentions', 'acknowledge', 'dismissMention', 'ccComplete',
+      // the approval chain
+      'approve', 'concern', 'accepted', 'declined', 'extended', 'complete', 'setApart',
+      'coordinated', 'ackOrdNotify', 'scheduled', 'reviewComplete', 'approveAll', 'sustainAll',
+      // stake business
+      'sbConfirm', 'sbCheckBackup', 'sbNeedReplacement', 'sbHaveReplacement',
+      'sbMarkAlreadyConfirmed', 'sbDismissReplacement', 'reportSustaining',
+      'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
+      'restoreNormalAssignments', 'releaseHold',
+      // the schedule/assign bins
+      'assignExtendCall', 'assignSettingApart', 'assignOrdinationInterview',
+      'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
+      // appointments
+      'scheduleAppointment', 'rescheduleAppointment', 'dismissAppointment',
+      // ordinations
+      'submitOrdinationReport', 'transferOrdinationNotification', 'submitOutOfUnitRecord',
+      // task management
+      'markNameTagOrdered', 'setCallingPriority', 'setMemberStatusField', 'saveSetting',
+      'addAwayPeriod', 'removeAwayPeriod', 'reassign', 'createTask'
     ]);
 
     /**
