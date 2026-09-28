@@ -569,6 +569,8 @@
     const USERS_CACHE_TTL = 30 * 60 * 1000;    // 30 min
 
     function saveDashboardCache(data) {
+      // The payload expires in five minutes; the Phase 2 settings it carries must not.
+      rememberPhase2Config(data);
       try { localStorage.setItem('dashCache_' + userId, JSON.stringify({ v: CACHE_VERSION, data, ts: Date.now() })); } catch (e) {}
     }
     function loadDashboardCache() {
@@ -789,12 +791,14 @@
     // it holds a short-lived token instead, minted by Apps Script for a leader it has already
     // authenticated. One Apps Script call per session, not per request.
     //
-    // Kept in sessionStorage, not localStorage: it should not outlive the tab.
+    // Kept in localStorage: the token already expires in 12 hours and is scoped to one person,
+    // and re-minting costs an Apps Script round trip on precisely the load that should not need
+    // one. A closed tab is not a security boundary here — the Slack ID in the URL outlives it too.
     const P2_TOKEN_KEY = 'phase2_session_v1';
 
     function phase2Token() {
       try {
-        const raw = sessionStorage.getItem(P2_TOKEN_KEY);
+        const raw = localStorage.getItem(P2_TOKEN_KEY);
         if (!raw) return null;
         const t = JSON.parse(raw);
         if (!t || !t.token || !t.expiresAt) return null;
@@ -817,7 +821,7 @@
           if (!r.ok) return null;
           const d = await r.json();
           if (!d || !d.success || !d.token) return null;
-          sessionStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
+          localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
             token: d.token, expiresAt: d.expiresAt, userId: getActorUserId()
           }));
           console.log('Phase 2: session token minted, valid until ' + d.expiresAt);
@@ -830,14 +834,43 @@
       return _p2TokenInFlight;
     }
 
+    // Phase 2 settings are CONFIGURATION, not data, and must not expire with the payload.
+    //
+    // They used to be read out of the dashboard cache, which has a 5-minute TTL. So opening or
+    // refreshing more than five minutes after the last load found no cache, concluded Phase 2 was
+    // off, and did the full 8-second Apps Script load — the fast path was skipped on exactly the
+    // loads that felt slow. Stored separately now, refreshed whenever a payload carries it.
+    const P2_CONFIG_KEY = 'phase2_config_v1';
+
+    // The same two values sheets.html has hardcoded since it was written. The publishable key is
+    // public by design — it is served from the public Pages repo either way — and since 0046 it
+    // is not a credential on its own: every Postgres call also needs a session token.
+    //
+    // Hardcoding them removes the bootstrap entirely. Without this the FIRST load of a browser
+    // had no stored config, so it fell back to an 8-second Apps Script load just to learn it was
+    // allowed to use the fast path. Enrolment is still decided by the server: an account that is
+    // not enrolled cannot mint a token, so it simply falls back.
+    const P2_URL = 'https://lrfbxbiwqnlctomjeboi.supabase.co';
+    const P2_KEY = 'sb_publishable_eJToH6uWrOBEPzhkzgA_Hg_VRn81dfP';
+
+    function rememberPhase2Config(data) {
+      try {
+        const p = data && data.phase2;
+        if (p && p.enabled && p.url && p.key) {
+          localStorage.setItem(P2_CONFIG_KEY, JSON.stringify(p));
+        } else if (p && p.enabled === false) {
+          localStorage.removeItem(P2_CONFIG_KEY);   // un-enrolled: stop using the fast path
+        }
+      } catch (e) {}
+    }
+
     function phase2Config() {
-      // currentData is the last payload rendered this session; on the very first load there is
-      // none, so fall back to the browser-cached payload. Without that, every fresh session paid
-      // one slow Apps Script load before it could learn it was allowed to use the fast path.
       let p = (currentData && currentData.phase2) || null;
-      if (!p) {
-        try { const c = loadDashboardCache(); p = (c && c.phase2) || null; } catch (e) {}
-      }
+      if (!p) { try { p = JSON.parse(localStorage.getItem(P2_CONFIG_KEY) || 'null'); } catch (e) {} }
+      if (!p) { try { const c = loadDashboardCache(); p = (c && c.phase2) || null; } catch (e) {} }
+      // Nothing stored yet: try anyway with the built-in endpoint. Minting the token is what
+      // actually decides enrolment, so an account that is not in Phase 2 falls back on its own.
+      if (!p) return { enabled: true, mode: 'live', url: P2_URL, key: P2_KEY, assumed: true };
       return (p && p.enabled && p.mode === 'live' && p.url && p.key) ? p : null;
     }
 
