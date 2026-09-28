@@ -784,6 +784,52 @@
     const PHASE2_MAX_AGE_S = 900;    // refuse a payload older than 15 minutes
     const PHASE2_REFRESH_AGE_S = 60; // and quietly ask Apps Script to rebuild past a minute
 
+    // ── The Phase 2 session token ────────────────────────────────────────────
+    // The browser cannot hold the sync secret, and the publishable key is public by design — so
+    // it holds a short-lived token instead, minted by Apps Script for a leader it has already
+    // authenticated. One Apps Script call per session, not per request.
+    //
+    // Kept in sessionStorage, not localStorage: it should not outlive the tab.
+    const P2_TOKEN_KEY = 'phase2_session_v1';
+
+    function phase2Token() {
+      try {
+        const raw = sessionStorage.getItem(P2_TOKEN_KEY);
+        if (!raw) return null;
+        const t = JSON.parse(raw);
+        if (!t || !t.token || !t.expiresAt) return null;
+        // Treat the last five minutes as expired, so a long request cannot straddle the boundary.
+        if (new Date(t.expiresAt).getTime() - Date.now() < 5 * 60 * 1000) return null;
+        if (t.userId !== getActorUserId()) return null;   // acting as someone else
+        return t.token;
+      } catch (e) { return null; }
+    }
+
+    let _p2TokenInFlight = null;
+    async function ensurePhase2Token() {
+      const have = phase2Token();
+      if (have) return have;
+      // One mint at a time: several panels loading at once must not each ask for a token.
+      if (_p2TokenInFlight) return _p2TokenInFlight;
+      _p2TokenInFlight = (async () => {
+        try {
+          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(userId));
+          if (!r.ok) return null;
+          const d = await r.json();
+          if (!d || !d.success || !d.token) return null;
+          sessionStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
+            token: d.token, expiresAt: d.expiresAt, userId: getActorUserId()
+          }));
+          console.log('Phase 2: session token minted, valid until ' + d.expiresAt);
+          return d.token;
+        } catch (e) {
+          console.log('Phase 2: could not mint a session token — ' + (e && e.message ? e.message : e));
+          return null;
+        } finally { _p2TokenInFlight = null; }
+      })();
+      return _p2TokenInFlight;
+    }
+
     function phase2Config() {
       // currentData is the last payload rendered this session; on the very first load there is
       // none, so fall back to the browser-cached payload. Without that, every fresh session paid
@@ -807,10 +853,12 @@
       if (!p2) return null;
       try {
         const t0 = performance.now();
+        const token = await ensurePhase2Token();
+        if (!token) return null;
         const r = await fetch(p2.url + '/rest/v1/rpc/ui_payload_get', {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_kind: kind, p_slack_id: getActorUserId() })
+          body: JSON.stringify({ p_kind: kind, p_slack_id: getActorUserId(), p_token: token })
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const rows = await r.json();
@@ -849,10 +897,12 @@
         // ID as an argument and returns one row, so knowing the ID is still the whole of the
         // authentication, exactly as it already is everywhere else, and nothing is enumerable.
         const t0 = performance.now();
+        const token = await ensurePhase2Token();
+        if (!token) return null;          // no token, no fast path — fall back, never fail open
         const r = await fetch(p2.url + '/rest/v1/rpc/dash_payload_get', {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_slack_id: userId })
+          body: JSON.stringify({ p_slack_id: userId, p_token: token })
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const rows = await r.json();
