@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-09-28 08:44';
+    const BUILD_STAMP = '2026-09-28 08:53';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -940,6 +940,55 @@
      * The change lands in Postgres immediately and in `write_outbox`; Apps Script mirrors it to
      * the Google Sheet moments later. That is what makes a tap ~0.2s instead of ~2.5s.
      */
+    // Actions that may be queued in Postgres instead of waiting on Apps Script. This list must
+    // match QUEUED_ACTION_REPLAY in SlackAndMisc.js — an action here with no replay handler would
+    // sit unapplied in the outbox, so anything not on BOTH lists keeps the old path.
+    const P2_QUEUEABLE = new Set([
+      'ackCCGroup', 'ackAllCC', 'dismissAllMentions', 'acknowledge', 'dismissMention',
+      'ccComplete', 'approve', 'concern', 'accepted', 'declined', 'extended', 'complete',
+      'setApart', 'coordinated', 'ackOrdNotify', 'scheduled', 'reviewComplete'
+    ]);
+
+    /**
+     * Queue an action in Postgres. Returns true if it was accepted, false to use Apps Script.
+     *
+     * The tap returns in ~0.3s. Apps Script replays the SAME handler moments later, so the
+     * cascade — routing, task creation, Slack, documents — is unchanged; it simply stops
+     * happening while somebody waits for it.
+     */
+    async function queueActionInPostgres(action, params) {
+      if (!P2_QUEUEABLE.has(action)) return false;
+      const p2 = phase2Config();
+      if (!p2) return false;
+      try {
+        const token = await ensurePhase2Token();
+        if (!token) return false;
+        const t0 = performance.now();
+        const r = await fetch(p2.url + '/rest/v1/rpc/act_enqueue', {
+          method: 'POST',
+          headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_slack_id: getActorUserId(), p_token: token,
+                                 p_action: action, p_params: params || {} })
+        });
+        if (!r.ok) {
+          console.log('Phase 2 queue refused (' + r.status + ') — using Apps Script');
+          return false;
+        }
+        await r.json();
+        console.log('⚡ Phase 2 queued ' + action + ' in ' + Math.round(performance.now() - t0) + 'ms');
+        // Anything built BEFORE this moment predates the action, so re-reading it would undo the
+        // optimistic update and put the item the person just actioned back on their screen.
+        window.__p2QueuedAt = Date.now();
+        // Ask Apps Script to drain now rather than on its next pass. Not awaited: the whole point
+        // is that the person does not wait for it.
+        fetch(API_URL + '?action=outboxDrain&userId=' + encodeURIComponent(userId)).catch(function () {});
+        return true;
+      } catch (e) {
+        console.log('Phase 2 queue failed, using Apps Script — ' + (e && e.message ? e.message : e));
+        return false;
+      }
+    }
+
     async function writeToPostgres(fn, args) {
       const p2 = phase2Config();
       if (!p2) return null;
@@ -995,6 +1044,18 @@
           return null;
         }
 
+        // Built before the action we just queued? Then it cannot know about it. Waiting is right:
+        // the replay takes ~15s and a fixed delay would either be too short (the item reappears)
+        // or needlessly slow. Keep the current view and look again shortly.
+        const builtAt = new Date(rows[0].built_at).getTime();
+        if (window.__p2QueuedAt && builtAt < window.__p2QueuedAt) {
+          console.log('Phase 2: payload predates the queued action — keeping the current view');
+          scheduleSilentRefresh(6000);
+          return null;
+        }
+        // Caught up: stop holding reads back.
+        window.__p2QueuedAt = 0;
+
         const data = rows[0].payload;
         data.success = true;                 // the router adds this after the payload is cached
         data._fromPostgres = true;
@@ -1026,6 +1087,9 @@
           onDataLoaded(fast);
           return;
         }
+        // Holding for a queued action: keep what is on screen rather than spending 8 seconds on
+        // Apps Script to fetch a state we already know is about to change.
+        if (window.__p2QueuedAt && currentData) return;
       }
 
       // Show cached data immediately — eliminates blank spinner for returning users
@@ -1254,6 +1318,17 @@
     async function performAction(action, params = {}) {
       // 🎓 Demo mode: route every action to the local simulator.
       if (DEMO_MODE) return demoPerformAction(action, params);
+
+      // Phase 2: queue it in Postgres and return, instead of waiting ~2.5s for Apps Script to
+      // finish the whole cascade. Only for actions with a replay handler; everything else falls
+      // through to the original path untouched.
+      if (await queueActionInPostgres(action, params)) {
+        // Long enough for: drain (~4s) + replay + payload rebuild, which now all happen in one
+        // Apps Script pass. Too short and the re-read returns the pre-action payload and the item
+        // reappears in front of the person who just actioned it.
+        scheduleSilentRefresh(9000);
+        return { success: true, queued: true };
+      }
       try {
         params.userId = userId;
         params.action = action;
