@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-09-28 10:10';
+    const BUILD_STAMP = '2026-10-01 vote-row-verify';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1781,6 +1781,8 @@
       items.forEach(item => {
         // Construct itemId in format: "calling_ROWINDEX" or "ordination_ROWINDEX"
         const itemId = (item.type || 'calling') + '_' + item.rowIndex;
+        // The row's timestamp, when the payload has one, so the vote is verified server-side.
+        const refArg = item.ref ? ", {ref: '" + String(item.ref).replace(/[^0-9A-Za-z:.\-+ ]/g, '') + "'}" : '';
         // A release and a call are opposite decisions and used to render identically. The
         // badge and the wording both have to say which one this is — a release read as a
         // calling is the approver agreeing to the wrong thing.
@@ -1800,8 +1802,8 @@
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           ${item.hpNote ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + item.hpNote + '</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this)">${isRelease ? '✓ Approve release' : '✓ Approve'}</button>
-            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this)">⚠️ Concerns</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this${refArg})">${isRelease ? '✓ Approve release' : '✓ Approve'}</button>
+            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this${refArg})">⚠️ Concerns</button>
           </div>
         </div>`;
       });
@@ -1889,13 +1891,15 @@
       items.forEach(item => {
         // Construct itemId in format: "ordination_ROWINDEX"
         const itemId = (item.type || 'ordination') + '_' + item.rowIndex;
+        // The row's timestamp, when the payload has one, so the vote is verified server-side.
+        const refArg = item.ref ? ", {ref: '" + String(item.ref).replace(/[^0-9A-Za-z:.\-+ ]/g, '') + "'}" : '';
         html += `<div class="item">
           <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
           <div class="item-meta">${item.office || 'N/A'} - ${item.ward || 'N/A'}</div>
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           <div class="item-actions">
-            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this)">✓ Sustain</button>
-            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this)">⚠️ Concerns</button>
+            <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this${refArg})">✓ Sustain</button>
+            <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this${refArg})">⚠️ Concerns</button>
           </div>
         </div>`;
       });
@@ -4386,7 +4390,9 @@
     const _handleActionInFlight = new Set();
     const _scheduleApptInFlight = new Set();
 
-    async function handleAction(actionId, action, btn) {
+    // `extra` carries per-card context the backend should verify — today the approval cards'
+    // row timestamp (`ref`), so a vote cannot land on a row that moved after the dashboard loaded.
+    async function handleAction(actionId, action, btn, extra) {
       const inFlightKey = action + '|' + actionId;
       if (_handleActionInFlight.has(inFlightKey)) return; // ignore double-tap
       _handleActionInFlight.add(inFlightKey);
@@ -4409,7 +4415,7 @@
       setSyncing(true);
 
       try {
-        await performAction(action, { itemId: actionId });
+        await performAction(action, Object.assign({ itemId: actionId }, extra || {}));
         if (itemEl) itemEl.remove();
         showToast('Done', 'success');
         scheduleSilentRefresh(); // Sync sheet changes to UI in background
