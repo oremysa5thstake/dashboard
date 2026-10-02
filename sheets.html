@@ -469,6 +469,9 @@ async function saveCell(cell, gridName, keyField) {
       el.style.outline = '2px solid #4caf50';
       setTimeout(() => { el.style.outline = ''; }, 900);
     }
+    // The server says what the cell should now read (pause/cancel/resume and priority edits are
+    // routed through the dashboard's handler, not written raw).
+    if (data.display !== undefined) cell.setValue(data.display, true);
     if (data.mirrored && data.mirrored !== 'ok') {
       toast(data.mirrored === 'not-configured'
         ? 'Saved to the sheet. The Supabase mirror is not configured yet.'
@@ -785,14 +788,18 @@ const TABS = {
            headerFilterParams: { valuesLookup: true, clearable: true } },
          'callings', 'sheet_ref', 'list', { values: ['normal', 'urgent'] }),
       '@APPROVERS@',
-      { title: 'Status', field: 'status', width: 106,
+      // Editable for pause / cancel / resume only — the rest of this column is the pipeline stage
+      // the database derives, which is not something to type. Saving goes through the same
+      // handler as the dashboard's calling controls, so the clean-up a pause does still happens.
+      ed({ title: 'Status', field: 'status', width: 106,
         formatter: c => {
           const v = c.getValue() || '';
           const tone = v === 'complete' ? '#2e7d32'
             : (v === 'paused' || v === 'canceled') ? '#7a4a00'
             : v === 'declined' ? '#c62828' : '#555';
           return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
-        } },
+        } }, 'callings', 'sheet_ref', 'list',
+        { values: { paused: '⏸ Pause', canceled: '❌ Cancel', resume: '▶ Resume' } }),
       { title: 'Appr', field: 'approved_count', width: 64, hozAlign: 'right',
         formatter: c => {
           // The sheet turns the approval block green once every approver has said yes.
