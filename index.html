@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-02 no-drain-nudge';
+    const BUILD_STAMP = '2026-10-02 member-status-live-2';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -904,7 +904,9 @@
         const t0 = performance.now();
         const token = await ensurePhase2Token();
         if (!token) return null;
-        const r = await fetch(p2.url + '/rest/v1/rpc/ui_payload_get', {
+        // ui_payload_live computes the view when Postgres can (memberStatus, 0078) and returns the
+        // Apps Script-built copy otherwise (panels, grids). rows[0].live says which.
+        const r = await fetch(p2.url + '/rest/v1/rpc/ui_payload_live', {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
           body: JSON.stringify({ p_kind: kind, p_slack_id: getActorUserId(), p_token: token })
@@ -914,18 +916,26 @@
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
 
         const age = Number(rows[0].age_seconds);
-        if (!(age >= 0) || age > (maxAgeS || 900)) {
+        const isLive = rows[0].live === true;
+        // A live view's age is the age of the DATA (last sheet sync, normally < 1h) — the same
+        // limit as the live dashboard applies. A stored copy keeps its own, tighter limit.
+        const limit = isLive ? PHASE2_MAX_AGE_S : (maxAgeS || 900);
+        if (!(age >= 0) || age > limit) {
           console.log('Phase 2: stored ' + kind + ' is ' + age + 's old — using Apps Script');
           return null;
         }
         const data = rows[0].payload;
         data.success = true;
         data._fromPostgres = true;
+        data._isLive = isLive;
+        data._builtAt = new Date(rows[0].built_at).getTime();   // for a live view: the last sync
         console.log('⚡ Phase 2: ' + kind + ' from Postgres in '
           + Math.round(performance.now() - t0) + 'ms (' + age + 's old)');
 
-        // Refresh the stored copy in the background past a minute, so it does not drift.
-        if (age > 60) {
+        // Refresh a STORED Member Status copy in the background past a minute. Never for a live
+        // view (nothing to refresh), and never for another kind: this used to fire a ~10s
+        // getMemberStatus build whenever the PANELS copy was a minute old.
+        if (!isLive && kind === 'memberStatus' && age > 60) {
           fetch(API_URL + '?action=getMemberStatus&userId=' + encodeURIComponent(userId)
                 + '&actorUserId=' + encodeURIComponent(getActorUserId())).catch(function () {});
         }
@@ -5075,10 +5085,24 @@
     }
 
     // Re-fetch member data and re-render, preserving search/ward filter + open card.
-    async function reloadMemberStatus() {
+    // `notBefore`: after a save, a live view is computed from the tables, which only include the
+    // save once the sheet has synced back (~10s). Reading earlier would show the OLD value and make
+    // the save look lost, so wait for a sync that landed after the save. Gives up after ~40s and
+    // keeps what is on screen rather than showing data it knows is older than the edit.
+    async function reloadMemberStatus(notBefore) {
       try {
-        const res = (await loadUiPayloadFromPostgres('memberStatus'))
-          || await performAction('getMemberStatus', { actorUserId: getActorUserId() });
+        let res = await loadUiPayloadFromPostgres('memberStatus');
+        if (notBefore && res && res._isLive) {
+          for (let i = 0; i < 16 && res && res._isLive && res._builtAt < notBefore; i++) {
+            await new Promise(r => setTimeout(r, 2500));
+            res = await loadUiPayloadFromPostgres('memberStatus');
+          }
+          if (res && res._isLive && res._builtAt < notBefore) {
+            console.log('Member Status: sync has not caught up with the save yet — keeping the current view');
+            return;
+          }
+        }
+        res = res || await performAction('getMemberStatus', { actorUserId: getActorUserId() });
         memberStatusData = res;
         filterMemberStatus();
       } catch (e) {
@@ -5090,11 +5114,12 @@
       if (btn) { btn.disabled = true; btn.dataset.orig = btn.textContent; btn.textContent = '…'; }
       setSyncing(true);
       try {
+        const savedAt = Date.now();
         await performAction('setMemberStatusField', {
           actorUserId: getActorUserId(), sheet: sheet, referenceId: ref, col: col, valueType: valueType, value: value
         });
         showToast('Saved', 'success');
-        await reloadMemberStatus();
+        await reloadMemberStatus(savedAt);
       } catch (e) {
         showToast('Error: ' + (e.message || 'save failed'), 'error');
         if (btn) { btn.disabled = false; btn.textContent = btn.dataset.orig || 'Save'; }
