@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-02 dashboard-live-sql';
+    const BUILD_STAMP = '2026-10-02 no-drain-nudge';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1006,9 +1006,9 @@
         // Anything built BEFORE this moment predates the action, so re-reading it would undo the
         // optimistic update and put the item the person just actioned back on their screen.
         window.__p2QueuedAt = Date.now();
-        // Ask Apps Script to drain now rather than on its next pass. Not awaited: the whole point
-        // is that the person does not wait for it.
-        fetch(API_URL + '?action=outboxDrain&userId=' + encodeURIComponent(userId)).catch(function () {});
+        // (No "drain now" request to Apps Script: inserting into write_outbox makes Postgres poke
+        // Apps Script itself (0058), and that drain syncs the sheet back inline. The request was a
+        // second Apps Script execution per tap, spent on the quota this whole design protects.)
         return true;
       } catch (e) {
         console.log('Phase 2 queue failed, using Apps Script — ' + (e && e.message ? e.message : e));
@@ -1052,8 +1052,9 @@
         }
         const out = await r.json();
         console.log('⚡ Phase 2 write ' + fn + ' in ' + Math.round(performance.now() - t0) + 'ms');
-        // Nudge Apps Script to mirror it to the sheet now rather than on the next hourly pass.
-        fetch(API_URL + '?action=outboxDrain&userId=' + encodeURIComponent(userId)).catch(function () {});
+        // (No "drain now" request to Apps Script: inserting into write_outbox makes Postgres poke
+        // Apps Script itself (0058), and that drain syncs the sheet back inline. The request was a
+        // second Apps Script execution per tap, spent on the quota this whole design protects.)
         return out;
       } catch (e) {
         console.log('Phase 2 write ' + fn + ' failed, using Apps Script — '
