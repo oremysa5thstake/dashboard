@@ -716,7 +716,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-01 vote-row-verify';
+    const BUILD_STAMP = '2026-10-02 dashboard-live-sql';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1073,7 +1073,10 @@
         const t0 = performance.now();
         const token = await ensurePhase2Token();
         if (!token) return null;          // no token, no fast path — fall back, never fail open
-        const r = await fetch(p2.url + '/rest/v1/rpc/dash_payload_get', {
+        // dash_payload_live COMPUTES the dashboard from the tables on request (~40ms) instead of
+        // returning the copy Apps Script last built — so Apps Script no longer has to rebuild it
+        // for anyone (migration 0074). Its age is the age of the DATA (last sheet sync).
+        const r = await fetch(p2.url + '/rest/v1/rpc/dash_payload_live', {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
           body: JSON.stringify({ p_slack_id: userId, p_token: token })
@@ -1109,10 +1112,9 @@
 
         // Past a minute, ask Apps Script to rebuild in the background so the stored copy stays
         // fresh. Deliberately not awaited: the render must not wait on it.
-        if (age > PHASE2_REFRESH_AGE_S) {
-          fetch(API_URL + '?action=getDashboard&userId=' + encodeURIComponent(userId)
-                + '&forceRefresh=true').catch(function () {});
-        }
+        // (Removed: a background "ask Apps Script to rebuild" once the copy was 5 minutes old. The
+        // payload is computed live now, so there is no copy to refresh — and with data up to an
+        // hour old between syncs, that call would have fired on nearly every load.)
         return data;
       } catch (e) {
         console.log('Phase 2: Postgres read failed, falling back to Apps Script — '
@@ -3248,7 +3250,7 @@
             waiting.forEach(a => {
               rows += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid #f2f2f2;">
                 <span style="font-size:13px;">${escapeHtmlDisplay(a.name)}</span>
-                <button class="btn btn-secondary btn-sm" onclick="recordVoteFor(${item.rowIndex}, ${a.column}, '${item.type}', '${escapeHtml(a.name)}', '${recordVerb}', this)">✓ Record ${recordVerb}</button>
+                <button class="btn btn-secondary btn-sm" onclick="recordVoteFor(${item.rowIndex}, ${a.column}, '${item.type}', '${escapeHtml(a.name)}', '${recordVerb}', this, '${String(item.timestamp || '').replace(/[^0-9A-Za-z:.\-+ ]/g, '')}', '${String(a.userId || '').replace(/[^0-9A-Za-z]/g, '')}')">✓ Record ${recordVerb}</button>
               </div>`;
             });
             waitingBlock += `<div style="margin-top:6px;">
@@ -3290,13 +3292,14 @@
 
     // Clerk/secretary records an approval/sustaining they received verbally from a
     // specific SP member or high councilor, straight from the status section.
-    async function recordVoteFor(rowIndex, column, type, name, verb, btn) {
+    // ref + approverId let the backend verify the row and the approver column before writing.
+    async function recordVoteFor(rowIndex, column, type, name, verb, btn, ref, approverId) {
       if (!confirm('Record ' + verb + ' from ' + name + '?\n\nOnly do this if they have actually given it.')) return;
       const origText = btn ? btn.textContent : '';
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
-        const res = await performAction('recordVote', { rowIndex: rowIndex, column: column, type: type });
+        const res = await performAction('recordVote', { rowIndex: rowIndex, column: column, type: type, ref: ref || '', approverId: approverId || '' });
         showToast(res && res.message ? res.message : (name + ' — ' + verb + ' recorded'), 'success');
         scheduleSilentRefresh(500);
       } catch (error) {
