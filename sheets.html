@@ -455,6 +455,13 @@ async function saveCell(cell, gridName, keyField) {
     return;
   }
   if (el) el.style.outline = '2px solid #f0b429';
+  // Status and Priority on Callings go through the dashboard's pause/cancel handler, which also
+  // tidies Stake Business and syncs the database before answering — 15-30s. Without a message the
+  // cell just sat there and the edit looked like it had done nothing.
+  const slowEdit = gridName === 'callings' && (field === 'status' || field === 'urgency');
+  if (slowEdit) toast('Saving… ' + (field === 'status'
+      ? 'pausing or resuming also updates Stake Business — this takes about 20 seconds.'
+      : 'this takes about 15 seconds.'));
   try {
     const params = new URLSearchParams({
       action: 'updateGridCell', userId: USER_ID, grid: gridName,
@@ -472,6 +479,7 @@ async function saveCell(cell, gridName, keyField) {
     // The server says what the cell should now read (pause/cancel/resume and priority edits are
     // routed through the dashboard's handler, not written raw).
     if (data.display !== undefined) cell.setValue(data.display, true);
+    if (slowEdit) toast('Saved ✓');
     if (data.mirrored && data.mirrored !== 'ok') {
       toast(data.mirrored === 'not-configured'
         ? 'Saved to the sheet. The Supabase mirror is not configured yet.'
@@ -748,7 +756,7 @@ async function loadApprovers() {
 // ── the four tables ───────────────────────────────────────────────────────
 const TABS = {
   callings: {
-    label: '📋 Callings', view: 'v_clerk_callings', order: 'created_at.desc',
+    label: '📋 Callings', view: 'v_clerk_callings', order: 'sheet_ref.desc',   // newest submission first (created_at is the IMPORT time)
     grid: 'callings', key: 'sheet_ref', rowFormatter: rowFormatter,
     statuses: ['submitted','polling','approved','complete','declined','paused','canceled'],
     cols: [
@@ -960,6 +968,8 @@ const TABS = {
   // `sustained` is a checkbox on Calling Approvals. The backend keeps per-grid type maps.
   ordinations: {
     label: '🤝 Ordinations', api: 'gridRows', apiGrid: 'ordinations', key: '_key', grid: 'ordinations',
+    // Newest submission first, like Callings. _key is the row's col A timestamp as ISO text.
+    sort: (a, b) => (Date.parse(b._key) || 0) - (Date.parse(a._key) || 0),
     statuses: ['submitted','interviewed','sustained','ordained','paused','canceled'],
     cols: [
       edG({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input', frozen: true }, 'ordinations'),
