@@ -241,11 +241,30 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
+// Per-user link code (lk). Users added after the link freeze must send it with every Apps
+// Script request (SlackAndMisc.js _linkOk). Added here, once, to every request to API_URL —
+// there are ~20 call sites built different ways, and missing one would break that feature
+// for exactly the newest users.
+window.__linkCode = window.__linkCode || '';
+(function () {
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const u = typeof input === 'string' ? input : '';
+      if (window.__linkCode && u.indexOf(API_URL) === 0 && !/[?&]lk=/.test(u)) {
+        input = u + (u.indexOf('?') === -1 ? '?' : '&') + 'lk=' + encodeURIComponent(window.__linkCode);
+      }
+    } catch (e) { /* never block a request over this */ }
+    return _fetch(input, init);
+  };
+})();
+
 const SUPABASE_URL = 'https://lrfbxbiwqnlctomjeboi.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_eJToH6uWrOBEPzhkzgA_Hg_VRn81dfP';
 
 const qp = new URLSearchParams(location.search);
 const USER_ID = qp.get('userId') || '';
+window.__linkCode = qp.get('lk') || '';   // passed by the dashboard when it opens this page
 const DEMO = qp.get('demo') || '';
 const USER_NAME = qp.get('name') || '';
 

@@ -508,6 +508,24 @@
   <script>
     // Configuration
     const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
+    // Per-user link code (lk). Users added after the link freeze must send it with every Apps
+    // Script request (SlackAndMisc.js _linkOk). Added here, once, to every request to API_URL —
+    // there are ~20 call sites built different ways, and missing one would break that feature
+    // for exactly the newest users.
+    window.__linkCode = window.__linkCode || '';
+    (function () {
+      const _fetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        try {
+          const u = typeof input === 'string' ? input : '';
+          if (window.__linkCode && u.indexOf(API_URL) === 0 && !/[?&]lk=/.test(u)) {
+            input = u + (u.indexOf('?') === -1 ? '?' : '&') + 'lk=' + encodeURIComponent(window.__linkCode);
+          }
+        } catch (e) { /* never block a request over this */ }
+        return _fetch(input, init);
+      };
+    })();
+
 
     // ── Supabase (read-only, for the clerk/secretary sheet views) ──────────────
     // The publishable key is public by design and ships in this page. It reaches
@@ -716,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-02 member-status-live-2';
+    const BUILD_STAMP = '2026-10-03 link-codes';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -734,6 +752,14 @@
       const urlParams = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       userId = urlParams.get('userId') || hashParams.get('userId');
+      // The link code travels with the id and is remembered per user, like the id itself.
+      {
+        const lkFromUrl = urlParams.get('lk') || hashParams.get('lk') || '';
+        try {
+          if (userId && lkFromUrl) localStorage.setItem('dashLinkCode:' + userId, lkFromUrl);
+        } catch (e) {}
+        window.__linkCode = lkFromUrl;
+      }
 
       // Debug logging
       console.log('PWA Mode:', isStandalone);
@@ -746,16 +772,17 @@
       if (userId) {
         saveUserId(userId);
         // Also update URL to include hash for future PWA launches
-        if (!window.location.hash.includes('userId')) {
-          window.history.replaceState(null, '', `#userId=${userId}`);
+        if (!window.location.hash.includes('userId') || (window.__linkCode && !window.location.hash.includes('lk='))) {
+          window.history.replaceState(null, '', `#userId=${userId}` + (window.__linkCode ? `&lk=${window.__linkCode}` : ''));
         }
       } else {
         // If not in URL, try to get from any storage type (PWA home screen launch)
         userId = loadUserId();
         console.log('Retrieved userId from storage:', userId);
+        try { if (userId) window.__linkCode = localStorage.getItem('dashLinkCode:' + userId) || ''; } catch (e) {}
         // If we got it from storage, add it to the URL hash
         if (userId && !window.location.hash.includes('userId')) {
-          window.history.replaceState(null, '', `#userId=${userId}`);
+          window.history.replaceState(null, '', `#userId=${userId}` + (window.__linkCode ? `&lk=${window.__linkCode}` : ''));
         }
       }
 
@@ -3745,6 +3772,7 @@
         p.set('demo', DEMO_ROLE || '1');          // a demo window never reaches live data
       } else {
         p.set('userId', userId || '');
+        if (window.__linkCode) p.set('lk', window.__linkCode);
         if (userData && userData.userName) p.set('name', String(userData.userName));
       }
       // A clicked <a target="..."> — not window.open. Two reasons:
@@ -5398,7 +5426,14 @@
         showToast('Please select a user first', 'error');
         return;
       }
-      const link = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
+      // The server builds it: a user added after the link freeze needs a code the browser cannot
+      // derive. Falls back to the plain link if the request fails.
+      let link = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
+      try {
+        const lr = await (await fetch(API_URL + '?action=dashboardLink&userId=' + encodeURIComponent(userId)
+                                      + '&target=' + encodeURIComponent(selectedUserId))).json();
+        if (lr && lr.success && lr.link) link = lr.link;
+      } catch (e) { /* keep the plain link */ }
 
       // Try the native share sheet first (iOS / Android Chrome).
       // Only share the URL — no title or descriptive text so iOS Messages /
