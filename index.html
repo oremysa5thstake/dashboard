@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-03 link-codes';
+    const BUILD_STAMP = '2026-10-03 sheet-views-top';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1569,6 +1569,13 @@
       try { setTimeout(function () { phase2Shadow(data); }, 0); } catch (e) {}
 
       let html = '';
+
+      // Sheet Views — at the top for the people who use it daily (clerks and secretaries, the same
+      // audience it had in Admin Tools). Moved here 2026-10-03 at the stake clerk's request.
+      if (userData && (userData.isClerk || userData.isExecSec)) {
+        html += '<div style="margin:0 0 12px;"><button class="btn btn-primary" style="width:100%;" onclick="openSheetViews()">'
+              + '📋 Sheet Views <span style="opacity:.75;">· 7 tables, in a new tab</span></button></div>';
+      }
 
       // Dashboard message
       if (data.dashboardMessage) {
@@ -3314,6 +3321,10 @@
         </div>`;
       });
 
+      // The people who chase pending approvals are the people reading this section.
+      if (!DEMO_MODE) {
+        html += '<div style="margin-top:12px;"><button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button></div>';
+      }
       html += '</div></div></div>';
       return html;
     }
@@ -3951,12 +3962,12 @@
       // Clerks and secretaries only; the presidency also sees Admin Tools but has no
       // reason to scan raw tables.
       if (userData && (userData.isClerk || userData.isExecSec)) {
-        tools += '<button class="btn btn-primary" onclick="openSheetViews()">📋 Sheet Views <span style="opacity:.75;">· 7 tables, in a new tab</span></button>';
+        // (Sheet Views moved to the top of the dashboard.)
         tools += '<button class="btn btn-secondary" onclick="runSheetSync()" id="syncBtn">🔄 Sync Sheet → Database <span style="opacity:.75;">· hourly</span></button>';
       }
       tools += '<button class="btn btn-warning" style="color:#333;" onclick="runScript(\'NotificationBlast\')">📢 Manual Notification Blast</button>';
       tools += '<button class="btn btn-secondary" onclick="runAvailabilityAllWards()">📣 Availability Check — All Wards (early)</button>';
-      tools += '<button class="btn btn-secondary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>';
+      // (Text HCs with Pending Approvals moved to the bottom of Approval / Sustaining Status.)
       tools += '<button class="btn btn-secondary" onclick="openPerfModal()">⏱️ Performance Log</button>';
       tools += '</div>';
 
@@ -4262,6 +4273,7 @@
           '<li><b>⏳ Waiting on:</b> named approvers whose vote is still pending.</li>' +
           '<li><b>⚠️ Opposed:</b> any approver who voted something other than approve/empty.</li>' +
           '<li>Release-only rows show only the Stake President as the relevant approver.</li>' +
+          '<li><b>📱 Text HCs with Pending Approvals</b> (bottom of the section): opens your Messages app one high councilor at a time, each with a reminder of what they still need to approve.</li>' +
           '</ul>'
       },
       admin: {
