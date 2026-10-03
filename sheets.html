@@ -638,7 +638,8 @@ async function gridsFromPostgres() {
     const token = await ensureP2Token();
     if (!token) return null;
     const t0 = Date.now();
-    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/ui_payload_get', {
+    // Computed by Postgres on request (0090), not a copy Apps Script rebuilt every 15 minutes.
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/ui_payload_live', {
       method: 'POST',
       headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ p_kind: 'grids', p_slack_id: USER_ID, p_token: token })
@@ -666,7 +667,10 @@ async function gridsFromPostgres() {
 let _storedStaleUntil = 0;
 function markGridsStale() {
   _gridPayload = null; _gridPayloadAt = 0;
-  _storedStaleUntil = Date.now() + 90000;   // ~long enough for the warm to catch up
+  // No "go to Apps Script for 90s" window any more: grid writes sync their sheet before the save
+  // returns (Core.js INLINE_SYNC_ACTIONS), and the grids are computed live, so the next read is
+  // already current. The window also never survived a page refresh, which is how edits appeared
+  // to revert.
 }
 
 /** The stored equivalent of one `api` tab, or null to fall back. */
