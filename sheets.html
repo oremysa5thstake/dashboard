@@ -784,6 +784,10 @@ const TABS = {
     statuses: ['submitted','polling','approved','complete','declined','paused','canceled'],
     cols: [
       delColumn('request'),
+      // Timestamp first (2026-10-03). Pinned, because Member is pinned and pinned columns must
+      // sit at the left edge.
+      { title: 'Timestamp', field: 'sheet_ref', width: 165, frozen: true, formatter: c => {
+          const v = c.getValue(); return v ? new Date(v).toLocaleString() : ''; } },
       ed({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input',
            frozen: true, formatter: nameFormatter }, 'callings', 'sheet_ref'),
       ed({ title: 'Calling', field: 'calling', minWidth: 205, headerFilter: 'input',
@@ -868,8 +872,6 @@ const TABS = {
           return /^https?:/.test(v)
             ? `<a href="${esc(v)}" target="_blank" rel="noopener">open in Slack</a>` : esc(v);
         } },
-      { title: 'Timestamp', field: 'sheet_ref', width: 165, formatter: c => {
-          const v = c.getValue(); return v ? new Date(v).toLocaleString() : ''; } },
       { title: 'Block ID', field: 'block_id', width: 165 },
     ],
   },
@@ -1277,7 +1279,21 @@ function readLS(key) {
 function writeLS(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
 }
-const hiddenFor = t => (readLS(LS_HIDDEN)[t] || []);
+// Columns hidden by default. Applied ONCE per browser and merged into whatever the person has
+// already hidden — a saved choice would otherwise override a plain default forever. Anything here
+// can be shown again from the column chooser or "show all".
+// awaiting = how many approvers have not voted yet (beside Appr, how many have approved).
+const DEFAULT_HIDDEN = { callings: ['extend_permalink', 'block_id', 'task_center', 'awaiting'] };
+const LS_DEFAULTS_SEEN = 'sheetviews_default_hidden_seen_v1';
+const hiddenFor = t => {
+  const all = readLS(LS_HIDDEN), seen = readLS(LS_DEFAULTS_SEEN), def = DEFAULT_HIDDEN[t] || [];
+  if (def.length && !seen[t]) {
+    const cur = new Set(all[t] || []); def.forEach(f => cur.add(f));
+    all[t] = [...cur]; writeLS(LS_HIDDEN, all);
+    seen[t] = true; writeLS(LS_DEFAULTS_SEEN, seen);
+  }
+  return all[t] || [];
+};
 function setHidden(t, list) {
   const all = readLS(LS_HIDDEN); all[t] = list; writeLS(LS_HIDDEN, all);
 }
@@ -1513,7 +1529,10 @@ async function load() {
     const cols = spec.cols.map(c => Object.assign({}, c, {
       visible: !hidden.has(c.field),
       // null → keep whatever the column definition says; a saved list wins outright.
-      frozen: frozenSet === null ? !!c.frozen : frozenSet.has(c.field),
+      frozen: (frozenSet === null ? !!c.frozen : frozenSet.has(c.field))
+        // Callings' Timestamp sits left of Member; whenever Member is pinned it must be too, or a
+        // saved pin choice would leave a pinned column to the right of an unpinned one.
+        || (tab === 'callings' && c.field === 'sheet_ref' && (frozenSet === null || frozenSet.has('member'))),
       width: savedWidths[c.field] || c.width,
       // Every header gets its full text on hover, so a narrowed column is still readable.
       headerTooltip: c.headerTooltip || String(c.title),
