@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-03 sheet-views-top';
+    const BUILD_STAMP = '2026-10-04 assign-myself';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -2444,6 +2444,7 @@
                   : spOptions}
               </select>
               <button class="btn btn-success" onclick="assignSettingApart('${item.actionId}', this, false)">Assign</button>
+              ${(userData && userData.isPresidency && !DEMO_MODE) ? `<button class="btn btn-secondary" onclick="assignMyself('setApart', '${item.actionId}', this)">🙋 Assign Myself</button>` : ''}
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
               <input type="date" id="saAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
@@ -2587,6 +2588,7 @@
                 ${assigneeOptions}
               </select>
               <button class="btn btn-success" onclick="assignExtendCall('${item.actionId}', this, false)">Assign</button>
+              ${(userData && userData.isPresidency && !DEMO_MODE) ? `<button class="btn btn-secondary" onclick="assignMyself('extend', '${item.actionId}', this)">🙋 Assign Myself</button>` : ''}
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
               <input type="date" id="extAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
@@ -2636,6 +2638,26 @@
 
     // withSchedule=false → "Assign" (no appointment); withSchedule=true → "Schedule & Assign"
     // (requires a date + time). Both create the extend task for the picked SP member / HC.
+    // "Assign Myself" for the stake presidency on the Schedule & Assign tasks (extend / set apart):
+    // picks the signed-in member in the dropdown and assigns. If a date AND time are already filled
+    // in, it schedules too; otherwise it is a plain Assign. Refuses rather than guessing when the
+    // person is not one of the task's options.
+    function assignMyself(kind, actionId, btn) {
+      const me = getActorUserId();
+      const pre = kind === 'extend' ? 'extAssign' : 'saAssign';
+      const sel = document.getElementById((kind === 'extend' ? 'extAssignSp_' : 'saAssignWho_') + actionId);
+      if (!sel || !Array.from(sel.options).some(o => o.value === me)) {
+        showToast('You are not one of the people this can be assigned to', 'error');
+        return;
+      }
+      sel.value = me;
+      const d = document.getElementById(pre + 'Date_' + actionId);
+      const t = document.getElementById(pre + 'Time_' + actionId);
+      const withSchedule = !!(d && d.value && t && t.value);
+      return kind === 'extend' ? assignExtendCall(actionId, btn, withSchedule)
+                               : assignSettingApart(actionId, btn, withSchedule);
+    }
+
     async function assignExtendCall(actionId, btn, withSchedule) {
       const select = document.getElementById('extAssignSp_' + actionId);
       const spMemberId = select ? select.value : '';
@@ -4115,6 +4137,7 @@
           '<ul>' +
           '<li><b>Assign:</b> Pick the person and assign them, without setting a time.</li>' +
           '<li><b>Schedule &amp; Assign:</b> Pick the person and set the date/time; it shows on their task.</li>' +
+          '<li><b>🙋 Assign Myself</b> (stake presidency): assigns it to you in one tap — with the appointment too, if you have filled in a date and time.</li>' +
           '<li>Callings marked <b>SPB/HC</b> in the set-apart column offer the <b>High Council</b> as well as the presidency; plain <b>SPB</b> offers the presidency only.</li>' +
           '</ul>'
       },
@@ -4124,6 +4147,7 @@
           '<ul>' +
           '<li><b>Assign:</b> Pick who will extend the call and assign them <i>without</i> scheduling an appointment.</li>' +
           '<li><b>Schedule &amp; Assign:</b> Pick who will extend the call, set the appointment date/time, and assign them with the appointment on the task.</li>' +
+          '<li><b>🙋 Assign Myself</b> (stake presidency): assigns it to you in one tap — with the appointment too, if you have filled in a date and time.</li>' +
           '<li>Callings marked <b>SPB/HC</b> on the Callings Chart can be assigned to a <b>high councilor</b> as well as the Stake Presidency; plain <b>SPB</b> offers the presidency only.</li>' +
           '<li><b>Record response from member:</b> Expand this if the calling was already extended without assigning an extender here. Recording Accepted / Declined completes this task and moves the calling forward exactly as if the assigned extender had reported it.</li>' +
           '</ul>'
@@ -5223,6 +5247,25 @@
       return '👉 Next step: <strong>' + pick.slice(0, 2).map(s => escapeHtmlDisplay(s.label)).join(', ') + '</strong>' + (pick.length > 2 ? '…' : '');
     }
 
+    // Who is assigned to extend / release / set apart, their appointment, and anything still waiting
+    // in Schedule & Assign (progress comes from member_status_for / getMemberStatusData).
+    function msProgressLines(p) {
+      if (!p) return '';
+      const who = (x, verb) => {
+        if (!x || !x.assignee) return '';
+        return '<div>' + verb + ': <strong>' + escapeHtmlDisplay(x.assignee) + '</strong>'
+          + (x.appointment ? ' — ' + escapeHtmlDisplay(x.appointment) : ' — no appointment set') + '</div>';
+      };
+      const lines = [
+        p.extendBin ? '<div>📌 Waiting in <strong>Schedule &amp; Assign</strong> for someone to extend the call</div>' : '',
+        who(p.extend, '📞 Extending'),
+        who(p.release, '📞 Extending the release'),
+        p.setApartBin ? '<div>📌 Waiting in <strong>Schedule &amp; Assign</strong> for someone to set them apart</div>' : '',
+        who(p.setApart, '🙏 Setting apart')
+      ].join('');
+      return lines ? '<div class="ms-card-sub" style="margin-top:4px;line-height:1.5;">' + lines + '</div>' : '';
+    }
+
     function renderMemberBody(m) {
       let html = '';
       const callings = m.callings || (m.calling ? [m.calling] : []);
@@ -5237,6 +5280,7 @@
         if (c.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(c.submittedDate) + '</div>';
         const nextLine = msNextStepLine(c, 'CA');
         if (nextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + nextLine + '</div>';
+        html += msProgressLines(c.progress);
         html += renderTrack(c, 'CA', c.timestamp);
       });
 
