@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-04 assign-myself';
+    const BUILD_STAMP = '2026-10-04 ms-assign';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -2444,7 +2444,7 @@
                   : spOptions}
               </select>
               <button class="btn btn-success" onclick="assignSettingApart('${item.actionId}', this, false)">Assign</button>
-              ${(userData && userData.isPresidency && !DEMO_MODE) ? `<button class="btn btn-secondary" onclick="assignMyself('setApart', '${item.actionId}', this)">🙋 Assign Myself</button>` : ''}
+              ${(userData && userData.isPresidency) ? `<button class="btn btn-secondary" onclick="assignMyself('setApart', '${item.actionId}', this)">🙋 Assign Myself</button>` : ''}
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
               <input type="date" id="saAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
@@ -2588,7 +2588,7 @@
                 ${assigneeOptions}
               </select>
               <button class="btn btn-success" onclick="assignExtendCall('${item.actionId}', this, false)">Assign</button>
-              ${(userData && userData.isPresidency && !DEMO_MODE) ? `<button class="btn btn-secondary" onclick="assignMyself('extend', '${item.actionId}', this)">🙋 Assign Myself</button>` : ''}
+              ${(userData && userData.isPresidency) ? `<button class="btn btn-secondary" onclick="assignMyself('extend', '${item.actionId}', this)">🙋 Assign Myself</button>` : ''}
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
               <input type="date" id="extAssignDate_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
@@ -2643,7 +2643,8 @@
     // in, it schedules too; otherwise it is a plain Assign. Refuses rather than guessing when the
     // person is not one of the task's options.
     function assignMyself(kind, actionId, btn) {
-      const me = getActorUserId();
+      // In a demo "me" is the presidency member being played (their option id is DEMOSP<n>).
+      const me = DEMO_MODE ? ('DEMOSP' + DEMO_SP.indexOf(DEMO_ROLE_INFO.who)) : getActorUserId();
       const pre = kind === 'extend' ? 'extAssign' : 'saAssign';
       const sel = document.getElementById((kind === 'extend' ? 'extAssignSp_' : 'saAssignWho_') + actionId);
       if (!sel || !Array.from(sel.options).some(o => o.value === me)) {
@@ -5249,6 +5250,51 @@
 
     // Who is assigned to extend / release / set apart, their appointment, and anything still waiting
     // in Schedule & Assign (progress comes from member_status_for / getMemberStatusData).
+    // Assign (and optionally schedule) a waiting Schedule & Assign task straight from a Member Status
+    // card — one compact line. Clerks, secretaries and the presidency only, the people who receive
+    // these tasks; the server checks the same permission.
+    function msAssignControls(kind, taskId, allowHC) {
+      if (!taskId || !actorCanReassign()) return '';
+      const d = currentData || {};
+      const opt = (x) => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`;
+      const sp = (d.stakePresidency || []).map(opt).join('');
+      const hc = (d.highCouncilors || []).map(opt).join('');
+      const me = getActorUserId();
+      const mine = (userData && userData.isPresidency && (d.stakePresidency || []).some(x => x.id === me))
+        ? `<option value="${escapeHtml(me)}">🙋 Me</option>` : '';
+      const opts = mine + (allowHC ? `<optgroup label="Stake Presidency">${sp}</optgroup><optgroup label="High Council">${hc}</optgroup>` : sp);
+      const k = escapeHtml(taskId);
+      const small = 'font-size:12px;padding:2px 4px;height:auto;width:auto;';
+      return `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin:3px 0 5px;">
+        <select id="msAssignWho_${k}" class="form-input" style="${small}max-width:170px;">
+          <option value="">${kind === 'extend' ? 'Who extends?' : 'Who sets apart?'}</option>${opts}</select>
+        <input type="date" id="msAssignDate_${k}" class="form-input" style="${small}" title="Optional — fill in with a time to schedule too">
+        <input type="time" id="msAssignTime_${k}" class="form-input" style="${small}">
+        <button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:12px;" onclick="msAssign('${kind}', '${k}', this)">Assign</button>
+      </div>`;
+    }
+
+    async function msAssign(kind, taskId, btn) {
+      const who = (document.getElementById('msAssignWho_' + taskId) || {}).value || '';
+      const date = (document.getElementById('msAssignDate_' + taskId) || {}).value || '';
+      const time = (document.getElementById('msAssignTime_' + taskId) || {}).value || '';
+      if (!who) { showToast('Pick who to assign', 'error'); return; }
+      if (!!date !== !!time) { showToast('Fill in both date and time to schedule — or neither to just assign', 'error'); return; }
+      const appt = date ? date + 'T' + time : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const savedAt = Date.now();
+        if (kind === 'extend') await performAction('assignExtendCall', { itemId: taskId, spMemberId: who, appointmentDateTime: appt });
+        else await performAction('assignSettingApart', { itemId: taskId, assigneeId: who, appointmentDateTime: appt });
+        showToast(appt ? 'Assigned & scheduled' : 'Assigned', 'success');
+        await reloadMemberStatus(savedAt);
+      } catch (e) {
+        showToast('Error: ' + (e.message || 'not assigned'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
+      } finally { setSyncing(false); }
+    }
+
     function msProgressLines(p) {
       if (!p) return '';
       const who = (x, verb) => {
@@ -5257,10 +5303,12 @@
           + (x.appointment ? ' — ' + escapeHtmlDisplay(x.appointment) : ' — no appointment set') + '</div>';
       };
       const lines = [
-        p.extendBin ? '<div>📌 Waiting in <strong>Schedule &amp; Assign</strong> for someone to extend the call</div>' : '',
+        p.extendBin ? '<div>📌 Waiting in <strong>Schedule &amp; Assign</strong> for someone to extend the call</div>'
+                      + msAssignControls('extend', p.extendAssignId, p.extendAllowHC) : '',
         who(p.extend, '📞 Extending'),
         who(p.release, '📞 Extending the release'),
-        p.setApartBin ? '<div>📌 Waiting in <strong>Schedule &amp; Assign</strong> for someone to set them apart</div>' : '',
+        p.setApartBin ? '<div>📌 Waiting in <strong>Schedule &amp; Assign</strong> for someone to set them apart</div>'
+                        + msAssignControls('setApart', p.setApartAssignId, p.setApartAllowHC) : '',
         who(p.setApart, '🙏 Setting apart')
       ].join('');
       return lines ? '<div class="ms-card-sub" style="margin-top:4px;line-height:1.5;">' + lines + '</div>' : '';
@@ -7208,14 +7256,26 @@
       if (isPresident && !s.spVote.r1) data.approvals.push({ type: 'release-only', rowIndex: 5, memberName: DEMO_CAST.desmond, calling: 'Ward Clerk', unit: DEMO_WARD });
       if (!mine.o1 && demoOrdinationInterviewDone()) data.ordinations.push({ type: 'ordination', rowIndex: 1, memberName: DEMO_CAST.dallin, office: 'Elder', ward: DEMO_WARD });
 
-      // ── Stage 3: the counselor extends the stake calling once the secretary assigns it ──
-      const assignedToMe = !isPresident && s.assignedTo === DEMO_ROLE_INFO.who;
+      // ── Stage 2 as the presidency sees it: CC'd on the secretary's Schedule & Assign task, and
+      //    able to assign it — including to themselves with 🙋 Assign Myself (real behaviour). ──
+      if (demoPre(demoItemApproved('c2')) && !s.assignedTo) {
+        data.extendAssignItems.push({
+          actionId: 'DEMO_ASSIGN_SADIE', actionType: 'extend-assign', scope: 'calling', allowHC: false, isCC: true,
+          assignedToNames: DEMO_ROLES.sec.who,
+          displayText: 'Schedule & assign — extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
+          notes: 'Scope: calling'
+        });
+      }
+
+      // ── Stage 3: whoever was assigned extends the stake calling. (Excluded the stake president
+      //    until 2026-10-04 — but he can be assigned, e.g. via Assign Myself, and would then stall.) ──
+      const assignedToMe = s.assignedTo === DEMO_ROLE_INFO.who;
       if (assignedToMe && demoPre(s.assignedTo, 'sec') && !s.sadieAccepted) {
         data.extendItems.push({
           actionId: 'DEMO_EXT_SADIE', type: 'extend-calling', actionType: 'extend-calling',
           displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
           appointmentStatus: s.assignedAppt || 'Pending',
-          assignedToNames: DEMO_SP[1]
+          assignedToNames: s.assignedTo
         });
       }
 
@@ -7525,7 +7585,11 @@
 
         // ── Executive secretary ──
         case 'assignExtendCall': {
-          const who = (DEMO_SP[1] || 'a counselor');
+          // The person actually picked (it used to be the First Counselor whoever was chosen).
+          const pickId = String(params.spMemberId || '');
+          const who = /^DEMOSP\d+$/.test(pickId) ? DEMO_SP[Number(pickId.slice(6))]
+                    : /^DEMOHC\d+$/.test(pickId) ? DEMO_HC_NAMES[Number(pickId.slice(6))]
+                    : (DEMO_SP[1] || 'a counselor');
           s.assignedTo = who;
           s.assignedAppt = (params.appointmentDateTime ? demoFormatDateTime(params.appointmentDateTime) : '');
           showToast('Assigned to ' + who + (s.assignedAppt ? ' for ' + s.assignedAppt : ' (no appointment)') + '. It is now on their dashboard.', 'success');
