@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-07 release-now';
+    const BUILD_STAMP = '2026-10-07 held-by';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -3273,7 +3273,7 @@
     // A release held until its replacement's calling is approved (col AY): say what it is waiting on,
     // and let clerks / secretaries / the presidency extend it now (moving out, announce it sooner…).
     function heldReleaseHtml(item) {
-      const w = item && item.waitingOn;
+      const w = item && item.type === 'release-only' && item.heldBy;
       if (!w) return '';
       const who = w.member ? `<strong>${escapeHtmlDisplay(w.member)}</strong>${w.calling ? ' (' + escapeHtmlDisplay(w.calling) + ')' : ''}` : 'its replacement';
       const why = w.reason === 'pending-approval' ? `Waiting on ${who} to be approved before this release is extended.`
