@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-04 ms-assign';
+    const BUILD_STAMP = '2026-10-07 release-now';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -3270,6 +3270,37 @@
       return html;
     }
 
+    // A release held until its replacement's calling is approved (col AY): say what it is waiting on,
+    // and let clerks / secretaries / the presidency extend it now (moving out, announce it sooner…).
+    function heldReleaseHtml(item) {
+      const w = item && item.waitingOn;
+      if (!w) return '';
+      const who = w.member ? `<strong>${escapeHtmlDisplay(w.member)}</strong>${w.calling ? ' (' + escapeHtmlDisplay(w.calling) + ')' : ''}` : 'its replacement';
+      const why = w.reason === 'pending-approval' ? `Waiting on ${who} to be approved before this release is extended.`
+        : w.reason === 'paused'   ? `Waiting on ${who}, whose calling is paused.`
+        : w.reason === 'canceled' ? `Waiting on ${who}, whose calling was canceled.`
+        : w.reason === 'declined' ? `Waiting on ${who}, who declined.`
+        : 'Waiting on a linked calling that could not be found.';
+      const btn = actorCanReassign()
+        ? `<button class="btn btn-secondary btn-sm" style="margin-top:4px;" onclick="releaseExtendNow('${escapeHtml(String(item.timestamp || ''))}', this)">Extend the release now</button>`
+        : '';
+      return `<div class="item-meta" style="color:#8a4b00;">⏳ ${why}</div>${btn}`;
+    }
+
+    async function releaseExtendNow(ts, btn) {
+      if (!confirm('Extend this release now, without waiting on the replacement to be approved?')) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('releaseExtendNow', { timestamp: ts });
+        showToast((res && res.message) || 'Done', 'success');
+        scheduleSilentRefresh(1500);
+      } catch (e) {
+        showToast('Error: ' + (e.message || 'not done'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Extend the release now'; }
+      } finally { setSyncing(false); }
+    }
+
     function renderApprovalStatusSection(items) {
       // Group by phase for quick scanning. Each row gets a progress bar (approved / total approvers)
       // and a one-line "Waiting on:" list for the named approvers who still need to vote.
@@ -3341,6 +3372,7 @@
           ${approvedNames ? `<div class="item-meta" style="color:#28a745;">✓ Approved: ${approvedNames}</div>` : ''}
           ${waitingBlock}
           ${opposedNames ? `<div class="item-meta" style="color:#dc3545;">⚠️ Opposed: ${opposedNames}</div>` : ''}
+          ${heldReleaseHtml(item)}
         </div>`;
       });
 
@@ -4298,6 +4330,7 @@
           '<li><b>⏳ Waiting on:</b> named approvers whose vote is still pending.</li>' +
           '<li><b>⚠️ Opposed:</b> any approver who voted something other than approve/empty.</li>' +
           '<li>Release-only rows show only the Stake President as the relevant approver.</li>' +
+          '<li><b>⏳ Waiting on … to be approved</b>: a release linked to the calling of the person replacing them is not extended until that calling is approved. <b>Extend the release now</b> (clerks, secretaries, presidency) stops waiting — e.g. when they are moving out and the release should be announced sooner.</li>' +
           '<li><b>📱 Text HCs with Pending Approvals</b> (bottom of the section): opens your Messages app one high councilor at a time, each with a reminder of what they still need to approve.</li>' +
           '</ul>'
       },
