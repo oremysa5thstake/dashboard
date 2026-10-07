@@ -624,14 +624,41 @@
     function hideResumeBar() { var b = document.getElementById('resumeBar'); if (b) b.style.display = 'none'; }
     function dismissDraft() { clearDraft(); hideResumeBar(); }
 
-    window.onload = function () { loadWards(); updateProgressBar(); loadStakeCallingsRosterIfNeeded(); maybeOfferResume(); };
+    window.onload = function () { loadWards(); updateProgressBar(); loadFormReferenceData(); loadStakeCallingsRosterIfNeeded(); maybeOfferResume(); };
 
+    // The wards are a fixed list (getWards in Core.js returns exactly this). Asking Apps Script for it
+    // cost ~3.5s on every page load, for a constant.
+    var FORM_WARDS = ['16th Ward', '19th Ward', '24th Ward', '25th Ward', '27th Ward', '32nd Ward', '33rd Ward', '49th Ward'];
     function loadWards() {
-      apiCall('getWards').then(function(d) {
-        var wards = (d && d.wards) || [];
-        var s = document.getElementById('ward');
-        wards.forEach(function(w) { s.add(new Option(w, w)); });
-      }).catch(function(){});
+      var s = document.getElementById('ward');
+      FORM_WARDS.forEach(function(w) { s.add(new Option(w, w)); });
+    }
+
+    // Roster + callings chart in ONE request to Postgres (form_reference_data, 0098) — ~0.1s instead
+    // of 2.5-4.5s each through Apps Script, so a name typed straight away can have its calling
+    // inferred at once. Same shapes as the Apps Script routes, which remain the fallback.
+    var formRefPromise = null;
+    function loadFormReferenceData() {
+      if (formRefPromise) return formRefPromise;
+      isLoadingRoster = true; isLoadingCallingsChart = true;
+      formRefPromise = fetch(DUP_PG_URL + '/rest/v1/rpc/form_reference_data', {
+        method: 'POST', headers: { apikey: DUP_PG_KEY, 'Content-Type': 'application/json' }, body: '{}'
+      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+          if (!d || !Array.isArray(d.roster) || !Array.isArray(d.chart) || !d.roster.length || !d.chart.length) throw new Error('empty');
+          stakeCallingsRoster = d.roster; callingsChartData = d.chart;
+          isLoadingRoster = false; isLoadingCallingsChart = false;
+          tryInferAllSubmitterCallings();
+          return true;
+        })
+        .catch(function () {
+          // Fall back to the original Apps Script routes.
+          isLoadingRoster = false; isLoadingCallingsChart = false;
+          formRefPromise = Promise.resolve(false);
+          loadStakeCallingsRosterIfNeeded(); loadCallingsChartIfNeeded();
+          return false;
+        });
+      return formRefPromise;
     }
 
     function onWardChange() {
@@ -681,6 +708,7 @@
     }
 
     function loadCallingsChartIfNeeded() {
+      // The database request started at page load normally supplies this; Apps Script is the fallback.
       if (!callingsChartData && !isLoadingCallingsChart) {
         isLoadingCallingsChart = true;
         apiCall('getCallingsChartData')
@@ -1653,16 +1681,51 @@
       document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
       document.getElementById('loadingPage').classList.add('active');
       document.getElementById('progressBar').style.display = 'none';
-      if (formData.type === 'ordination') {
-        apiCall('submitPriesthoodOrdination', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, memberName: formData.memberName, ward: formData.ward, ordinationOffice: formData.ordinationOffice, bishopInterviewDate: formData.bishopInterviewDate, bishopSubmissionDate: formData.bishopSubmissionDate, preferredOrdinationDate: formData.preferredOrdinationDate })
-          .then(handleSubmitSuccess).catch(handleSubmitError);
-      } else if (formData.type === 'release') {
-        apiCall('submitReleaseOnly', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', comments: formData.comments, sustaineeGender: formData.sustaineeGender, verbalSPApproval: formData.verbalSPApproval, urgency: formData.urgency, targetSustainingDate: formData.targetSustainingDate || '' })
-          .then(handleSubmitSuccess).catch(handleSubmitError);
-      } else {
-        apiCall('submitCallingRecommendation', { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, holdForCommentReview: formData.holdForCommentReview, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard, targetSustainingDate: formData.targetSustainingDate || '' })
-          .then(handleSubmitSuccess).catch(handleSubmitError);
-      }
+      // Phase 2 (2026-10-07): save the submission to the database and answer at once; Postgres then
+      // pokes Apps Script, which runs the same submit function as before (form_enqueue, 0099).
+      // If the database cannot be reached, submit straight to Apps Script as before.
+      var kind = formData.type === 'ordination' ? 'ordination' : formData.type === 'release' ? 'release' : 'calling';
+      var route = { ordination: 'submitPriesthoodOrdination', release: 'submitReleaseOnly', calling: 'submitCallingRecommendation' }[kind];
+      var params = kind === 'ordination' ? { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, memberName: formData.memberName, ward: formData.ward, ordinationOffice: formData.ordinationOffice, bishopInterviewDate: formData.bishopInterviewDate, bishopSubmissionDate: formData.bishopSubmissionDate, preferredOrdinationDate: formData.preferredOrdinationDate }
+                 : kind === 'release'    ? { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', comments: formData.comments, sustaineeGender: formData.sustaineeGender, verbalSPApproval: formData.verbalSPApproval, urgency: formData.urgency, targetSustainingDate: formData.targetSustainingDate || '' }
+                 :                         { submitterName: formData.submitterName, submitterCalling: formData.submitterCalling, onBehalfOf: formData.onBehalfOf === 'myself' ? '' : formData.onBehalfOf, onBehalfName: formData.onBehalfName, onBehalfCalling: formData.onBehalfCalling, memberName: formData.memberName, ward: formData.ward, calling: formData.calling, sustainingBody: callingRequirements ? callingRequirements.sustainingBody : '', templeRecommend: formData.requirements.templeRecommend, priesthood: formData.requirements.priesthood, interviewStatus: formData.interviewStatus, interviewWith: formData.interviewWith, releaseeName: formData.releaseeName, releaseWard: formData.releaseWard, comments: formData.comments, holdForCommentReview: formData.holdForCommentReview, sustaineeGender: formData.sustaineeGender, releaseeGender: formData.releaseeGender, verbalSPApproval: formData.verbalSPApproval, spApprovedIds: formData.spApprovedIds, urgency: formData.urgency, secondaryReleaseCalling: formData.secondaryReleaseCalling, secondaryReleaseWard: formData.secondaryReleaseWard, targetSustainingDate: formData.targetSustainingDate || '' };
+      var okText = { ordination: 'Priesthood ordination submitted successfully!', release: 'Release submitted successfully!',
+                     calling: 'Calling recommendation submitted successfully!' }[kind];
+      fetch(DUP_PG_URL + '/rest/v1/rpc/form_enqueue', {
+        method: 'POST', headers: { apikey: DUP_PG_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_form: kind, p_params: params })
+      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (q) {
+          if (!q || !q.queued) throw new Error('not queued');
+          handleSubmitSuccess({ success: true, message: okText });
+          watchQueuedSubmission(q.id);
+        })
+        .catch(function () {
+          apiCall(route, params).then(handleSubmitSuccess).catch(handleSubmitError);
+        });
+    }
+
+    // After a queued submission, confirm in the background that Apps Script processed it. It is retried
+    // automatically if it fails; only if it keeps failing does the (still open) page say so.
+    function watchQueuedSubmission(id) {
+      var tries = 0;
+      var tick = function () {
+        tries++;
+        fetch(DUP_PG_URL + '/rest/v1/rpc/form_submission_status', {
+          method: 'POST', headers: { apikey: DUP_PG_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_id: id })
+        }).then(function (r) { return r.json(); }).then(function (st) {
+          if (st && st.applied) return;                                    // processed
+          if (st && st.error && st.attempts >= 5) { showQueuedProblem(); return; }
+          if (tries < 60) setTimeout(tick, tries < 10 ? 3000 : 15000);     // ~15 minutes in all
+        }).catch(function () { if (tries < 60) setTimeout(tick, 15000); });
+      };
+      setTimeout(tick, 3000);
+    }
+    function showQueuedProblem() {
+      var m = document.getElementById('successMessage');
+      if (m) m.innerHTML = m.textContent + '<br><br><strong style="color:#b00020;">There was a problem saving this submission. '
+        + 'Please let the stake clerk know, and keep this page open.</strong>';
     }
 
     function handleSubmitSuccess(r) { r = r || {}; if (r.success) { clearDraft(); document.getElementById('successMessage').textContent = r.message || 'Your submission has been recorded.'; document.getElementById('loadingPage').classList.remove('active'); document.getElementById('successPage').classList.add('active'); } else { handleSubmitError(r.message || r.error || 'Submission failed'); } }
