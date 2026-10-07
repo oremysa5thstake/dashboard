@@ -1208,6 +1208,7 @@
     function nextPage(fp) {
       hideError(fp);
       if (!validatePage(fp)) return;
+      if (!dupGate(fp)) return;   // waits for the "already submitted" check; same calling needs a tick
       savePageData(fp);
       var ci = pageFlow.indexOf(fp);
       if (ci < pageFlow.length - 1) { var np = pageFlow[ci + 1]; preparePageForDisplay(np); showPage(np); }
@@ -1686,44 +1687,115 @@
       updateProgressBar();
     }
 
-    // ── "Already submitted?" note (2026-10-04) ────────────────────────────────────────────────
-    // After a name is entered, ask whether that person was submitted for the SAME kind of request
-    // in the last month (not canceled) and say so under the field. Informational only — it never
-    // stops anyone submitting. Same kind: the member on a calling form → earlier calls; the member
-    // being released (either form) → earlier releases; an ordination form → earlier ordinations.
+    // ── "Already submitted?" note (2026-10-04; database + Continue gate 2026-10-07) ────────────
+    // After a name is entered, ask whether that person was submitted for the SAME kind of request in
+    // the last month (not canceled) and say so under the field. Answered by Postgres (~30ms; it also
+    // sees submissions made since the last sheet sync — migration 0097), falling back to Apps Script.
+    // Continue waits for the check, and if an earlier submission is for the SAME calling now
+    // selected, it stays blocked until "I've checked — this is not a duplicate" is ticked.
+    var DUP_PG_URL = 'https://lrfbxbiwqnlctomjeboi.supabase.co';
+    var DUP_PG_KEY = 'sb_publishable_eJToH6uWrOBEPzhkzgA_Hg_VRn81dfP';   // public by design
+    var dupState = {};   // fieldId -> { key, promise, matches, acked }
+    var DUP_PAGE_FIELD = { 4: 'memberName', 65: 'releaseeName' };
+
+    function dupKindFor(fieldId) {
+      if (fieldId === 'releaseeName') return 'release';
+      if (formData.type === 'ordination') return 'ordination';
+      if (formData.type === 'release') return 'release';
+      return 'call';
+    }
+    // The calling / office this submission is about, to compare with earlier ones.
+    function dupCurrentCalling(fieldId) {
+      var v = function (id) { var el = document.getElementById(id); return el ? String(el.value || '') : ''; };
+      if (fieldId === 'releaseeName') return v('secondaryReleaseCalling') || formData.calling || v('callingSelection');
+      if (formData.type === 'ordination') return v('ordinationOffice');
+      return v('callingSelection');
+    }
+    function dupNorm(t) { return String(t || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+    function dupFetch(name, kind) {
+      return fetch(DUP_PG_URL + '/rest/v1/rpc/form_recent_submissions', {
+        method: 'POST', headers: { apikey: DUP_PG_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_name: name, p_kind: kind })
+      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function () {   // database unreachable: the original Apps Script check
+          return apiCall('recentSubmissions', { name: name, kind: kind }).then(function (res) { return (res && res.matches) || []; });
+        });
+    }
+    function dupRender(fieldId) {
+      var st = dupState[fieldId], note = document.getElementById(fieldId + 'Dup');
+      if (!note) return;
+      var m = (st && st.matches) || [];
+      if (!m.length) { note.style.display = 'none'; note.innerHTML = ''; return; }
+      var esc = function (t) { var d = document.createElement('div'); d.textContent = String(t); return d.innerHTML; };
+      var name = document.getElementById(fieldId).value.trim().replace(/\s+/g, ' ');
+      var same = dupSameCalling(fieldId);
+      note.innerHTML = m.map(function (x) {
+          return '⚠️ ' + esc(name) + ' has already been submitted for ' + esc(x.what) + ' on ' + esc(x.date) + '.';
+        }).join('<br>')
+        + (same ? '<label style="display:flex;gap:6px;align-items:center;margin-top:6px;font-weight:600;cursor:pointer;">'
+                + '<input type="checkbox" id="' + fieldId + 'Ack"' + (st.acked ? ' checked' : '') + ' onchange="dupState[\'' + fieldId + '\'].acked = this.checked"> '
+                + 'I\'ve checked — this is not a duplicate</label>' : '');
+      note.style.display = 'block';
+    }
+    function dupSameCalling(fieldId) {
+      var st = dupState[fieldId], cur = dupNorm(dupCurrentCalling(fieldId));
+      if (!st || !st.matches || !cur) return false;
+      return st.matches.some(function (x) { return dupNorm(x.calling) === cur; });
+    }
+    // Run (or reuse) the check for the field's current value; resolves when it is done.
+    function dupCheck(fieldId) {
+      var input = document.getElementById(fieldId);
+      if (!input) return Promise.resolve();
+      var name = input.value.trim().replace(/\s+/g, ' ');
+      var key = dupKindFor(fieldId) + '|' + name.toLowerCase();
+      var st = dupState[fieldId];
+      if (st && st.key === key) return st.promise;
+      st = dupState[fieldId] = { key: key, matches: [], acked: false, promise: null };
+      if (name.length < 3) { dupRender(fieldId); st.promise = Promise.resolve(); return st.promise; }
+      st.promise = dupFetch(name, dupKindFor(fieldId)).then(function (m) {
+        if (dupState[fieldId] !== st) return;                  // the name changed meanwhile
+        st.matches = Array.isArray(m) ? m : []; dupRender(fieldId);
+      }).catch(function () { /* a courtesy check — never block the form over a failure */ });
+      return st.promise;
+    }
+    // Called by nextPage: false = stay on this page for now.
+    var dupWaiting = false;
+    function dupGate(fp) {
+      var fieldId = DUP_PAGE_FIELD[fp];
+      if (!fieldId || !document.getElementById(fieldId)) return true;
+      var st = dupState[fieldId], input = document.getElementById(fieldId);
+      var key = dupKindFor(fieldId) + '|' + input.value.trim().replace(/\s+/g, ' ').toLowerCase();
+      if (!st || st.key !== key || !st.done) {
+        if (dupWaiting) return false;
+        dupWaiting = true;
+        var btns = document.querySelectorAll('#page' + fp + ' .button-row button');
+        btns.forEach(function (b) { b.disabled = true; });
+        dupCheck(fieldId).then(function () {
+          dupState[fieldId].done = true;
+          dupWaiting = false; btns.forEach(function (b) { b.disabled = false; });
+          nextPage(fp);                                        // carry on now the check is in
+        });
+        return false;
+      }
+      dupRender(fieldId);
+      if (dupSameCalling(fieldId) && !st.acked) {
+        showError(fp, 'This person was already submitted for the same calling recently. Tick "I\'ve checked — this is not a duplicate" to continue.');
+        return false;
+      }
+      return true;
+    }
     (function () {
-      var timers = {}, last = {};
-      function kindFor(fieldId) {
-        if (fieldId === 'releaseeName') return 'release';
-        if (formData.type === 'ordination') return 'ordination';
-        if (formData.type === 'release') return 'release';
-        return 'call';
-      }
-      function check(fieldId) {
-        var input = document.getElementById(fieldId), note = document.getElementById(fieldId + 'Dup');
-        if (!input || !note) return;
-        var name = input.value.trim().replace(/\s+/g, ' ');
-        var kind = kindFor(fieldId);
-        var key = kind + '|' + name.toLowerCase();
-        if (key === last[fieldId]) return;
-        last[fieldId] = key;
-        if (name.length < 3) { note.style.display = 'none'; return; }
-        apiCall('recentSubmissions', { name: name, kind: kind }).then(function (res) {
-          if (last[fieldId] !== key) return;                     // the name changed meanwhile
-          var m = (res && res.matches) || [];
-          if (!m.length) { note.style.display = 'none'; return; }
-          var esc = function (t) { var d = document.createElement('div'); d.textContent = String(t); return d.innerHTML; };
-          note.innerHTML = m.map(function (x) {
-            return '⚠️ ' + esc(name) + ' has already been submitted for ' + esc(x.what) + ' on ' + esc(x.date) + '.';
-          }).join('<br>');
-          note.style.display = 'block';
-        }).catch(function () { /* the check is a courtesy; never block the form over it */ });
-      }
-      ['memberName', 'releaseeName'].forEach(function (id) {
-        var el = document.getElementById(id);
+      var timers = {};
+      Object.keys(DUP_PAGE_FIELD).forEach(function (pg) {
+        var id = DUP_PAGE_FIELD[pg], el = document.getElementById(id);
         if (!el) return;
-        el.addEventListener('input', function () { clearTimeout(timers[id]); timers[id] = setTimeout(function () { check(id); }, 800); });
-        el.addEventListener('blur', function () { clearTimeout(timers[id]); check(id); });
+        el.addEventListener('input', function () { clearTimeout(timers[id]); timers[id] = setTimeout(function () { dupCheck(id).then(function () { if (dupState[id]) dupState[id].done = true; }); }, 300); });
+        el.addEventListener('blur', function () { clearTimeout(timers[id]); dupCheck(id).then(function () { if (dupState[id]) dupState[id].done = true; }); });
+      });
+      // A different calling chosen after the name: re-judge "same calling" (shows / hides the tick box).
+      ['callingSelection', 'ordinationOffice', 'secondaryReleaseCalling'].forEach(function (cid) {
+        var el = document.getElementById(cid);
+        if (el) el.addEventListener('change', function () { dupRender('memberName'); dupRender('releaseeName'); });
       });
     })();
   </script>
