@@ -27,6 +27,9 @@
     label { display: block; margin-bottom: 6px; color: #333; font-weight: 500; }
     .required::after { content: ' *'; color: #c00; }
     .help-text { font-size: 13px; color: #666; margin-top: 4px; }
+    /* "Already submitted" note under a name field — informational; it never blocks submitting. */
+    .dup-note { font-size: 13px; color: #8a4b00; background: #fff7e6; border: 1px solid #f0c36d;
+                border-radius: 6px; padding: 6px 8px; margin-top: 6px; line-height: 1.4; }
     input[type="text"], input[type="date"], select { width: 100%; padding: 12px; font-size: 16px; border: 2px solid #ddd; border-radius: 8px; transition: border-color 0.3s; }
     input:focus, select:focus { outline: none; border-color: #2d5a87; }
     .radio-group { display: flex; flex-direction: column; gap: 10px; }
@@ -186,6 +189,7 @@
         <label class="required" for="memberName" id="memberNameLabel">Name of Member</label>
         <small class="help-text" id="memberNameSubtext" style="display:none;">As it should be stated for their sustaining.</small>
         <input type="text" id="memberName" placeholder="Enter member's full name">
+        <div class="dup-note" id="memberNameDup" style="display:none;"></div>
       </div>
       <div class="form-group">
         <label class="required" for="ward">Ward</label>
@@ -313,6 +317,7 @@
       <div class="form-group">
         <label for="releaseeName">Member to be released in conjunction with this calling (if applicable). Leave blank if not applicable.</label>
         <input type="text" id="releaseeName" placeholder="Enter name of member to be released, or leave blank" oninput="onReleaseNameChange()">
+        <div class="dup-note" id="releaseeNameDup" style="display:none;"></div>
       </div>
       <div class="form-group" id="releaseeGenderGroup" style="display:none;">
         <label class="required" id="releaseeGenderLabel">Gender of member being released</label>
@@ -1680,6 +1685,47 @@
       document.getElementById('page1').classList.add('active');
       updateProgressBar();
     }
+
+    // ── "Already submitted?" note (2026-10-04) ────────────────────────────────────────────────
+    // After a name is entered, ask whether that person was submitted for the SAME kind of request
+    // in the last month (not canceled) and say so under the field. Informational only — it never
+    // stops anyone submitting. Same kind: the member on a calling form → earlier calls; the member
+    // being released (either form) → earlier releases; an ordination form → earlier ordinations.
+    (function () {
+      var timers = {}, last = {};
+      function kindFor(fieldId) {
+        if (fieldId === 'releaseeName') return 'release';
+        if (formData.type === 'ordination') return 'ordination';
+        if (formData.type === 'release') return 'release';
+        return 'call';
+      }
+      function check(fieldId) {
+        var input = document.getElementById(fieldId), note = document.getElementById(fieldId + 'Dup');
+        if (!input || !note) return;
+        var name = input.value.trim().replace(/\s+/g, ' ');
+        var kind = kindFor(fieldId);
+        var key = kind + '|' + name.toLowerCase();
+        if (key === last[fieldId]) return;
+        last[fieldId] = key;
+        if (name.length < 3) { note.style.display = 'none'; return; }
+        apiCall('recentSubmissions', { name: name, kind: kind }).then(function (res) {
+          if (last[fieldId] !== key) return;                     // the name changed meanwhile
+          var m = (res && res.matches) || [];
+          if (!m.length) { note.style.display = 'none'; return; }
+          var esc = function (t) { var d = document.createElement('div'); d.textContent = String(t); return d.innerHTML; };
+          note.innerHTML = m.map(function (x) {
+            return '⚠️ ' + esc(name) + ' has already been submitted for ' + esc(x.what) + ' on ' + esc(x.date) + '.';
+          }).join('<br>');
+          note.style.display = 'block';
+        }).catch(function () { /* the check is a courtesy; never block the form over it */ });
+      }
+      ['memberName', 'releaseeName'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', function () { clearTimeout(timers[id]); timers[id] = setTimeout(function () { check(id); }, 800); });
+        el.addEventListener('blur', function () { clearTimeout(timers[id]); check(id); });
+      });
+    })();
   </script>
 </body>
 </html>

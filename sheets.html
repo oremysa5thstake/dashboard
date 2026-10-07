@@ -477,9 +477,10 @@ async function saveCell(cell, gridName, keyField) {
   // Status and Priority on Callings go through the dashboard's pause/cancel handler, which also
   // tidies Stake Business and syncs the database before answering — 15-30s. Without a message the
   // cell just sat there and the edit looked like it had done nothing.
-  const slowEdit = gridName === 'callings' && (field === 'status' || field === 'urgency');
+  const slowEdit = gridName === 'callings' && (field === 'status' || field === 'urgency' || field === 'stake_business_date');
   if (slowEdit) toast('Saving… ' + (field === 'status'
       ? 'pausing or resuming also updates Stake Business — this takes about 20 seconds.'
+      : field === 'stake_business_date' ? 'checking the Sunday and updating Stake Business — this takes about 15 seconds.'
       : 'this takes about 15 seconds.'));
   try {
     const params = new URLSearchParams({
@@ -499,6 +500,7 @@ async function saveCell(cell, gridName, keyField) {
     // routed through the dashboard's handler, not written raw).
     if (data.display !== undefined) cell.setValue(data.display, true);
     if (slowEdit) toast('Saved ✓');
+    if (data.note) toast(data.note);
     if (data.mirrored && data.mirrored !== 'ok') {
       toast(data.mirrored === 'not-configured'
         ? 'Saved to the sheet. The Supabase mirror is not configured yet.'
@@ -715,6 +717,40 @@ async function apiJson(url) {
   }
 }
 
+/**
+ * A date editor that only accepts Sundays, from this coming Sunday on. step=7 counted from a
+ * Sunday `min` makes desktop browsers offer Sundays only; the explicit check covers browsers that
+ * ignore step (iOS Safari). Empty = clear the scheduled date.
+ */
+function sundayEditor(cell, onRendered, success, cancel) {
+  const input = document.createElement('input');
+  input.type = 'date';
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  t.setDate(t.getDate() + ((7 - t.getDay()) % 7));             // this coming Sunday (today if Sunday)
+  const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  input.min = ymd(t);
+  input.step = 7;
+  const cur = String(cell.getValue() || '');
+  input.value = /^\d{4}-\d{2}-\d{2}$/.test(cur) ? cur : '';
+  input.style.cssText = 'width:100%;box-sizing:border-box;padding:2px;';
+  onRendered(() => { input.focus(); try { input.showPicker && input.showPicker(); } catch (e) {} });
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    const v = input.value;
+    if (v === cur) { done = true; cancel(); return; }
+    if (v) {
+      const [y, m, d] = v.split('-').map(Number);
+      if (new Date(y, m - 1, d).getDay() !== 0) { toast('Pick a Sunday', 'err'); input.focus(); return; }
+    }
+    done = true; success(v);
+  };
+  input.addEventListener('change', finish);
+  input.addEventListener('blur', finish);
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') { done = true; cancel(); } if (e.key === 'Enter') finish(); });
+  return input;
+}
+
 function ed(col, gridName, keyField, editor, params) {
   return Object.assign({}, col, {
     editor: editor || 'input',
@@ -850,8 +886,11 @@ const TABS = {
       tick('Accepted', 'accepted'),
       tick('Couns. Appr.', 'counselors_approved', 110),
       tick('Rel. Extended', 'release_extended', 115),
+      // Sunday-only picker. (The built-in 'date' editor needs the luxon library, which this page
+      // does not load — so this column could not actually be edited.) Saved through the
+      // dashboard's setScheduledStakeBusiness, which also rejects blocked Sundays.
       ed({ title: 'Sched. Stake Bus.', field: 'stake_business_date', width: 140,
-           formatter: sbDateFormatter }, 'callings', 'sheet_ref', 'date', { format: 'yyyy-MM-dd' }),
+           formatter: sbDateFormatter }, 'callings', 'sheet_ref', sundayEditor),
       { title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
         formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>' : '' },
       tick('Added to SB', 'added_to_stake_business', 106),
