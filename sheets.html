@@ -476,10 +476,10 @@ function wardEditor(cell, onRendered, success, cancel) {
   return sel;
 }
 
-async function saveCell(cell, gridName, keyField) {
+async function saveCell(cell, gridName, keyField, beforeValue) {
   const row = cell.getRow().getData();
   const field = cell.getField();
-  const before = cell.getOldValue();
+  const before = beforeValue !== undefined ? beforeValue : cell.getOldValue();
   const el = cell.getElement();
 
   if (DEMO) {
@@ -520,7 +520,8 @@ async function saveCell(cell, gridName, keyField) {
     if (data.display !== undefined) cell.setValue(data.display, true);
     // Hold and Sched. Stake Bus. are the same sheet cell (col AM) — keep the two columns in step.
     if (gridName === 'callings' && field === 'held' && data.sbDisplay !== undefined)
-      cell.getRow().update({ stake_business_date: data.sbDisplay || null });
+      cell.getRow().update(Object.assign({ stake_business_date: data.sbDisplay || null },
+        data.addedToStakeBusiness !== undefined ? { added_to_stake_business: data.addedToStakeBusiness } : {}));
     if (gridName === 'callings' && field === 'stake_business_date' && data.display !== undefined)
       cell.getRow().update({ held: String(data.display).toUpperCase() === 'HOLD' });
     if (slowEdit) toast('Saved ✓');
@@ -535,6 +536,22 @@ async function saveCell(cell, gridName, keyField) {
     if (el) el.style.outline = '';
     toast('Not saved: ' + (e.message || e), 'err');
   }
+}
+
+function toggleHold(cell) {
+  if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
+  if (cell._holdBusy) return;
+  const d = cell.getRow().getData();
+  const was = !!cell.getValue();
+  const who = (d.member || 'this calling');
+  const msg = was
+    ? 'Release the hold on ' + who + '? If the calling is ready it goes on the next Stake Business agenda.'
+    : 'Put ' + who + ' on hold?' + (d.added_to_stake_business
+        ? ' This takes them off the ' + (d.stake_business_date || '') + ' Stake Business agenda.' : '');
+  if (!confirm(msg)) return;
+  cell._holdBusy = true;
+  cell.setValue(!was, true);
+  saveCell(cell, 'callings', 'sheet_ref', was).finally(() => { cell._holdBusy = false; });
 }
 
 // ── Stake Business cells ──────────────────────────────────────────────────
@@ -917,9 +934,13 @@ const TABS = {
            formatter: sbDateFormatter }, 'callings', 'sheet_ref', sundayEditor),
       // Tick to hold this calling off the Stake Business agenda (writes HOLD into Sched. Stake
       // Bus.); untick to release it. Saved through the same setter as the Sunday picker.
-      ed({ title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
-           formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>' : '' },
-         'callings', 'sheet_ref', 'tickCross'),
+      // One click toggles it (a checkbox editor took a click to open and another to change,
+      // so people clicked it on and straight back off). Confirmed first, because holding a
+      // calling already on the agenda takes it off.
+      { title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
+        formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>'
+          : '<span style="color:#b8bec5">—</span>',
+        cellClick: (e, cell) => toggleHold(cell) },
       tick('Added to SB', 'added_to_stake_business', 106),
       tick('Sustained', 'sustained', 96),
       tick('In LCR', 'updated_in_lcr', 86),
