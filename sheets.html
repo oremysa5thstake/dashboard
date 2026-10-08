@@ -331,6 +331,10 @@ const RX = {
 };
 
 /** Is this checkbox not applicable to this row's calling? Returns true to grey it. */
+function notSustained(row) {
+  return /^none$/i.test(String(row.sustaining_body || '').trim());
+}
+
 function notApplicable(field, row) {
   const calling = row.calling || '';
   const released = row.action === 'Released';
@@ -341,7 +345,10 @@ function notApplicable(field, row) {
     case 'counselors_approved':  return !RX.president.test(calling);
     case 'secondary_approval':   return released || !RX.secondary.test(calling);
     case 'marked_set_apart_lcr': return released || RX.audit.test(calling);
-    case 'sustained':            return RX.audit.test(calling);
+    // Sustaining body "None" (col M — e.g. Stake Auditor): never announced in stake business, so
+    // the Stake Business steps do not apply. Older rows were ticked by hand to mean "not needed".
+    case 'sustained':            return RX.audit.test(calling) || notSustained(row);
+    case 'added_to_stake_business': return notSustained(row);
     case 'name_tag':             return !RX.nameTag.test(calling);
     case 'key_done':             return !RX.key.test(calling);
     case 'accepted':             return released;
@@ -420,10 +427,11 @@ function sbDateFormatter(cell) {
   const v = cell.getValue();
   const el = cell.getElement();
   const d = daysUntil(v);
-  const due = d !== null && d >= 0 && d <= 7 && !row.added_to_stake_business;
+  const na = notSustained(row);
+  const due = !na && d !== null && d >= 0 && d <= 7 && !row.added_to_stake_business;
   if (el) {
-    el.style.background = due ? 'var(--cf-due-bg)' : '';
-    el.style.color = due ? 'var(--cf-due-fg)' : '';
+    el.style.background = na ? 'var(--cf-na-bg)' : (due ? 'var(--cf-due-bg)' : '');
+    el.style.color = na ? 'var(--cf-na-fg)' : (due ? 'var(--cf-due-fg)' : '');
     el.style.fontWeight = due ? '700' : '';
   }
   return v ? String(v).slice(0, 10) : '';
@@ -552,6 +560,10 @@ function toggleHold(cell) {
   if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
   if (cell._holdBusy) return;
   const d = cell.getRow().getData();
+  if (notSustained(d) && !cell.getValue()) {
+    toast((d.calling || 'This calling') + ' is not announced in stake business, so there is nothing to hold.');
+    return;
+  }
   const was = !!cell.getValue();
   const who = (d.member || 'this calling');
   const msg = was
@@ -957,6 +969,9 @@ const TABS = {
         // A hold placed because a linked calling was held carries its reason in Comments; show
         // it on hover so nobody has to go looking.
         formatter: c => {
+          const el0 = c.getElement();
+          const na0 = notSustained(c.getRow().getData());
+          if (el0) { el0.style.background = na0 ? 'var(--cf-na-bg)' : ''; el0.style.color = na0 ? 'var(--cf-na-fg)' : ''; }
           if (!c.getValue()) return '<span style="color:#b8bec5">—</span>';
           const m = String(c.getRow().getData().comments || '').match(/On hold with [^\n]*/g);
           const why = m ? m[m.length - 1] : '';
@@ -1303,7 +1318,7 @@ const COL_HELP = {
     release_extended: 'the person being released has been told',
     stake_business_date: 'the Sunday it is sustained; Sundays only',
     held: 'tick to keep it off the Stake Business agenda; untick to release it',
-    added_to_stake_business: 'it is on a Stake Business agenda',
+    added_to_stake_business: 'it is on a Stake Business agenda; greyed for callings that are not sustained (sustaining body None) — nothing to tick',
     updated_in_lcr: 'recorded in LCR',
     secondary_approval: 'secondary approval has been given in LCR (only some callings need it)',
     marked_set_apart_lcr: 'the setting apart is recorded in LCR',
