@@ -60,6 +60,22 @@
   button:hover{background:#f2f4f6}
   button:disabled{opacity:.5;cursor:default}
   .meta{font-size:12px;color:#777;margin-left:auto;font-variant-numeric:tabular-nums}
+  /* "?" help — the same control and popover as the dashboard's section help. */
+  .help-btn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:50%;background:#e2e5e9;color:#555;font-size:12px;font-weight:700;cursor:pointer;
+    border:none;padding:0;line-height:1;flex:none}
+  .help-btn:hover,.help-btn:focus-visible{background:#1a6159;color:#fff;outline:none}
+  .help-popover{position:fixed;background:#fff;border:1px solid #ddd;border-radius:10px;
+    padding:14px 16px 12px;box-shadow:0 6px 20px rgba(0,0,0,.18);font-size:13px;line-height:1.5;
+    color:#333;max-width:380px;min-width:240px;z-index:1100;display:none;max-height:70vh;overflow:auto}
+  .help-popover.show{display:block}
+  .help-popover h4{font-size:14px;margin:0 0 8px;padding-right:22px}
+  .help-popover p{margin:0 0 6px}
+  .help-popover ul{margin:0 0 6px;padding-left:18px}
+  .help-popover-close{position:absolute;top:6px;right:8px;border:none;background:none;
+    font-size:18px;color:#888;padding:2px 6px}
+  /* Columns with an explanation: dotted underline says "hover me". */
+  .tabulator .col-help .tabulator-col-title{text-decoration:underline dotted #9aa3ad;text-underline-offset:3px}
   #grid{flex:1;min-height:0;margin:0 8px 8px}
   .banner{
     padding:7px 16px;font-size:12.5px;background:#fff8e1;border-bottom:1px solid #f0e0a8;flex:none;
@@ -209,6 +225,7 @@
 <div class="banner" id="banner" hidden></div>
 
 <div class="toolbar">
+  <button class="help-btn" id="tabHelpBtn" onclick="showTabHelp(event)" title="What is this tab?" aria-label="What is this tab?">?</button>
   <input type="text" id="search" placeholder="Search this table…" oninput="applyFilter()">
   <select id="statusFilter" onchange="applyFilter()" hidden></select>
   <span class="colwrap">
@@ -224,6 +241,7 @@
 
 <div id="grid"></div>
 <div class="toast" id="toast"></div>
+<div class="help-popover" id="helpPopover" role="dialog" aria-label="Help"></div>
 
 <script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
 <script>
@@ -477,10 +495,11 @@ async function saveCell(cell, gridName, keyField) {
   // Status and Priority on Callings go through the dashboard's pause/cancel handler, which also
   // tidies Stake Business and syncs the database before answering — 15-30s. Without a message the
   // cell just sat there and the edit looked like it had done nothing.
-  const slowEdit = gridName === 'callings' && (field === 'status' || field === 'urgency' || field === 'stake_business_date');
+  const slowEdit = gridName === 'callings' && (field === 'status' || field === 'urgency' || field === 'stake_business_date' || field === 'held');
   if (slowEdit) toast('Saving… ' + (field === 'status'
       ? 'pausing or resuming also updates Stake Business — this takes about 20 seconds.'
       : field === 'stake_business_date' ? 'checking the Sunday and updating Stake Business — this takes about 15 seconds.'
+      : field === 'held' ? 'updating the hold and Stake Business — this takes about 15 seconds.'
       : 'this takes about 15 seconds.'));
   try {
     const params = new URLSearchParams({
@@ -499,6 +518,11 @@ async function saveCell(cell, gridName, keyField) {
     // The server says what the cell should now read (pause/cancel/resume and priority edits are
     // routed through the dashboard's handler, not written raw).
     if (data.display !== undefined) cell.setValue(data.display, true);
+    // Hold and Sched. Stake Bus. are the same sheet cell (col AM) — keep the two columns in step.
+    if (gridName === 'callings' && field === 'held' && data.sbDisplay !== undefined)
+      cell.getRow().update({ stake_business_date: data.sbDisplay || null });
+    if (gridName === 'callings' && field === 'stake_business_date' && data.display !== undefined)
+      cell.getRow().update({ held: String(data.display).toUpperCase() === 'HOLD' });
     if (slowEdit) toast('Saved ✓');
     if (data.note) toast(data.note);
     if (data.mirrored && data.mirrored !== 'ok') {
@@ -891,8 +915,11 @@ const TABS = {
       // dashboard's setScheduledStakeBusiness, which also rejects blocked Sundays.
       ed({ title: 'Sched. Stake Bus.', field: 'stake_business_date', width: 140,
            formatter: sbDateFormatter }, 'callings', 'sheet_ref', sundayEditor),
-      { title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
-        formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>' : '' },
+      // Tick to hold this calling off the Stake Business agenda (writes HOLD into Sched. Stake
+      // Bus.); untick to release it. Saved through the same setter as the Sunday picker.
+      ed({ title: 'Hold', field: 'held', width: 62, hozAlign: 'center',
+           formatter: c => c.getValue() ? '<b style="color:#b26500">HOLD</b>' : '' },
+         'callings', 'sheet_ref', 'tickCross'),
       tick('Added to SB', 'added_to_stake_business', 106),
       tick('Sustained', 'sustained', 96),
       tick('In LCR', 'updated_in_lcr', 86),
@@ -1000,7 +1027,7 @@ const TABS = {
            formatter: c => c.getValue() ? esc(c.getValue())
              : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
          'chart', 'calling', 'list',
-         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', 'SPB', 'SPB/HC'] }),
+         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', ...Array.from({ length: 12 }, (_, i) => 'HC' + (i + 1)), 'SPB', 'SPB/HC'] }),
       ed({ title: 'Wait for counselors', field: 'wait_for_counselors', width: 148 },
          'chart', 'calling', 'list', { values: ['', 'Yes', 'Maybe'] }),
       ed({ title: 'Sustaining Title', field: 'sustaining_title', minWidth: 180 }, 'chart', 'calling'),
@@ -1009,7 +1036,7 @@ const TABS = {
            formatter: c => c.getValue() ? esc(c.getValue())
              : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
          'chart', 'calling', 'list',
-         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', 'SPB', 'SPB/HC', 'N/A'] }),
+         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', ...Array.from({ length: 12 }, (_, i) => 'HC' + (i + 1)), 'SPC/HC', 'SPB', 'SPB/HC', 'N/A'] }),
       ed({ title: 'Add to LCR', field: 'add_to_lcr', minWidth: 170 }, 'chart', 'calling'),
       ed({ title: 'Secondary Approvers', field: 'secondary_approvers', minWidth: 205 },
          'chart', 'calling'),
@@ -1170,6 +1197,109 @@ const TABS = {
   }
 ,
 };
+
+// ── help ──────────────────────────────────────────────────────────────────
+// The "?" beside the search box explains the current tab; columns with a dotted underline
+// explain themselves on hover. Keep these in step with what the grid actually does — people
+// are taught from them (CLAUDE.md rule 6).
+const TAB_HELP = {
+  callings: { title: 'Callings', body:
+    '<p>One row per calling or release request, newest first — the <b>Calling Approvals</b> sheet.</p>'
+    + '<ul><li>Click a cell to edit it. Changes save straight to the sheet; <b>Undo</b> is in Recent Actions on the dashboard.</li>'
+    + '<li><b>Status</b> pauses, cancels or resumes a request — the same as the dashboard, including tidying Stake Business.</li>'
+    + '<li><b>Sched. Stake Bus.</b> picks the Sunday it is sustained (Sundays only). <b>Hold</b> keeps it off the agenda until you untick it.</li>'
+    + '<li>Row colours follow the sheet — see the legend under the toolbar.</li></ul>'
+    + '<p>Use <b>⚙ Columns</b> to show, hide or pin columns. Hover a dotted column title for what it means.</p>' },
+  business: { title: 'Stake Business', body:
+    '<p>The <b>Stake Business</b> sheet: what is sustained or released on each Sunday, grouped by date.</p>'
+    + '<ul><li>Rows are added automatically once a calling is ready for stake business — add one by hand only for something the system does not track.</li>'
+    + '<li>Change <b>Date</b> to move an item to another Sunday.</li>'
+    + '<li>Once a Sunday is reported, its items move to the <b>Reported</b> group.</li></ul>'
+    + '<p>The stake presidency can edit here as well as clerks and secretaries.</p>' },
+  chart: { title: 'Callings Chart', body:
+    '<p>The rules for every calling: who approves it, who sustains it, who extends it and who sets the person apart.</p>'
+    + '<p><b>Extend</b> and <b>Set apart</b> accept:</p>'
+    + '<ul><li><b>SP</b>, <b>1C</b>, <b>2C</b> — the stake president or a counselor.</li>'
+    + '<li><b>SPC</b> — the presidency counselor over the member’s ward.</li>'
+    + '<li><b>HC</b> — the high councilor assigned to the member’s ward.</li>'
+    + '<li><b>HC1</b>–<b>HC12</b> — that specific high councilor, whatever the ward.</li>'
+    + '<li><b>SPC/HC</b> (set apart only) — the ward’s presidency counselor and its high councilor together; <b>SPC/HC3</b> pairs the counselor with High Councilor 3.</li>'
+    + '<li><b>SPB</b> — a secretary assigns a presidency member. <b>SPB/HC</b> — a secretary may also assign a high councilor.</li>'
+    + '<li>Blank (shown as <b>— bin —</b>) — goes to the secretaries to schedule and assign.</li></ul>'
+    + '<p>If the person a rule names is not in Stake Callings, the task goes to the secretaries with a note saying why.</p>' },
+  ordinations: { title: 'Ordinations', body:
+    '<p>One row per Melchizedek Priesthood ordination request, newest first — the <b>Priesthood Ordinations</b> sheet.</p>'
+    + '<ul><li><b>Sustains</b> shows each high councilor’s vote.</li>'
+    + '<li>The ordainer and certificate columns are filled in after the ordination, for records.</li></ul>' },
+  roster: { title: 'Stake Callings', body:
+    '<p>Everyone who uses the system — the <b>Stake Callings</b> sheet. A person’s calling here decides what they see on the dashboard and which tasks reach them.</p>'
+    + '<ul><li><b>Slack UserID</b> is how the system finds and messages them; without it they get no tasks.</li>'
+    + '<li>A high councilor’s <b>Ward</b> is the ward they are assigned to — routing values <b>HC</b> and <b>SPC</b> follow it.</li>'
+    + '<li><b>Supervisor Slack ID</b> on a high councilor’s row is the presidency counselor over that ward.</li>'
+    + '<li>The number in “High Councilor 3” is what <b>HC3</b> in the Callings Chart refers to.</li></ul>' },
+  settings: { title: 'Settings', body:
+    '<p>System settings and the links shown under <b>Stake Links</b> on the dashboard.</p>'
+    + '<p>Change a setting only if you know what it controls — they take effect immediately for everyone.</p>' },
+  tasks: { title: 'Action Items', body:
+    '<p>Every task the system has created — extending, setting apart, recording, and so on. Search or filter to find one and see who it is assigned to.</p>' },
+};
+
+const COL_HELP = {
+  callings: {
+    sheet_ref: 'when the request was submitted; the row’s permanent key',
+    action: 'Called or Released',
+    sustaining_body: 'Stake or Ward — who sustains it',
+    on_behalf_of: 'the bishop the submitter entered it for, if not themselves',
+    poll_ready: 'unticked holds the request back from going out for approval',
+    urgency: 'Normal or Urgent',
+    status: 'where the request is; pick Paused, Canceled or Resume to change it',
+    approved_count: 'how many approvers have approved',
+    awaiting: 'how many approvers have not yet voted',
+    accepted: 'the member accepted the calling',
+    release_extended: 'the person being released has been told',
+    stake_business_date: 'the Sunday it is sustained; Sundays only',
+    held: 'tick to keep it off the Stake Business agenda; untick to release it',
+    added_to_stake_business: 'it is on a Stake Business agenda',
+    updated_in_lcr: 'recorded in LCR',
+    secondary_approval: 'secondary approval has been given in LCR (only some callings need it)',
+    marked_set_apart_lcr: 'the setting apart is recorded in LCR',
+    declined: 'the member declined the calling',
+  },
+  chart: {
+    extend_routing: 'who extends the calling: SP, 1C, 2C, SPC, HC, HC1–HC12, SPB, SPB/HC; blank goes to the secretaries',
+    set_apart_routing: 'who sets apart: SP, 1C, 2C, SPC, HC, HC1–HC12, SPC/HC, SPB, SPB/HC, N/A; blank goes to the secretaries',
+    approval_level: 'whether the stake presidency and high council vote on it',
+  },
+  roster: {
+    ward: 'for a high councilor, the ward they are assigned to',
+    supervisor: 'for a high councilor, the presidency counselor over their ward',
+    slack_id: 'needed for the person to get tasks and messages',
+  },
+};
+
+function showTabHelp(e) {
+  e.stopPropagation();
+  const info = TAB_HELP[tab];
+  const pop = document.getElementById('helpPopover');
+  if (!info || !pop) return;
+  pop.innerHTML = '<button class="help-popover-close" onclick="hideTabHelp()" aria-label="Close">×</button>'
+    + '<h4>' + info.title + '</h4>' + info.body;
+  pop.classList.add('show');
+  const r = e.currentTarget.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+  let left = Math.min(r.left, window.innerWidth - pr.width - 8), top = r.bottom + 8;
+  if (left < 8) left = 8;
+  if (top + pr.height > window.innerHeight - 8) top = Math.max(8, r.top - pr.height - 8);
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+}
+function hideTabHelp() {
+  const p = document.getElementById('helpPopover');
+  if (p) p.classList.remove('show');
+}
+document.addEventListener('click', e => {
+  const pop = document.getElementById('helpPopover');
+  if (pop && pop.classList.contains('show') && !pop.contains(e.target) && e.target.id !== 'tabHelpBtn') hideTabHelp();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTabHelp(); });
 
 // ── demo data ─────────────────────────────────────────────────────────────
 // A demo window must never reach the real database — demo links get shared.
@@ -1478,6 +1608,7 @@ function renderLegend() {
 function switchTab(k) {
   if (k === tab) return;
   tab = k;
+  hideTabHelp();
   document.getElementById('search').value = '';
   renderTabs(); renderLegend(); load();
 }
@@ -1574,7 +1705,9 @@ async function load() {
         || (tab === 'callings' && c.field === 'sheet_ref' && (frozenSet === null || frozenSet.has('member'))),
       width: savedWidths[c.field] || c.width,
       // Every header gets its full text on hover, so a narrowed column is still readable.
-      headerTooltip: c.headerTooltip || String(c.title),
+      headerTooltip: c.headerTooltip || (COL_HELP[tab] && COL_HELP[tab][c.field]
+        ? String(c.title) + ' — ' + COL_HELP[tab][c.field] : String(c.title)),
+      cssClass: [c.cssClass, COL_HELP[tab] && COL_HELP[tab][c.field] ? 'col-help' : ''].filter(Boolean).join(' ') || undefined,
       headerWordWrap: true,
     }));
     grid = new Tabulator(box, {
