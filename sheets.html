@@ -547,7 +547,12 @@ function toggleHold(cell) {
   const msg = was
     ? 'Release the hold on ' + who + '? If the calling is ready it goes on the next Stake Business agenda.'
     : 'Put ' + who + ' on hold?' + (d.added_to_stake_business
-        ? ' This takes them off the ' + (d.stake_business_date || '') + ' Stake Business agenda.' : '');
+        ? '\n\nThis takes them off the ' + (d.stake_business_date || '') + ' Stake Business agenda'
+          + (d.releases ? ' — and ' + d.releases + '\u2019s release from this calling comes off with it, so '
+              + d.releases + ' will not be announced as released.' : '.')
+          + '\n\nAny ward left with no stake business has its availability check closed, and the'
+          + ' agenda document is regenerated.'
+        : '');
   if (!confirm(msg)) return;
   cell._holdBusy = true;
   cell.setValue(!was, true);
