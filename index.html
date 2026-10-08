@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-08 linked-holds';
+    const BUILD_STAMP = '2026-10-08 held-with';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -2763,6 +2763,7 @@
         html += `<div class="item" id="paused-${escapeHtmlDisplay(item.timestamp)}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(displayMember)} — ${escapeHtmlDisplay(item.calling || '(no calling)')}</div></div>
           ${wardActionLine ? '<div class="item-meta">' + wardActionLine + ' &bull; <span class="status-badge ' + s + '">' + statusIcon + ' ' + statusLabel + '</span></div>' : ''}
+          ${isHeld && item.heldWith ? '<div class="item-meta" style="color:#8a6d00;">🔗 ' + escapeHtmlDisplay(item.heldWith) + '</div>' : ''}
           ${isHeld ? '<div class="item-meta" style="color:#8a6d00;">Approvals and extending proceed as normal — this is only held out of Stake Business. Release the hold, or set a date in column AM.</div>' : ''}
           <div class="item-actions">${actions}</div>
         </div>`;
@@ -4239,7 +4240,7 @@
           '<ul>' +
           '<li><b>▶️ Resume:</b> Sets a paused/canceled row back to <b>Standard</b>. Downstream processing picks back up.</li>' +
           '<li><b>❌ Cancel Permanently:</b> Only shown on paused rows. Moves the row from Paused to Canceled.</li>' +
-          '<li><b>🔒 Held:</b> Put <b>HOLD</b> in Col AM to keep a calling OUT of Stake Business while approvals and extending proceed as normal. <b>▶️ Release Hold</b> clears it (or set a date in Col AM) so it schedules when ready.</li>' +
+          '<li><b>🔒 Held:</b> Put <b>HOLD</b> in Col AM to keep a calling OUT of Stake Business while approvals and extending proceed as normal. <b>▶️ Release Hold</b> clears it (or set a date in Col AM) so it schedules when ready. Holding a calling also holds any separate release request linked to it — that card shows 🔗 and why; each hold is released on its own.</li>' +
           '</ul>'
       },
       nameTags: {
