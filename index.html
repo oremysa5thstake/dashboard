@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-08 token-30d';
+    const BUILD_STAMP = '2026-10-08 sb-phase2';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1029,7 +1029,7 @@
       'sbConfirm', 'sbCheckBackup', 'sbNeedReplacement', 'sbHaveReplacement',
       'sbMarkAlreadyConfirmed', 'sbDismissReplacement', 'reportSustaining',
       'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
-      'restoreNormalAssignments', 'releaseHold',
+      'restoreNormalAssignments', 'releaseHold', 'setConducting', 'sbAddBlockout', 'sbRemoveBlockout',
       // the schedule/assign bins
       'assignExtendCall', 'assignSettingApart', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
@@ -2413,7 +2413,8 @@
           ward: ward, sunday: sunday, mode: mode, personId: personId
         });
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
-        let msg = mode === 'request' ? 'Asked ' + d.person + ' to confirm' : d.person + ' recorded as conducting';
+        const who = d.person || (sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].textContent.trim() : 'They');
+        let msg = mode === 'request' ? 'Asked ' + who + ' to confirm' : who + ' recorded as conducting';
         if (d.closedTasks) msg += ' · closed ' + d.closedTasks + ' open item' + (d.closedTasks === 1 ? '' : 's');
         showToast(msg, 'success');
         scheduleSilentRefresh(800);
@@ -3548,6 +3549,7 @@
         const kind = (document.getElementById('blockoutKind') || {}).value || 'none';
         const d = await performAction('sbAddBlockout', { date: date, reason: reason, kind: kind });
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
+        if (d.queued) { showToast('Blocked out — anything on that Sunday is being moved to the next open one', 'success'); _panelCache = null; setTimeout(loadBlockouts, 14000); return; }
         if (d.already) showToast('That Sunday was already marked', 'success');
         else if (d.moved && d.moved.length) {
           showToast('Blocked out · moved ' + d.moved.length + ' item' + (d.moved.length === 1 ? '' : 's') + ' to ' + d.nextOpen, 'success');
@@ -3566,7 +3568,7 @@
         const d = await performAction('sbRemoveBlockout', { date: date });
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not remove');
         showToast('Removed', 'success');
-        loadBlockouts();
+        if (d.queued) { _panelCache = null; setTimeout(loadBlockouts, 14000); } else loadBlockouts();
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
         btn.disabled = false; btn.textContent = 'Remove';
@@ -3649,14 +3651,21 @@
       if (!_assignmentsLoaded) { _assignmentsLoaded = true; loadAssignments(); }
     }
 
+    // After a queued change the database has not caught up for ~10s; re-read once it has, and
+    // keep the optimistic row on screen until then.
+    function reloadAssignmentsSoon(ms) {
+      setTimeout(() => { _panelCache = null; loadAssignments(); }, ms || 14000);
+    }
+
     async function loadAssignments() {
       const box = document.getElementById('assignmentsBody');
       if (!box) return;
       try {
+        // Phase 2: both come from panels_for (0102) — Apps Script only if Postgres is unavailable.
         const [d, cand] = await Promise.all([
-          performAction('getStakeBusinessAssignments', {}),
+          (async () => (await getPanel('sbAssignments')) || performAction('getStakeBusinessAssignments', {}))(),
           _conductingCandidates ? Promise.resolve(_conductingCandidates)
-                                : performAction('conductingCandidates', {})
+            : (async () => (await getPanel('conductingCandidates')) || performAction('conductingCandidates', {}))()
         ]);
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not load assignments');
         if (cand && cand.success) _conductingCandidates = cand;
@@ -3783,14 +3792,22 @@
       try {
         const d = await performAction('setConducting', { ward: ward, mode: mode, personId: personId, name: sel.value });
         if (!d || !d.success) throw new Error((d && d.error) || 'Could not save');
-        let msg = mode === 'request'
-          ? 'Asked ' + d.person + ' to confirm'
-          : d.person + ' recorded as conducting';
+        const who = d.person || (opt ? opt.textContent.trim() : sel.value);
+        let msg = mode === 'request' ? 'Asked ' + who + ' to confirm' : who + ' recorded as conducting';
         if (d.closedTasks) msg += ' · closed ' + d.closedTasks + ' open item' + (d.closedTasks === 1 ? '' : 's');
         showToast(msg, 'success');
         if (box) box.innerHTML = '';
         _assignmentsLoaded = true;
-        await loadAssignments();
+        if (d.queued) {
+          // Queued in Postgres: show the change now; the sheet and database follow in ~10s.
+          const rr = (_assignmentsData.rows || []).find(x => x.row === row);
+          if (rr) rr.conducting = mode === 'request' ? 'Confirming' : who;
+          const body = document.getElementById('assignmentsBody');
+          if (body) body.innerHTML = renderAssignmentsBody(_assignmentsData);
+          reloadAssignmentsSoon();
+        } else {
+          await loadAssignments();
+        }
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
         if (btn) { btn.disabled = false; btn.textContent = mode === 'request' ? 'Ask to confirm' : 'Mark confirmed'; }
@@ -3809,9 +3826,12 @@
       input.disabled = true;
       setSyncing(true);
       try {
-        await performAction('updateStakeBusinessAssignment', { row: row, field: field, value: input.value });
+        const d = await performAction('updateStakeBusinessAssignment', { row: row, field: field, value: input.value });
         input.defaultValue = input.value;
+        const rr = (_assignmentsData && _assignmentsData.rows || []).find(x => x.row === row);
+        if (rr) rr[field] = input.value;   // so a re-render before the database catches up keeps it
         showToast('Saved', 'success');
+        if (d && d.queued) _panelCache = null;
       } catch (e) {
         input.value = original;
         showToast('Error: ' + e.message, 'error');
@@ -3824,8 +3844,8 @@
       setSyncing(true);
       try {
         const d = await performAction('restoreNormalAssignments', {});
-        showToast('Restored ' + (d.changed || 0) + ' field(s)', 'success');
-        loadAssignments();
+        if (d && d.queued) { showToast('Restoring the standing assignments…', 'success'); reloadAssignmentsSoon(); }
+        else { showToast('Restored ' + (d.changed || 0) + ' field(s)', 'success'); loadAssignments(); }
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
         if (btn) btn.disabled = false;
