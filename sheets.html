@@ -331,6 +331,23 @@ const RX = {
 };
 
 /** Is this checkbox not applicable to this row's calling? Returns true to grey it. */
+function isYes(v) { return v === true || /^(yes|true)$/i.test(String(v == null ? '' : v).trim()); }
+// A "Yes"/blank column on the Callings Chart: one click toggles it, saved as the text the form reads.
+function yesNoCol(title, field, width) {
+  return {
+    title, field, width, hozAlign: 'center',
+    formatter: c => isYes(c.getValue()) ? '<span style="color:#2e7d32;font-weight:700">✓ Yes</span>'
+                                       : '<span style="color:#b8bec5">—</span>',
+    cellClick: (e, cell) => {
+      if (cell._busy) return;
+      const was = cell.getValue();
+      cell._busy = true;
+      cell.setValue(isYes(was) ? '' : 'Yes', true);
+      saveCell(cell, 'chart', 'calling', was).finally(() => { cell._busy = false; });
+    },
+  };
+}
+
 function notSustained(row) {
   return /^none$/i.test(String(row.sustaining_body || '').trim());
 }
@@ -1068,14 +1085,13 @@ const TABS = {
       ed({ title: 'Can be submitted by', field: 'can_be_submitted_by', minWidth: 195 },
          'chart', 'calling'),
       ed({ title: 'Consultation', field: 'check_for_consultation', minWidth: 145 }, 'chart', 'calling'),
-      ed({ title: 'Temple rec.', field: 'requires_temple_recommend', width: 100,
-           hozAlign: 'center', formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
-      ed({ title: 'Aaronic', field: 'requires_aaronic', width: 86, hozAlign: 'center',
-           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
-      ed({ title: 'Elder', field: 'requires_elder', width: 80, hozAlign: 'center',
-           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
-      ed({ title: 'High Priest', field: 'requires_high_priest', width: 96, hozAlign: 'center',
-           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      // The sheet stores these as the word "Yes" or blank, and the form only counts "Yes" — so the
+      // grid shows "Yes" as ticked and a click writes "Yes" or blank. (A tickCross editor wrote
+      // true/false: every cell showed a red X, and an edit never reached the form. 2026-10-08.)
+      yesNoCol('Temple rec.', 'requires_temple_recommend', 100),
+      yesNoCol('Aaronic', 'requires_aaronic', 86),
+      yesNoCol('Elder', 'requires_elder', 80),
+      yesNoCol('High Priest', 'requires_high_priest', 96),
       ed({ title: 'Stake interview', field: 'stake_interview', width: 126 }, 'chart', 'calling'),
       ed({ title: 'Note to submitter', field: 'note_to_submitter', minWidth: 215 },
          'chart', 'calling', 'textarea'),
@@ -1099,12 +1115,10 @@ const TABS = {
       ed({ title: 'Add to LCR', field: 'add_to_lcr', minWidth: 170 }, 'chart', 'calling'),
       ed({ title: 'Secondary Approvers', field: 'secondary_approvers', minWidth: 205 },
          'chart', 'calling'),
-      ed({ title: 'Update Chart', field: 'update_chart', width: 108, hozAlign: 'center',
-           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      yesNoCol('Update Chart', 'update_chart', 108),
       ed({ title: 'Name Tag', field: 'name_tag', width: 128 }, 'chart', 'calling'),
       ed({ title: 'Key', field: 'key_type', width: 86 }, 'chart', 'calling'),
-      ed({ title: 'Kindoo', field: 'kindoo', width: 82, hozAlign: 'center',
-           formatter: 'tickCross' }, 'chart', 'calling', 'tickCross'),
+      yesNoCol('Kindoo', 'kindoo', 82),
       ed({ title: 'Note', field: 'extra_note', minWidth: 180 }, 'chart', 'calling'),
       { title: 'Used', field: 'times_used', width: 66, hozAlign: 'right' },
     ],
