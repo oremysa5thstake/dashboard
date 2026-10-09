@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-08 held-with';
+    const BUILD_STAMP = '2026-10-08 token-30d';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -853,6 +853,34 @@
     }
 
     let _p2TokenInFlight = null;
+    // Renew the token once it is a day old — in the background, after the dashboard has drawn, so
+    // no open ever waits on Apps Script for it. Tokens last 30 days; a phone opened at least once
+    // a month never sees the slow path. (A token minted before issuedAt was recorded is renewed
+    // on its first use, once.)
+    let _p2Renewing = false;
+    function maybeRenewPhase2Token() {
+      if (_p2Renewing) return;
+      try {
+        const t = JSON.parse(localStorage.getItem(P2_TOKEN_KEY) || 'null');
+        if (!t || !t.token) return;
+        if (t.issuedAt && Date.now() - t.issuedAt < 24 * 60 * 60 * 1000) return;
+      } catch (e) { return; }
+      _p2Renewing = true;
+      setTimeout(async () => {
+        try {
+          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(userId));
+          const d = r.ok ? await r.json() : null;
+          if (d && d.success && d.token) {
+            localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
+              token: d.token, expiresAt: d.expiresAt, userId: getActorUserId(), issuedAt: Date.now()
+            }));
+            console.log('Phase 2: session token renewed in the background, valid until ' + d.expiresAt);
+          }
+        } catch (e) { /* keep the current token; try again next open */ }
+        finally { _p2Renewing = false; }
+      }, 5000);
+    }
+
     async function ensurePhase2Token() {
       const have = phase2Token();
       if (have) return have;
@@ -865,7 +893,7 @@
           const d = await r.json();
           if (!d || !d.success || !d.token) return null;
           localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
-            token: d.token, expiresAt: d.expiresAt, userId: getActorUserId()
+            token: d.token, expiresAt: d.expiresAt, userId: getActorUserId(), issuedAt: Date.now()
           }));
           console.log('Phase 2: session token minted, valid until ' + d.expiresAt);
           return d.token;
@@ -941,6 +969,7 @@
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const rows = await r.json();
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
+        maybeRenewPhase2Token();
 
         const age = Number(rows[0].age_seconds);
         const isLive = rows[0].live === true;
@@ -1122,6 +1151,7 @@
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const rows = await r.json();
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
+        maybeRenewPhase2Token();
 
         const age = Number(rows[0].age_seconds);
         if (!(age >= 0) || age > PHASE2_MAX_AGE_S) {

@@ -715,7 +715,7 @@ async function ensureP2Token() {
     const d = await r.json();
     if (!d || !d.success || !d.token) return null;
     localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
-      token: d.token, expiresAt: d.expiresAt, userId: USER_ID
+      token: d.token, expiresAt: d.expiresAt, userId: USER_ID, issuedAt: Date.now()
     }));
     return d.token;
   } catch (e) { return null; }
