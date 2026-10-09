@@ -513,6 +513,35 @@ function wardEditor(cell, onRendered, success, cancel) {
 const GRID_DIRECT = { 'callings.status': 1, 'callings.urgency': 1, 'callings.stake_business_date': 1,
   'callings.held': 1, 'chart.calling': 1, 'roster.slack_id': 1 };
 
+// A queued edit reaches the database ~10s later. Until then a reload would show the old value and
+// the edit would look lost, so each one is remembered here (30s) and laid over freshly loaded rows.
+const PENDING_KEY = 'gridPendingEdits_v1', PENDING_MS = 30000;
+function pendingEdits() {
+  try {
+    const all = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}'), now = Date.now(), live = {};
+    Object.keys(all).forEach(k => { if (now - all[k].at < PENDING_MS) live[k] = all[k]; });
+    return live;
+  } catch (e) { return {}; }
+}
+function rememberPendingEdit(grid, rowKey, field, value) {
+  try {
+    const p = pendingEdits();
+    p[grid + '\u0001' + rowKey + '\u0001' + field] = { value: value, at: Date.now() };
+    localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+  } catch (e) {}
+}
+function applyPendingEdits(rows, grid, keyField) {
+  const p = pendingEdits(), keys = Object.keys(p).filter(k => k.split('\u0001')[0] === grid);
+  if (!keys.length || !keyField) return;
+  const byKey = {};
+  rows.forEach(r => { byKey[String(r[keyField] ?? '')] = r; });
+  keys.forEach(k => {
+    const [, rowKey, field] = k.split('\u0001');
+    const r = byKey[rowKey];
+    if (r) r[field] = p[k].value;
+  });
+}
+
 /** Queue one grid edit in Postgres. true = accepted; false = use Apps Script as before. */
 async function queueGridEdit(params, action) {
   try {
@@ -524,6 +553,9 @@ async function queueGridEdit(params, action) {
     });
     if (!r.ok) return false;
     const j = await r.json();
+    if (j && j.queued && params.field !== undefined && params.rowKey !== undefined) {
+      rememberPendingEdit(params.grid || (action === 'sbUpdateCell' ? 'business' : ''), params.rowKey, params.field, params.value);
+    }
     return !!(j && j.queued);
   } catch (e) { return false; }
 }
@@ -1819,6 +1851,7 @@ async function load() {
     } else {
       rows = await sbSelect(spec.view, 'select=*&order=' + spec.order);
     }
+    applyPendingEdits(rows, spec.grid || tab, spec.key);
     if (spec.decorate) spec.decorate(rows, today);
     if (spec.sort) rows.sort(spec.sort);
     const ms = Date.now() - t0;

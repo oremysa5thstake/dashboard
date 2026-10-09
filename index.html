@@ -990,13 +990,6 @@
         console.log('⚡ Phase 2: ' + kind + ' from Postgres in '
           + Math.round(performance.now() - t0) + 'ms (' + age + 's old)');
 
-        // Refresh a STORED Member Status copy in the background past a minute. Never for a live
-        // view (nothing to refresh), and never for another kind: this used to fire a ~10s
-        // getMemberStatus build whenever the PANELS copy was a minute old.
-        if (!isLive && kind === 'memberStatus' && age > 60) {
-          fetch(API_URL + '?action=getMemberStatus&userId=' + encodeURIComponent(userId)
-                + '&actorUserId=' + encodeURIComponent(getActorUserId())).catch(function () {});
-        }
         return data;
       } catch (e) {
         console.log('Phase 2: ' + kind + ' read failed, using Apps Script — '
