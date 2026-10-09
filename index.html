@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-09 refresh-pg';
+    const BUILD_STAMP = '2026-10-09 demo-sync';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -938,6 +938,9 @@
     }
 
     function phase2Config() {
+      // A demo never touches the real database (or mints a real token): every read and write in
+      // demo mode must come from the demo simulator, demoPerformAction.
+      if (DEMO_MODE) return null;
       let p = (currentData && currentData.phase2) || null;
       if (!p) { try { p = JSON.parse(localStorage.getItem(P2_CONFIG_KEY) || 'null'); } catch (e) {} }
       if (!p) { try { const c = loadDashboardCache(); p = (c && c.phase2) || null; } catch (e) {} }
@@ -4689,6 +4692,7 @@
     }
 
     async function loadUsers() {
+      if (DEMO_MODE) { users = (await demoPerformAction('getUsers', {})).users; return; }
       // Use cached user list immediately (users rarely change)
       const cachedUsers = loadUsersCache();
       if (cachedUsers) users = cachedUsers;
@@ -4736,7 +4740,9 @@
 
       try {
         // Phase 2 (2026-10-09): from Postgres (task_assignments_for, 0109); Apps Script if unavailable.
-        let result = await writeToPostgres('task_assignments_for', { p_item_id: String(itemId) });
+        if (DEMO_MODE && !users.length) users = (await demoPerformAction('getUsers', {})).users;
+        let result = DEMO_MODE ? await demoPerformAction('getTaskAssignments', { itemId: itemId })
+                               : await writeToPostgres('task_assignments_for', { p_item_id: String(itemId) });
         if (!result) {
           const url = `${API_URL}?action=getTaskAssignments&userId=${encodeURIComponent(userId)}&itemId=${encodeURIComponent(itemId)}`;
           const response = await fetch(url, { method: 'GET' });
@@ -6533,6 +6539,7 @@
         // Clerk odds and ends
         nameTagOrdered: false,
         ccAcked: {},                              // CC cards this viewer has acknowledged
+        sched: {},                                // Sunday picked per calling (Sunday picker)
         away: [],                                 // "When I'm Out of Town" entries
         log: []                                   // action log behind Recent Actions / undo
       };
@@ -6935,7 +6942,11 @@
         userName: '🎓 ' + DEMO_ROLE_INFO.who + ' (' + DEMO_ROLE_INFO.badge + ')',
         userId: 'DEMO' + DEMO_ROLE.toUpperCase(),
         canReassign: false, isAdmin: false, isPresidency: false, isClerk: false, canMemberStatus: true,
-        highCouncilors: [], stakePresidency: [], adminUsers: [],
+        // The same ids the demo's assign handlers understand (DEMOSP<n>, DEMOHC<n>), so the
+        // Member Status "Who extends?" pickers list the cast just as the real ones list the roster.
+        highCouncilors: DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n })),
+        stakePresidency: DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n })),
+        adminUsers: [],
         stakeLinks: demoStakeLinks || [], mentions: [], myTasks: [], ccItems: [], assignedToOthers: [],
         appointmentItems: [], coordinateItems: [], clerkReviews: [], interviews: [],
         ordinationInterviewSchedules: [], ordinationInterviews: [],
@@ -6993,7 +7004,9 @@
           (b.map[r.key] ? approvedBy : waitingOn).push({ name: b.name, column: b.column, userId: 'DEMO' + b.column, rowIndex: r.idx });
         });
         out.push({ type: r.type, member: r.member, calling: r.calling, ward: r.ward,
-                   rowIndex: r.idx, approvedBy: approvedBy, waitingOn: waitingOn, opposed: [] });
+                   rowIndex: r.idx, approvedBy: approvedBy, waitingOn: waitingOn, opposed: [],
+                   // Lets the card show the Sunday picker, as the live one does.
+                   timestamp: 'demo-' + r.key, scheduled: (demoState.sched || {})[r.key] || '' });
       });
       return out;
     }
@@ -7018,7 +7031,7 @@
       // 1 · Extend the ward calling + release — the high councilor's
       if (demoAllCallingsApproved() && !mine('hc')) {
         if (!s.porterAccepted) add({
-          actionId: 'DEMO_EXT_PORTER', actionType: 'extend-calling', type: 'extend-calling',
+          actionId: 'DEMO_EXT_PORTER', actionType: 'extend-calling', type: 'extend-calling', callingRefId: 'demo-c1', scheduledStakeBusiness: (demoState.sched || {}).c1 || '',
           displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
           assignedToNames: hcName, appointmentStatus: s.appt || 'Pending'
         });
@@ -7031,7 +7044,7 @@
 
       // 2 · Extend the stake calling — the counselor's, once a secretary has assigned it
       if (s.assignedTo && !s.sadieAccepted && s.assignedTo !== DEMO_ROLE_INFO.who) add({
-        actionId: 'DEMO_EXT_SADIE', actionType: 'extend-calling', type: 'extend-calling',
+        actionId: 'DEMO_EXT_SADIE', actionType: 'extend-calling', type: 'extend-calling', callingRefId: 'demo-c2', scheduledStakeBusiness: (demoState.sched || {}).c2 || '',
         displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
         assignedToNames: s.assignedTo, appointmentStatus: s.assignedAppt || 'Pending'
       });
@@ -7076,7 +7089,7 @@
 
       // 2a · The high council calling, extended by the counselor
       if (demoItemApproved('c3') && !s.tannerAccepted && !mine('spc2')) add({
-        actionId: 'DEMO_EXT_TANNER', actionType: 'extend-calling', type: 'extend-calling',
+        actionId: 'DEMO_EXT_TANNER', actionType: 'extend-calling', type: 'extend-calling', callingRefId: 'demo-c3', scheduledStakeBusiness: (demoState.sched || {}).c3 || '',
         displayText: 'Extend calling to ' + DEMO_CAST.tanner + ' as High Councilor (32nd Ward)',
         assignedToNames: DEMO_SP[1]
       });
@@ -7084,7 +7097,7 @@
       // 2b · The president's own extends — everyone else is CC'd on them
       if (!mine('sp')) {
         if (demoItemApproved('c4') && !s.emmettAccepted) add({
-          actionId: 'DEMO_EXT_EMMETT', actionType: 'extend-calling', type: 'extend-calling',
+          actionId: 'DEMO_EXT_EMMETT', actionType: 'extend-calling', type: 'extend-calling', callingRefId: 'demo-c4', scheduledStakeBusiness: (demoState.sched || {}).c4 || '',
           displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Stake Institute Representative (' + DEMO_WARD + ')',
           assignedToNames: DEMO_SP[0], appointmentStatus: s.emmettAppt || 'Pending'
         });
@@ -7178,7 +7191,7 @@
       // In a shared session this also waits for the presidency to finish voting.
       if (demoPre(demoAllCallingsApproved())) {
         if (!s.porterAccepted) data.extendItems.push({
-          actionId: 'DEMO_EXT_PORTER', type: 'extend-calling', actionType: 'extend-calling',
+          actionId: 'DEMO_EXT_PORTER', type: 'extend-calling', actionType: 'extend-calling', callingRefId: 'demo-c1', scheduledStakeBusiness: (demoState.sched || {}).c1 || '',
           displayText: 'Extend calling to ' + DEMO_CAST.porter + ' as Elders Quorum Second Counselor (' + DEMO_WARD + ')',
           appointmentStatus: s.appt || 'Pending'
         });
@@ -7315,7 +7328,7 @@
       const assignedToMe = s.assignedTo === DEMO_ROLE_INFO.who;
       if (assignedToMe && demoPre(s.assignedTo, 'sec') && !s.sadieAccepted) {
         data.extendItems.push({
-          actionId: 'DEMO_EXT_SADIE', type: 'extend-calling', actionType: 'extend-calling',
+          actionId: 'DEMO_EXT_SADIE', type: 'extend-calling', actionType: 'extend-calling', callingRefId: 'demo-c2', scheduledStakeBusiness: (demoState.sched || {}).c2 || '',
           displayText: 'Extend calling to ' + DEMO_CAST.sadie + ' as Stake Relief Society Secretary (24th Ward)',
           appointmentStatus: s.assignedAppt || 'Pending',
           assignedToNames: s.assignedTo
@@ -7324,7 +7337,7 @@
 
       // The counselor also extends the high council calling.
       if (roleKey === 'spc2' && demoItemApproved('c3') && !s.tannerAccepted) data.extendItems.push({
-        actionId: 'DEMO_EXT_TANNER', type: 'extend-calling', actionType: 'extend-calling',
+        actionId: 'DEMO_EXT_TANNER', type: 'extend-calling', actionType: 'extend-calling', callingRefId: 'demo-c3', scheduledStakeBusiness: (demoState.sched || {}).c3 || '',
         displayText: 'Extend calling to ' + DEMO_CAST.tanner + ' as High Councilor (32nd Ward)',
         assignedToNames: DEMO_SP[1]
       });
@@ -7333,7 +7346,7 @@
       //    the appointment first; the release needs nobody else at all. ──
       if (isPresident) {
         if (demoItemApproved('c4') && !s.emmettAccepted) data.extendItems.push({
-          actionId: 'DEMO_EXT_EMMETT', type: 'extend-calling', actionType: 'extend-calling',
+          actionId: 'DEMO_EXT_EMMETT', type: 'extend-calling', actionType: 'extend-calling', callingRefId: 'demo-c4', scheduledStakeBusiness: (demoState.sched || {}).c4 || '',
           displayText: 'Extend calling to ' + DEMO_CAST.emmett + ' as Stake Institute Representative (' + DEMO_WARD + ')',
           appointmentStatus: s.emmettAppt || 'Pending', assignedToNames: DEMO_SP[0]
         });
@@ -7475,7 +7488,9 @@
     // Demo replacement for the backend API. Mutates state, saves, and lets the
     // normal scheduleSilentRefresh path re-render from the new state.
     // Actions that only read — never logged, never undoable.
-    const DEMO_READ_ONLY = { getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1 };
+    const DEMO_READ_ONLY = { getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1,
+      sbOpenSundays: 1, getHcsWithPendingApprovals: 1, getStakeBusinessAssignments: 1, conductingCandidates: 1,
+      sbBlockouts: 1, blockedReleases: 1, getUsers: 1, getTaskAssignments: 1, runScript: 1, syncSheets: 1 };
 
     /** A short human description for the Recent Actions list. */
     function demoActionLabel(action, params, id) {
@@ -7688,6 +7703,115 @@
           return { success: true };
         }
 
+        // ── Added 2026-10-09: every button the live dashboard can show now does something in the
+        //    demo too, instead of "That button isn't part of this demo". Scenario-changing ones
+        //    move the walkthrough; the rest succeed and say what would happen for real. ──
+        case 'ordinationInterviewSchedulePassed':
+        case 'ordinationInterviewPassed':
+          s.ordInterview = s.ordInterview || 'passed';
+          showToast('Interview passed — the presidency and high council can now sustain ' + DEMO_CAST.dallin.split(' ')[0] + '.', 'success');
+          break;
+        case 'ordinationInterviewScheduleReturnToBishop':
+        case 'ordinationInterviewReturnToBishop':
+          s.ordInterview = s.ordInterview || 'passed';
+          showToast('In the real dashboard this sends the recommendation back to the bishop and stops it. The demo carries on as if he passed.', 'success');
+          break;
+        case 'sendExtendToBin':
+          if (id === 'DEMO_EXT_SADIE') {
+            s.assignedTo = ''; s.assignedAppt = '';
+            showToast('Back in Schedule & Assign — a secretary (or Assign Myself) picks who extends it.', 'success');
+          } else {
+            showToast('In the real dashboard this moves the task to Schedule & Assign for a secretary to reassign. In the demo it stays with its assignee.', 'success');
+          }
+          break;
+        case 'sendSettingApartToBin':
+        case 'assignSettingApart':
+        case 'recordSettingApartDone':
+          if (id === 'DEMO_SA_PORTER' && action === 'recordSettingApartDone') s.saPorter = true;
+          else if (id === 'DEMO_SA_SADIE' && action === 'recordSettingApartDone') s.saSadie = true;
+          else if (id === 'DEMO_SA_EMMETT' && action === 'recordSettingApartDone') s.saEmmett = true;
+          showToast(action === 'recordSettingApartDone' ? 'Recorded as set apart.'
+            : action === 'assignSettingApart' ? 'Assigned — it is now on their dashboard.'
+            : 'Moved to Schedule & Assign for a secretary to assign.', 'success');
+          break;
+        case 'ackCCGroup':
+          s.ccAcked = s.ccAcked || {};
+          String(params.ids || '').split(',').filter(Boolean).forEach(x => { s.ccAcked[x] = true; });
+          break;
+        case 'ackAllCC':
+          s.ccAcked = s.ccAcked || {};
+          (demoCcItems() || []).forEach(x => { if (x && x.actionId) s.ccAcked[x.actionId] = true; });
+          break;
+        case 'dismissMention':
+        case 'dismissAllMentions':
+        case 'complete': case 'coordinated': case 'scheduled':
+          break;
+        case 'reassign':
+        case 'createTask':
+        case 'setCallingPriority':
+        case 'setMemberStatusField':
+        case 'releaseHold':
+        case 'releaseExtendNow':
+        case 'setConducting':
+        case 'sbCheckBackup':
+        case 'sbDismissReplacement':
+        case 'updateStakeBusinessAssignment':
+        case 'restoreNormalAssignments':
+        case 'sbAddBlockout':
+        case 'sbRemoveBlockout':
+        case 'saveSetting':
+          showToast('Done — in the real dashboard this saves to the sheet. The demo scenario is not affected.', 'success');
+          return { success: true, queued: true };
+        case 'sbSetScheduled': {
+          // Remembered per calling, so the card shows it — the real scheduler would also use it
+          // to place the calling on that Sunday's stake business.
+          const k = String(params.timestamp || '').replace(/^demo-/, '');
+          s.sched = s.sched || {};
+          s.sched[k] = String(params.date || '');
+          showToast(params.date ? 'Scheduled — it will be sustained on the Sunday you picked.' : 'Back to the next available Sunday.', 'success');
+          demoSave();
+          return { success: true, queued: true };
+        }
+        case 'runScript':
+        case 'syncSheets':
+          showToast('Admin scripts don\'t run in the demo.', 'success');
+          return { success: true, pushed: {}, applied: {} };
+
+        // Read-only views the live dashboard loads — demo data, never the real system.
+        case 'sbOpenSundays': {
+          const out = []; const d = new Date(); d.setDate(d.getDate() + ((7 - d.getDay()) % 7 || 7));
+          for (let i = 0; i < 10; i++, d.setDate(d.getDate() + 7)) {
+            out.push({ ymd: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'), available: true, note: '',
+                       label: d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+                       short: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
+          }
+          return { success: true, kind: 'ward', ward: DEMO_WARD, scheduled: '', addedToAgenda: false, sundays: out };
+        }
+        case 'getHcsWithPendingApprovals':
+          return { success: true, skipped: [], recipients: DEMO_HC_NAMES.slice(0, 3).map(n => ({ name: n, phone: '801-555-0100', dashboardUrl: location.href })) };
+        case 'getStakeBusinessAssignments': {
+          const hcName = DEMO_CAST.hcYou.replace(' (you)', '');
+          return { success: true, sunday: demoSundayText(), away: [], rows: [
+            { row: 2, ward: DEMO_WARD, building: 'Demo Stake Center', room: 'Chapel', meeting: '10:15 AM',
+              conducting: s.sbConfirmed ? hcName : 'Confirming', wardHC: hcName, backupHC: DEMO_HC_NAMES[1],
+              availabilityCheck: '', notes: '', normalWardHC: hcName, normalBackupHC: DEMO_HC_NAMES[1],
+              wardHCAway: false, backupHCAway: false, shuffled: false }] };
+        }
+        case 'getTaskAssignments':
+          return { success: true, primaryIds: [], ccIds: [], appointmentStatus: null,
+                   groups: { stakePresidency: DEMO_SP.map((n, i) => 'DEMOSP' + i), extendedSP: [],
+                             highCouncil: DEMO_HC_NAMES.map((n, i) => 'DEMOHC' + i) } };
+        case 'conductingCandidates':
+          return { success: true, sunday: '', people: DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n, group: 'Stake Presidency', away: false }))
+            .concat(DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n, group: 'High Council', away: false }))) };
+        case 'sbBlockouts':
+          return { success: true, blockouts: [], rows: [] };
+        case 'blockedReleases':
+          return { success: true, rows: [] };
+        case 'getUsers':
+          return { success: true, users: DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n, role: 'Stake Presidency' }))
+            .concat(DEMO_HC_NAMES.map((n, i) => ({ id: 'DEMOHC' + i, name: n, role: 'High Councilor ' + (i + 1) }))) };
+
         case 'getMemberStatus':
           return demoBuildMemberStatus();
         default:
@@ -7882,6 +8006,28 @@
         ]}
       ]);
 
+      // "Who is on it now" — the same progress block the live Member Status shows (assignee +
+      // appointment, or "waiting in Schedule & Assign" with the Assign controls). Visible on
+      // exactly the conditions the demo's own task cards use, so the two always agree.
+      const nobody = { assignee: '', appointment: '' };
+      const on = (cond, who, appt) => cond ? { assignee: who, appointment: appt || '' } : nobody;
+      const prog = (o) => Object.assign({ extendBin: false, extendAssignId: '', extendAllowHC: false,
+        extend: nobody, release: nobody, setApartBin: false, setApartAssignId: '', setApartAllowHC: false,
+        setApart: nobody }, o);
+      const progress = {
+        porter: prog({ extend: on(demoAllCallingsApproved() && !s.porterAccepted, hcName, s.appt),
+                       setApart: on(s.sus[1] === true && !s.saPorter, hcName) }),
+        marcus: prog({ release: on(demoAllCallingsApproved() && !s.marcusExtended, hcName) }),
+        sadie:  prog({ extendBin: demoItemApproved('c2') && !s.assignedTo,
+                       extendAssignId: 'DEMO_ASSIGN_SADIE', extendAllowHC: false,
+                       extend: on(!!s.assignedTo && !s.sadieAccepted, s.assignedTo, s.assignedAppt),
+                       setApart: on(s.sus[3] === true && !s.saSadie, DEMO_SP[0] + ' + assigned HC') }),
+        tanner: prog({ extend: on(demoItemApproved('c3') && !s.tannerAccepted, DEMO_SP[1]) }),
+        emmett: prog({ extend: on(demoItemApproved('c4') && !s.emmettAccepted, DEMO_SP[0], s.emmettAppt),
+                       setApart: on(s.sus[5] === true && !s.saEmmett, DEMO_SP[0]) }),
+        desmond: prog({ release: on(demoItemApproved('r1') && !s.desmondExtended, DEMO_SP[0]) })
+      };
+
       const mk = (name, ward, callingEntry, ordEntry) => ({
         name: name, ward: ward,
         callings: callingEntry ? [callingEntry] : [],
@@ -7902,22 +8048,22 @@
                           phases: dallin.phases, currentPhase: dallin.currentPhase })),
           mk(DEMO_CAST.marcus, DEMO_WARD,
             track('marcus', { calling: 'Elders Quorum Second Counselor', action: 'Released',
-                              phases: marcus.phases, currentPhase: marcus.currentPhase }), null),
+                              phases: marcus.phases, currentPhase: marcus.currentPhase, progress: progress.marcus }), null),
           mk(DEMO_CAST.porter, DEMO_WARD,
             track('porter', { calling: 'Elders Quorum Second Counselor', action: 'Called',
-                              phases: porter.phases, currentPhase: porter.currentPhase }), null),
+                              phases: porter.phases, currentPhase: porter.currentPhase, progress: progress.porter }), null),
           mk(DEMO_CAST.sadie, '24th Ward',
             track('sadie', { calling: 'Stake Relief Society Secretary', action: 'Called',
-                             phases: sadie.phases, currentPhase: sadie.currentPhase }), null),
+                             phases: sadie.phases, currentPhase: sadie.currentPhase, progress: progress.sadie }), null),
           mk(DEMO_CAST.tanner, '32nd Ward',
             track('tanner', { calling: 'High Councilor', action: 'Called',
-                              phases: tanner.phases, currentPhase: tanner.currentPhase }), null),
+                              phases: tanner.phases, currentPhase: tanner.currentPhase, progress: progress.tanner }), null),
           mk(DEMO_CAST.emmett, DEMO_WARD,
             track('emmett', { calling: 'Stake Institute Representative', action: 'Called',
-                              phases: emmett.phases, currentPhase: emmett.currentPhase }), null),
+                              phases: emmett.phases, currentPhase: emmett.currentPhase, progress: progress.emmett }), null),
           mk(DEMO_CAST.desmond, DEMO_WARD,
             track('desmond', { calling: 'Ward Clerk', action: 'Released',
-                                phases: desmond.phases, currentPhase: desmond.currentPhase }), null)
+                                phases: desmond.phases, currentPhase: desmond.currentPhase, progress: progress.desmond }), null)
         ]
       };
     }
