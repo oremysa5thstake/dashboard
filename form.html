@@ -1663,7 +1663,12 @@
       var sel = document.getElementById('targetSustainingDate');
       if (!sel) return;
       var kind = (callingRequirements && /stake/i.test(callingRequirements.sustainingBody || '')) ? 'stake' : 'ward';
-      apiCall('sbOpenSundays', { kind: kind, ward: formData.ward || '', weeks: 16 })
+      // Phase 2: the calendar comes from Postgres (sb_open_sundays_public, 0104); Apps Script if not.
+      fetch(DUP_PG_URL + '/rest/v1/rpc/sb_open_sundays_public', {
+        method: 'POST', headers: { apikey: DUP_PG_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_kind: kind, p_ward: formData.ward || '', p_weeks: 16 })
+      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function () { return apiCall('sbOpenSundays', { kind: kind, ward: formData.ward || '', weeks: 16 }); })
         .then(function (d) {
           if (!d || d.success === false || !d.sundays) return;
           _targetSundaysLoaded = true;

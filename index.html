@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-08 texts-pg';
+    const BUILD_STAMP = '2026-10-09 sunday-pg';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1018,7 +1018,8 @@
     // sit unapplied in the outbox, so anything not on BOTH lists keeps the old path.
     // NOTE: an action belongs here only if the UI does NOT use its response. Queueing returns
     // {queued:true}, so anything whose result is displayed — syncSheets' counts, undoAction's
-    // warnings, sbSetScheduled's chosen date — must keep the synchronous path.
+    // warnings — must keep the synchronous path. (sbSetScheduled moved 2026-10-09: the picker shows the
+    // Sunday that was chosen from the list, which only offers ones the scheduler accepts.)
     const P2_QUEUEABLE = new Set([
       // acknowledgements and dismissals
       'ackCCGroup', 'ackAllCC', 'dismissAllMentions', 'acknowledge', 'dismissMention', 'ccComplete',
@@ -1030,7 +1031,7 @@
       'sbMarkAlreadyConfirmed', 'sbDismissReplacement', 'reportSustaining',
       'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
       'restoreNormalAssignments', 'releaseHold', 'setConducting', 'sbAddBlockout', 'sbRemoveBlockout',
-      'recordVote',
+      'recordVote', 'ctrReview', 'priesthoodReview', 'sbSetScheduled',
       // the schedule/assign bins
       'assignExtendCall', 'assignSettingApart', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
@@ -1370,7 +1371,9 @@
       if (!box) return;
       box.innerHTML = '📅 <em>Loading Sundays…</em>';
       try {
-        const d = await performAction('sbOpenSundays', { timestamp: ts, weeks: 14 });
+        // Phase 2: computed in Postgres (sb_open_sundays_for, 0104); Apps Script if that fails.
+        const d = (await writeToPostgres('sb_open_sundays_for', { p_ts: String(ts), p_weeks: 14 }))
+                  || await performAction('sbOpenSundays', { timestamp: ts, weeks: 14 });
         if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
 
         if (d.addedToAgenda) {
@@ -1419,12 +1422,20 @@
       const chosen = sel.value;
       if (box) box.innerHTML = '📅 <em>Saving…</em>';
       try {
+        const chosenLabel = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].textContent.replace(/ — .*$/, '').trim() : chosen;
         const d = await performAction('sbSetScheduled', { timestamp: ts, date: chosen });
         if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
-        showToast(d.cleared ? 'Back to the next available Sunday'
-          : d.addedToAgenda ? ('Scheduled for ' + d.label + ' and added to the agenda')
-          : ('Scheduled for ' + d.label), 'success');
-        scheduleSilentRefresh(600);
+        if (d.queued) {
+          // Queued: the list only offered Sundays the scheduler accepts, so show the choice now;
+          // Apps Script applies it (and adds a ready calling to the agenda) in ~10s.
+          showToast(chosen ? ('Scheduled for ' + chosenLabel) : 'Back to the next available Sunday', 'success');
+          cancelSundayPicker(ts, boxId, chosen);
+        } else {
+          showToast(d.cleared ? 'Back to the next available Sunday'
+            : d.addedToAgenda ? ('Scheduled for ' + d.label + ' and added to the agenda')
+            : ('Scheduled for ' + d.label), 'success');
+          scheduleSilentRefresh(600);
+        }
       } catch (e) {
         showToast('Not scheduled: ' + (e.message || e), 'error');
         // Put the control back so the message can be acted on rather than losing the card.
