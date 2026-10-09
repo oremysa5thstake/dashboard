@@ -501,6 +501,26 @@ function wardEditor(cell, onRendered, success, cancel) {
   return sel;
 }
 
+// Grid edits that must wait for Apps Script: their result is shown (routed status, Hold, Sunday)
+// or they must be validated before anyone relies on them.
+const GRID_DIRECT = { 'callings.status': 1, 'callings.urgency': 1, 'callings.stake_business_date': 1,
+  'callings.held': 1, 'chart.calling': 1, 'roster.slack_id': 1 };
+
+/** Queue one grid edit in Postgres. true = accepted; false = use Apps Script as before. */
+async function queueGridEdit(params, action) {
+  try {
+    const token = await ensureP2Token();
+    if (!token || !USER_ID) return false;
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/act_enqueue', {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_slack_id: USER_ID, p_token: token, p_action: action || 'updateGridCell', p_params: params })
+    });
+    if (!r.ok) return false;
+    const j = await r.json();
+    return !!(j && j.queued);
+  } catch (e) { return false; }
+}
+
 async function saveCell(cell, gridName, keyField, beforeValue) {
   const row = cell.getRow().getData();
   const field = cell.getField();
@@ -526,6 +546,18 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
       : field === 'stake_business_date' ? 'checking the Sunday and updating Stake Business — this takes about 15 seconds.'
       : field === 'held' ? 'updating the hold and Stake Business — this takes about 15 seconds.'
       : 'this takes about 15 seconds.'));
+  // Phase 2 (2026-10-09): a plain column edit is queued in Postgres and the cell keeps the new
+  // value at once; Apps Script writes it to the sheet ~10s later, with the same checks and undo
+  // entry. Edits whose result the grid shows (or that must be checked first) stay direct.
+  if (!slowEdit && !GRID_DIRECT[gridName + '.' + field]) {
+    const queued = await queueGridEdit({ grid: gridName, rowKey: String(row[keyField] ?? ''), field: field,
+      value: cell.getValue() === null || cell.getValue() === undefined ? '' : cell.getValue() });
+    if (queued) {
+      markGridsStale();
+      if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
+      return;
+    }
+  }
   try {
     const params = new URLSearchParams({
       action: 'updateGridCell', userId: USER_ID, grid: gridName,
@@ -623,6 +655,16 @@ async function saveBusinessCell(cell) {
       rowKey: String(row.rowId ?? ''), field: field,
       value: v === null || v === undefined ? '' : v
     });
+    // Date / Where / Ward move a row between groups and settle the wards' coverage, and the grid
+    // reloads to regroup — so those stay direct. Anything else is queued (2026-10-09).
+    if (!/^(meeting_date|where_|ward)$/.test(field)) {
+      if (await queueGridEdit({ rowKey: String(row.rowId ?? ''), field: field,
+                                value: v === null || v === undefined ? '' : v }, 'sbUpdateCell')) {
+        markGridsStale();
+        if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
+        return;
+      }
+    }
     const data = await apiJson(API_URL + '?' + params.toString());
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
     markGridsStale();   // stored grids no longer reflect the sheet
@@ -663,6 +705,15 @@ async function saveGridCell(cell, gridName) {
       value: v === null || v === undefined ? '' : v
     };
     if (row._expect !== undefined) qs.expect = String(row._expect);
+    if (!GRID_DIRECT[gridName + '.' + field]) {
+      const p = { grid: qs.grid, rowKey: qs.rowKey, field: qs.field, value: qs.value };
+      if (qs.expect !== undefined) p.expect = qs.expect;     // still guards a shifted row on replay
+      if (await queueGridEdit(p)) {
+        markGridsStale();
+        if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
+        return;
+      }
+    }
     const data = await apiJson(API_URL + '?' + new URLSearchParams(qs).toString());
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
     markGridsStale();   // stored grids no longer reflect the sheet
