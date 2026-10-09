@@ -641,10 +641,21 @@
     async function silentRefresh() {
       setSyncing(true);
       try {
-        const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=true`;
-        const response = await fetch(url, { method: 'GET' });
-        if (!response.ok) return;
-        const data = await response.json();
+        // Phase 2 (2026-10-09): re-read the dashboard from Postgres, as the first load does. This
+        // used to be an Apps Script forceRefresh build (~8s of quota) after EVERY action, for every
+        // user — the largest Apps Script cost left. Apps Script only if Postgres is unavailable.
+        let data = null;
+        if (phase2Config()) {
+          window.__p2Holding = false;
+          data = await loadFromPostgres();
+          if (!data && window.__p2Holding) return;   // waiting for a queued action; it re-schedules itself
+        }
+        if (!data) {
+          const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(userId)}&forceRefresh=true`;
+          const response = await fetch(url, { method: 'GET' });
+          if (!response.ok) return;
+          data = await response.json();
+        }
         if (!data || data.success === false) return;
         saveDashboardCache(data);
         // Only re-render if counts changed (avoids jarring re-render while user is reading)
@@ -734,7 +745,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-09 perf-pg';
+    const BUILD_STAMP = '2026-10-09 refresh-pg';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1033,6 +1044,8 @@
       'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
       'restoreNormalAssignments', 'releaseHold', 'setConducting', 'sbAddBlockout', 'sbRemoveBlockout',
       'recordVote', 'ctrReview', 'priesthoodReview', 'sbSetScheduled',
+      'ordinationInterviewPassed', 'ordinationInterviewReturnToBishop',
+      'ordinationInterviewSchedulePassed', 'ordinationInterviewScheduleReturnToBishop',
       // the schedule/assign bins
       'assignExtendCall', 'assignSettingApart', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
@@ -1176,6 +1189,7 @@
         const builtAt = new Date(rows[0].built_at).getTime();
         if (window.__p2QueuedAt && builtAt < window.__p2QueuedAt) {
           console.log('Phase 2: payload predates the queued action — keeping the current view');
+          window.__p2Holding = true;         // silentRefresh must not fall back to Apps Script for this
           scheduleSilentRefresh(6000);
           return null;
         }
@@ -4786,6 +4800,14 @@
       const cachedUsers = loadUsersCache();
       if (cachedUsers) users = cachedUsers;
 
+      // Phase 2 (2026-10-09): from panels_for (0107). If the panels came back without a user list,
+      // this person cannot reassign — nothing to fetch. Apps Script only when Postgres is unavailable
+      // (this used to be an Apps Script run on EVERY dashboard open, allowed or not).
+      if (phase2Config()) {
+        const pu = await getPanel('users');
+        if (pu && Array.isArray(pu.users)) { users = pu.users; saveUsersCache(users); return; }
+        if (_panelCache) return;
+      }
       try {
         const url = `${API_URL}?action=getUsers&userId=${encodeURIComponent(userId)}`;
         const response = await fetch(url, { method: 'GET' });
