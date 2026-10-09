@@ -4842,11 +4842,14 @@
       document.getElementById('reassignModal').classList.add('show');
 
       try {
-        const url = `${API_URL}?action=getTaskAssignments&userId=${encodeURIComponent(userId)}&itemId=${encodeURIComponent(itemId)}`;
-        const response = await fetch(url, { method: 'GET' });
-        if (!response.ok) throw new Error('Failed to load assignments');
-
-        const result = await response.json();
+        // Phase 2 (2026-10-09): from Postgres (task_assignments_for, 0109); Apps Script if unavailable.
+        let result = await writeToPostgres('task_assignments_for', { p_item_id: String(itemId) });
+        if (!result) {
+          const url = `${API_URL}?action=getTaskAssignments&userId=${encodeURIComponent(userId)}&itemId=${encodeURIComponent(itemId)}`;
+          const response = await fetch(url, { method: 'GET' });
+          if (!response.ok) throw new Error('Failed to load assignments');
+          result = await response.json();
+        }
         if (!result.success) throw new Error(result.error || 'Failed to load');
 
         const primaryIds = result.primaryIds || [];

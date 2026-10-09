@@ -2231,11 +2231,42 @@ let TASKS = { groups: [], people: [], types: [], statuses: [] };
 let taskFilters = { assignee: '', type: '', status: '', q: '' };
 let selectedTask = null;
 
+function filterTasks(all) {
+  const wa = String(taskFilters.assignee || '').trim().toLowerCase();
+  const wt = String(taskFilters.type || '').trim();
+  const ws = String(taskFilters.status || '').trim();
+  const q = String(taskFilters.q || '').trim().toLowerCase();
+  const groups = all.groups.filter(g => {
+    if (ws) { if (g.status !== ws) return false; } else if (g.status === 'Deleted') return false;
+    if (wt && g.actionType !== wt) return false;
+    if (wa) {
+      const m = c => String(c.id).toLowerCase() === wa || String(c.name).toLowerCase().indexOf(wa) !== -1;
+      if (!(g.primaries || []).some(m) && !(g.ccs || []).some(m)) return false;
+    }
+    if (q) {
+      const hay = [g.displayText, g.notes, g.actionType, g.primary && g.primary.name, g.createdByName].join(' ').toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  return Object.assign({}, all, { success: true, groups: groups, total: groups.length, shown: groups.length });
+}
+
 async function loadTaskBrowser(box, t0) {
   try {
-    const qs = new URLSearchParams({ action: 'aiAdmin', userId: USER_ID || '' });
-    Object.keys(taskFilters).forEach(k => { if (taskFilters[k]) qs.set(k, taskFilters[k]); });
-    const d = await apiJson(API_URL + '?' + qs.toString());
+    // Phase 2 (2026-10-09): filter the Postgres copy (ai_admin_for) in the browser, with the same
+    // rules as ActionItems.js getActionItemsAdmin. Apps Script only for the Deleted filter (the copy
+    // leaves deleted tasks out) or when the copy was capped at 400 and a filter could miss older ones.
+    let d = null;
+    if (taskFilters.status !== 'Deleted') {
+      const all = await storedTab({ api: 'aiAdmin' });
+      if (all && Array.isArray(all.groups) && !(all.total > all.shown)) d = filterTasks(all);
+    }
+    if (!d) {
+      const qs = new URLSearchParams({ action: 'aiAdmin', userId: USER_ID || '' });
+      Object.keys(taskFilters).forEach(k => { if (taskFilters[k]) qs.set(k, taskFilters[k]); });
+      d = await apiJson(API_URL + '?' + qs.toString());
+    }
     if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
     TASKS = d;
     box.innerHTML = renderTaskBrowser(d);
@@ -2364,10 +2395,24 @@ function selectTask(baseId) {
 function setTaskFilter(k, v) { taskFilters[k] = v; selectedTask = null; load(); }
 function clearTaskFilters() { taskFilters = { assignee: '', type: '', status: '', q: '' }; selectedTask = null; load(); }
 
+// Phase 2 (2026-10-09): task edits are queued in Postgres. The change is shown at once, and the tab
+// re-reads after the database has caught up (~12s) — re-reading sooner would show the old state.
+function rerenderTasks() {
+  const box = document.getElementById('grid');
+  if (box && TASKS && TASKS.groups) box.innerHTML = renderTaskBrowser(TASKS);
+}
+function reloadTasksSoon() { markGridsStale(); setTimeout(() => { if (tab === 'tasks') load(); }, 12000); }
+
 async function saveTask(baseId, field, value) {
   if (DEMO) { toast('Demo — nothing is saved'); return; }
   if (!USER_ID) { toast('No user — reopen from the dashboard', 'err'); return; }
   try {
+    if (await queueGridEdit({ baseId, field, value: value == null ? '' : value }, 'aiUpdate')) {
+      const g = TASKS.groups.find(x => x.baseId === baseId);
+      if (g) g[field] = value == null ? '' : value;
+      rerenderTasks(); toast('Saved'); reloadTasksSoon();
+      return;
+    }
     const d = await apiJson(API_URL + '?' + new URLSearchParams({
       action: 'aiUpdate', userId: USER_ID, baseId, field, value: value == null ? '' : value
     }).toString());
@@ -2387,6 +2432,13 @@ async function saveAssignees(baseId) {
   const ccIds = picked('tbCC_' + cssId(baseId));
   if (!primaryIds.length) { toast('A task needs at least one person assigned', 'err'); return; }
   try {
+    if (await queueGridEdit({ baseId, primaryIds: primaryIds.join(','), ccIds: ccIds.join(',') }, 'aiAssign')) {
+      const g = TASKS.groups.find(x => x.baseId === baseId);
+      const who = id => ({ id, name: ((TASKS.roster || []).find(r => r.id === id) || {}).name || id });
+      if (g) { g.primaries = primaryIds.map(who); g.ccs = ccIds.map(who); g.primary = g.primaries[0] || null; }
+      rerenderTasks(); toast('Assignees saved'); reloadTasksSoon();
+      return;
+    }
     const d = await apiJson(API_URL + '?' + new URLSearchParams({
       action: 'aiAssign', userId: USER_ID, baseId,
       primaryIds: primaryIds.join(','), ccIds: ccIds.join(',')
@@ -2412,6 +2464,13 @@ async function deleteTask(baseId, restore) {
   if (!restore && !confirm('Delete this task?\n\n' + (g ? g.displayText : '')
       + '\n\nIt disappears from every dashboard (' + n + ' rows). The rows are kept, so this can be undone.')) return;
   try {
+    if (await queueGridEdit({ baseId, restore: restore ? 'true' : 'false' }, 'aiDelete')) {
+      if (restore) { const g = TASKS.groups.find(x => x.baseId === baseId); if (g) g.status = 'Open'; }
+      else TASKS.groups = TASKS.groups.filter(x => x.baseId !== baseId);
+      selectedTask = null;
+      rerenderTasks(); toast(restore ? 'Restored' : 'Deleted — it can be restored from the Deleted status filter'); reloadTasksSoon();
+      return;
+    }
     const d = await apiJson(API_URL + '?' + new URLSearchParams({
       action: 'aiDelete', userId: USER_ID || '', baseId, restore: restore ? 'true' : 'false'
     }).toString());
