@@ -647,7 +647,7 @@
           data = await response.json();
         }
         if (!data || data.success === false) return;
-        saveDashboardCache(data);
+        if (!p2ViewingTarget()) saveDashboardCache(data);   // never store someone else's dashboard as ours
         // Only re-render if counts changed (avoids jarring re-render while user is reading)
         const changed = !currentData || JSON.stringify(currentData.counts) !== JSON.stringify(data.counts);
         if (changed && !document.querySelector('.modal-overlay.show')) {
@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-09 demo-sync';
+    const BUILD_STAMP = '2026-10-09 view-as-pg';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -869,7 +869,7 @@
       _p2Renewing = true;
       setTimeout(async () => {
         try {
-          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(userId));
+          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(getActorUserId()));
           const d = r.ok ? await r.json() : null;
           if (d && d.success && d.token) {
             localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
@@ -882,6 +882,19 @@
       }, 5000);
     }
 
+    // The database refused the token (expired, revoked, or minted for someone else): drop it, so the
+    // next call mints a fresh one instead of every read quietly falling back to Apps Script.
+    async function p2CheckRefusal(r) {
+      if (r && (r.status === 401 || r.status === 403 || r.status === 400)) {
+        try {
+          const body = await r.clone().text();
+          if (/28000|not authori[sz]ed/i.test(body)) { localStorage.removeItem(P2_TOKEN_KEY); console.log('Phase 2: token refused — discarded'); }
+        } catch (e) {}
+      }
+    }
+    // The user being viewed in the Admin Tools overlay, or null.
+    function p2ViewingTarget() { return stashedUserId ? userId : null; }
+
     async function ensurePhase2Token() {
       const have = phase2Token();
       if (have) return have;
@@ -889,7 +902,9 @@
       if (_p2TokenInFlight) return _p2TokenInFlight;
       _p2TokenInFlight = (async () => {
         try {
-          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(userId));
+          // For the person signed in — never the user being viewed in the Admin Tools overlay
+          // (minting for them and storing it as ours broke every later read, 2026-10-09).
+          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(getActorUserId()));
           if (!r.ok) return null;
           const d = await r.json();
           if (!d || !d.success || !d.token) return null;
@@ -966,12 +981,14 @@
         if (!token) return null;
         // ui_payload_live computes the view when Postgres can (memberStatus, 0078) and returns the
         // Apps Script-built copy otherwise (panels, grids). rows[0].live says which.
-        const r = await fetch(p2.url + '/rest/v1/rpc/ui_payload_live', {
+        const viewing = p2ViewingTarget();
+        const r = await fetch(p2.url + '/rest/v1/rpc/' + (viewing ? 'ui_payload_view_as' : 'ui_payload_live'), {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_kind: kind, p_slack_id: getActorUserId(), p_token: token })
+          body: JSON.stringify(viewing ? { p_kind: kind, p_slack_id: getActorUserId(), p_token: token, p_target: viewing }
+                                       : { p_kind: kind, p_slack_id: getActorUserId(), p_token: token })
         });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) { await p2CheckRefusal(r); throw new Error('HTTP ' + r.status); }
         const rows = await r.json();
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
         maybeRenewPhase2Token();
@@ -1055,6 +1072,9 @@
      */
     async function queueActionInPostgres(action, params) {
       if (!P2_QUEUEABLE.has(action)) return false;
+      // In the Admin Tools overlay an action is taken AS the viewed user. The queue records the signed-
+      // in person, so it would be replayed as them — use the direct path, which posts as the target.
+      if (p2ViewingTarget()) return false;
       const p2 = phase2Config();
       if (!p2) return false;
       try {
@@ -1068,6 +1088,7 @@
                                  p_action: action, p_params: params || {} })
         });
         if (!r.ok) {
+          await p2CheckRefusal(r);
           console.log('Phase 2 queue refused (' + r.status + ') — using Apps Script');
           return false;
         }
@@ -1116,6 +1137,7 @@
           body: JSON.stringify(Object.assign({ p_slack_id: getActorUserId(), p_token: token }, args))
         });
         if (!r.ok) {
+          await p2CheckRefusal(r);
           const body = await r.text();
           console.log('Phase 2 write ' + fn + ' refused (' + r.status + '): ' + body.slice(0, 160));
           return null;                       // fall back rather than lose the action
@@ -1147,12 +1169,14 @@
         // dash_payload_live COMPUTES the dashboard from the tables on request (~40ms) instead of
         // returning the copy Apps Script last built — so Apps Script no longer has to rebuild it
         // for anyone (migration 0074). Its age is the age of the DATA (last sheet sync).
-        const r = await fetch(p2.url + '/rest/v1/rpc/dash_payload_live', {
+        const viewing = p2ViewingTarget();
+        const r = await fetch(p2.url + '/rest/v1/rpc/' + (viewing ? 'dash_payload_view_as' : 'dash_payload_live'), {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_slack_id: userId, p_token: token })
+          body: JSON.stringify(viewing ? { p_slack_id: getActorUserId(), p_token: token, p_target: viewing }
+                                       : { p_slack_id: userId, p_token: token })
         });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) { await p2CheckRefusal(r); throw new Error('HTTP ' + r.status); }
         const rows = await r.json();
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
         // Time the whole Phase 2 open, including any wait for a new token — the slow first open of
@@ -4062,7 +4086,7 @@
       // ── Admin-only: open/share another user's dashboard ──
       if (showImpersonation && adminUsers && adminUsers.length > 0) {
         let imp = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
-        imp += '<select class="form-select" id="adminUserSelect" style="flex:1;max-width:300px;"><option value="">Select a user...</option>';
+        imp += '<select class="form-select" id="adminUserSelect" style="flex:1;max-width:300px;" onchange="prefetchShareLink(this.value)"><option value="">Select a user...</option>';
         adminUsers.forEach(u => {
           let t = u.name + (u.role ? ' (' + u.role + ')' : '');
           if (t.length > 50) t = t.substring(0, 47) + '...';
@@ -5033,11 +5057,16 @@
 
       // Fetch the target user's dashboard. We bypass loadDashboardData()
       // because we don't want to overwrite the cached "own" data.
+      _panelCache = null;   // panels are per person
       try {
-        const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(targetUserId)}&forceRefresh=true`;
-        const response = await fetch(url, { method: 'GET' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
+        // Phase 2: dash_payload_view_as (0112) with the viewer's own token; Apps Script if unavailable.
+        let data = await loadFromPostgres();
+        if (!data) {
+          const url = `${API_URL}?action=getDashboard&userId=${encodeURIComponent(targetUserId)}&forceRefresh=true`;
+          const response = await fetch(url, { method: 'GET' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          data = await response.json();
+        }
         if (data.error) throw new Error(data.error);
         // Render directly into the overlay
         renderDashboard(data);
@@ -5055,6 +5084,7 @@
         stashedUserId = null;
       }
       stashedUserData = null;
+      _panelCache = null;   // the overlay's panels were the other person's
       renderTargetId = 'content';
       document.getElementById('userOverlay').classList.remove('open');
       document.getElementById('overlayContent').innerHTML = '';
@@ -5572,6 +5602,23 @@
       }
     }
 
+    const _shareLinks = {};
+    async function fetchShareLink(target) {
+      let link = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(target);
+      try {
+        const pg = await writeToPostgres('dashboard_link_for', { p_target: target });   // 0113
+        if (typeof pg === 'string' && pg) link = pg;
+        else {
+          const lr = await (await fetch(API_URL + '?action=dashboardLink&userId=' + encodeURIComponent(getActorUserId())
+                                        + '&target=' + encodeURIComponent(target))).json();
+          if (lr && lr.success && lr.link) link = lr.link;
+        }
+      } catch (e) { /* keep the plain link */ }
+      _shareLinks[target] = link;
+      return link;
+    }
+    function prefetchShareLink(target) { if (target && !_shareLinks[target]) fetchShareLink(target); }
+
     async function shareUserDashboardLink() {
       const select = document.getElementById('adminUserSelect');
       const selectedUserId = select.value;
@@ -5581,12 +5628,9 @@
       }
       // The server builds it: a user added after the link freeze needs a code the browser cannot
       // derive. Falls back to the plain link if the request fails.
-      let link = window.location.origin + window.location.pathname + '?userId=' + encodeURIComponent(selectedUserId);
-      try {
-        const lr = await (await fetch(API_URL + '?action=dashboardLink&userId=' + encodeURIComponent(userId)
-                                      + '&target=' + encodeURIComponent(selectedUserId))).json();
-        if (lr && lr.success && lr.link) link = lr.link;
-      } catch (e) { /* keep the plain link */ }
+      // Phase 2: usually already fetched when the user was picked (prefetchShareLink), so the share
+      // sheet opens at once — phones only allow it straight after the tap.
+      const link = (_shareLinks[selectedUserId]) || await fetchShareLink(selectedUserId);
 
       // Try the native share sheet first (iOS / Android Chrome).
       // Only share the URL — no title or descriptive text so iOS Messages /
