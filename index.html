@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-09 sunday-pg';
+    const BUILD_STAMP = '2026-10-09 perf-pg';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -896,6 +896,7 @@
             token: d.token, expiresAt: d.expiresAt, userId: getActorUserId(), issuedAt: Date.now()
           }));
           console.log('Phase 2: session token minted, valid until ' + d.expiresAt);
+          window.__p2MintedAt = Date.now();
           return d.token;
         } catch (e) {
           console.log('Phase 2: could not mint a session token — ' + (e && e.message ? e.message : e));
@@ -1155,6 +1156,12 @@
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const rows = await r.json();
         if (!Array.isArray(rows) || !rows.length || !rows[0].payload) return null;
+        // Time the whole Phase 2 open, including any wait for a new token — the slow first open of
+        // the morning (2026-10-08) was invisible because only Apps Script loads were logged.
+        try {
+          const minted = window.__p2MintedAt && (Date.now() - window.__p2MintedAt) < (performance.now() - t0) + 50;
+          recordPerf('load(pg)', performance.now() - t0, { _perfDetail: minted ? 'token minted' : '' });
+        } catch (e) {}
         maybeRenewPhase2Token();
 
         const age = Number(rows[0].age_seconds);
@@ -1536,13 +1543,27 @@
                    reads: t ? t.reads : '', build: t ? t.build : '' });
         if (buf.length > 100) buf = buf.slice(-100);
         try { localStorage.setItem('perfLog_v1', JSON.stringify(buf)); } catch (e) {}
-        const bp = new URLSearchParams({
-          action: 'logPerf', userId: userId, who: userId, act: action,
-          rt: rtMs, sv: (sv == null ? '' : sv), gap: (gap == null ? '' : gap),
-          hit: String(hit), reads: (t ? t.reads : ''), build: (t ? t.build : ''),
-          dev: (navigator.userAgent || '').slice(0, 60)
-        });
-        fetch(API_URL + '?' + bp.toString(), { method: 'GET', keepalive: true }).catch(() => {});
+        // Phase 2 (2026-10-09): timings go to Postgres (perf_log, 0106) — logging one used to cost an
+        // Apps Script execution. Only with a token already in hand: never mint one just to log.
+        const p2 = phase2Config(), tok = phase2Token();
+        const detail = (data && data._perfDetail) || (hit !== '' ? 'cacheHit ' + hit : '');
+        if (p2 && tok) {
+          fetch(p2.url + '/rest/v1/rpc/perf_log_add', {
+            method: 'POST', keepalive: true,
+            headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_slack_id: getActorUserId(), p_token: tok, p_act: action, p_rt: rtMs,
+                                   p_server: sv, p_detail: detail || null,
+                                   p_device: (navigator.userAgent || '').slice(0, 80) })
+          }).catch(() => {});
+        } else {
+          const bp = new URLSearchParams({
+            action: 'logPerf', userId: userId, who: userId, act: action,
+            rt: rtMs, sv: (sv == null ? '' : sv), gap: (gap == null ? '' : gap),
+            hit: String(hit), reads: (t ? t.reads : ''), build: (t ? t.build : ''),
+            dev: (navigator.userAgent || '').slice(0, 60)
+          });
+          fetch(API_URL + '?' + bp.toString(), { method: 'GET', keepalive: true }).catch(() => {});
+        }
       } catch (e) {}
     }
 
