@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-08 sb-phase2';
+    const BUILD_STAMP = '2026-10-08 more-queued';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1037,6 +1037,8 @@
       'scheduleAppointment', 'rescheduleAppointment', 'dismissAppointment',
       // ordinations
       'submitOrdinationReport', 'transferOrdinationNotification', 'submitOutOfUnitRecord',
+      'saveOrdinationDate', 'markOrdinationLcrRecorded', 'markCertificatePrinted',
+      'markCertificateSigned', 'markCertificateDelivered', 'recordSettingApartDone',
       // task management
       'markNameTagOrdered', 'setCallingPriority', 'setMemberStatusField', 'saveSetting',
       'addAwayPeriod', 'removeAwayPeriod', 'reassign', 'createTask'
