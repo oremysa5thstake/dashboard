@@ -1646,6 +1646,13 @@
     // three identical rows on 2026-09-13 and 2026-09-15. Cleared only when the submission
     // fails, so the button genuinely can be used again after a real error.
     var isSubmitting = false;
+    // Phones restore a page from their back/forward cache exactly as it was left — including
+    // isSubmitting. If nothing is actually in flight (the loading page is not showing), clear it.
+    window.addEventListener('pageshow', function (e) {
+      if (!e.persisted) return;
+      var lp = document.getElementById('loadingPage');
+      if (!(lp && lp.classList.contains('active'))) isSubmitting = false;
+    });
 
     // The target-Sunday list comes from the backend so the form cannot offer a Sunday the
     // pipeline would refuse. Blocked ones are shown disabled with the reason — "why can't I pick
@@ -1733,6 +1740,9 @@
 
     function resetForm() {
       clearDraft();
+      // A finished submission left this set, so "Submit Another" led to a Submit button that did
+      // nothing until the page was refreshed (reported 2026-10-08).
+      isSubmitting = false;
       formData = { type: '', submitterName: '', submitterCalling: '', onBehalfOf: '', onBehalfName: '', onBehalfCalling: '', memberName: '', ward: '', calling: '', sustainingBody: '', ordinationOffice: '', bishopInterviewDate: '', bishopSubmissionDate: '', preferredOrdinationDate: '', requirements: { templeRecommend: '', priesthood: '' }, interviewStatus: '', interviewWith: '', releaseeName: '', releaseWard: '', comments: '', sustaineeGender: '', releaseeGender: '', verbalSPApproval: 'no', urgency: 'standard', holdForCommentReview: false, spApprovedIds: '', spApprovedNames: '', consultationConfirmed: '', releasePreflightAnswer: '', secondaryReleaseCalling: '', secondaryReleaseWard: '' };
       submitOptions = null; callingRequirements = null; isLoadingSubmitOptions = false;
       pageFlow = [1, 2, 4, 7]; currentPage = 1;
