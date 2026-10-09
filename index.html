@@ -734,7 +734,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-08 more-queued';
+    const BUILD_STAMP = '2026-10-08 texts-pg';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1030,6 +1030,7 @@
       'sbMarkAlreadyConfirmed', 'sbDismissReplacement', 'reportSustaining',
       'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
       'restoreNormalAssignments', 'releaseHold', 'setConducting', 'sbAddBlockout', 'sbRemoveBlockout',
+      'recordVote',
       // the schedule/assign bins
       'assignExtendCall', 'assignSettingApart', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
@@ -3439,7 +3440,13 @@
       try {
         const res = await performAction('recordVote', { rowIndex: rowIndex, column: column, type: type, ref: ref || '', approverId: approverId || '' });
         showToast(res && res.message ? res.message : (name + ' — ' + verb + ' recorded'), 'success');
-        scheduleSilentRefresh(500);
+        if (res && res.queued) {
+          // Queued: the database catches up in ~10s (performAction schedules that re-read). Re-reading
+          // sooner would put the button back, so mark it done in place instead.
+          if (btn) { btn.disabled = true; btn.textContent = '✓ ' + verb + ' recorded'; }
+        } else {
+          scheduleSilentRefresh(500);
+        }
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
         if (btn) { btn.disabled = false; btn.textContent = origText || ('✓ Record ' + verb); }
@@ -6305,7 +6312,7 @@
       document.getElementById('sendTextsList').innerHTML = '<div class="ms-empty">Loading…</div>';
       document.getElementById('sendTextsModal').classList.add('show');
       try {
-        const res = await performAction('getHcsWithPendingApprovals', {});
+        const res = (await getPanel('hcsPendingTexts')) || await performAction('getHcsWithPendingApprovals', {});
         _sendTextsRecipients = res.recipients || [];
         renderSendTextsList(res.recipients || [], res.skipped || []);
       } catch (e) {
