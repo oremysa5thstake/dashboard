@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-10 pending-wait';
+    const BUILD_STAMP = '2026-10-10 pair-cards';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1050,7 +1050,7 @@
       'ordinationInterviewPassed', 'ordinationInterviewReturnToBishop',
       'ordinationInterviewSchedulePassed', 'ordinationInterviewScheduleReturnToBishop',
       // the schedule/assign bins
-      'assignExtendCall', 'assignSettingApart', 'assignOrdinationInterview',
+      'assignExtendCall', 'assignExtendCallGroup', 'assignSettingApart', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
       // appointments
       'scheduleAppointment', 'rescheduleAppointment', 'dismissAppointment',
@@ -1869,11 +1869,95 @@
       return html;
     }
 
+    // ── One member's new calling + release = one conversation, drawn as one card (2026-10-10) ──
+    // The tasks stay separate underneath (each keeps its own cascade); the server keeps the pair on
+    // one assignee or both in the bin (ActionItems.js combineMemberExtendTasks). Titles are written by
+    // the system as "…extend calling to NAME as CALLING (WARD)" / "…extend release to NAME from …".
+    function extendSubjectOf(item) {
+      const m = String((item && item.displayText) || '').match(/extend (calling|release) to (.+?) (?:as|from) (.+?) \(/i);
+      return m ? { kind: m[1].toLowerCase(), name: m[2].trim(), calling: m[3].trim() } : null;
+    }
+    // [{ single: item } | { pair: { calling, release, name } }] in the original order.
+    function groupExtendPairs(items, keyExtra) {
+      const byKey = {}, out = [];
+      (items || []).forEach(it => {
+        const s = extendSubjectOf(it);
+        const k = s ? s.name.toLowerCase() + '|' + (keyExtra ? keyExtra(it) : '') : null;
+        if (k && byKey[k] && !byKey[k].pair && byKey[k].first.kind !== s.kind) {
+          const f = byKey[k];
+          f.pair = s.kind === 'release' ? { calling: f.first.item, release: it, name: s.name, callingTitle: f.first.calling, releaseFrom: s.calling }
+                                        : { calling: it, release: f.first.item, name: s.name, callingTitle: s.calling, releaseFrom: f.first.calling };
+          f.entry.pair = f.pair; delete f.entry.single;
+          return;
+        }
+        const entry = { single: it };
+        out.push(entry);
+        if (k && !byKey[k]) byKey[k] = { first: { item: it, kind: s.kind, calling: s.calling }, entry: entry };
+      });
+      return out;
+    }
+
+    function renderExtendPairCard(p) {
+      const c = p.calling, r = p.release;
+      const canReassign = userData.canReassign || false;
+      const apptText = c.appointmentStatus || r.appointmentStatus || 'Pending';
+      const ids = c.actionId + ',' + r.actionId;
+      const releaseOwn = r.callingAction === 'Released';   // their own release request (can be declined)
+      return `<div class="item" id="item-${c.actionId}">
+        <div class="item-header"><div class="item-title">📞 ${escapeHtmlDisplay(p.name)} — new calling and release</div></div>
+        <div class="item-meta">One conversation: call as <strong>${escapeHtmlDisplay(p.callingTitle)}</strong>, and release from <strong>${escapeHtmlDisplay(p.releaseFrom)}</strong>.</div>
+        ${schedulePickerHtml(c.callingRefId || c.referenceId, c.scheduledStakeBusiness)}
+        ${c.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(c.assignedToNames)}</div>` : ''}
+        <div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}${apptText !== 'Pending' ? gcalLinkHtml(c.displayText, apptText) : ''}</div>
+        <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:8px;">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:13px;min-width:120px;">📋 New calling</span>
+            <button class="btn btn-success" onclick="handleAction('${c.actionId}', 'accepted', this)">✓ Accepted</button>
+            <button class="btn btn-danger" onclick="handleAction('${c.actionId}', 'declined', this)">✗ Declined</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:13px;min-width:120px;">👋 Release</span>
+            <button class="btn btn-success" onclick="handleAction('${r.actionId}', 'extended', this)">✓ Release Extended</button>
+            ${releaseOwn ? `<button class="btn btn-danger" onclick="handleAction('${r.actionId}', 'declined', this)">✗ Keeping previous calling</button>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${c.actionId}', '${escapeHtml(c.displayText)}', ['${r.actionId}'])">↻ Reassign both</button>` : ''}
+            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${c.actionId}', this)">🗂️ Send both to Bin</button>` : ''}
+          </div>
+          ${apptText === 'Pending' ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <input type="date" id="apptDate_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="apptTime_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointmentGroup('${ids}', '${c.actionId}', this)">📅 Appointment Scheduled</button>
+            </div>` : ''}
+        </div>
+        ${renderCallingControls(c)}
+      </div>`;
+    }
+
+    // One appointment for both tasks of a pair.
+    async function scheduleAppointmentGroup(ids, inputId, btn) {
+      const d = (document.getElementById('apptDate_' + inputId) || {}).value || '';
+      const t = (document.getElementById('apptTime_' + inputId) || {}).value || '';
+      if (!d || !t) { showToast('Please select both date and time', 'error'); return; }
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        for (const id of ids.split(',')) await performAction('scheduleAppointment', { itemId: id, appointmentDate: d, appointmentTime: t });
+        showToast('Appointment scheduled', 'success');
+        scheduleSilentRefresh(1000);
+      } catch (e) {
+        showToast('Error scheduling appointment: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '📅 Appointment Scheduled'; }
+      } finally { setSyncing(false); }
+    }
+
     function renderExtendSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extend\')"><div class="section-title">📞 Callings & Releases to Extend</div><div class="section-meta">' + helpBtn('extend') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-extend"><div class="section-inner">';
 
-      items.forEach(item => {
+      groupExtendPairs(items, it => it.assignedToNames || '').forEach(entry => {
+        if (entry.pair) { html += renderExtendPairCard(entry.pair); return; }
+        const item = entry.single;
         const canReassign = userData.canReassign || false;
         const isCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
@@ -1902,6 +1986,7 @@
                 `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted', this)">✓ Accepted</button>
                  <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Declined</button>` :
                 `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>`
+                 + (item.callingAction === 'Released' ? `<button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Keeping previous calling</button>` : '')
               }
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${item.actionId}', '${escapeHtml(item.displayText)}')">↻ Reassign</button>` : ''}
               ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${item.actionId}', this)">🗂️ Send to Bin</button>` : ''}
@@ -2435,7 +2520,9 @@
       const hcOptions = (highCouncilors || []).map(hc =>
         `<option value="${escapeHtml(hc.id)}">${escapeHtml(hc.name)}</option>`).join('');
 
-      items.forEach(item => {
+      groupExtendPairs(items).forEach(entry => {
+        if (entry.pair) { html += renderExtendAssignPairCard(entry.pair, spOptions); return; }
+        const item = entry.single;
         const assignedInfo = item.isCC
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
@@ -2539,6 +2626,59 @@
 
     // SPB "Schedule & Assign" — secretaries/clerks pick which SP member extends the
     // call AND set the appointment, in one step (mirrors ordination interview scheduling).
+    // A member's calling + release in the bin: one assignment for both — always the presidency (SPB).
+    function renderExtendAssignPairCard(p, spOptions) {
+      const c = p.calling, r = p.release;
+      const ids = c.actionId + ',' + r.actionId;
+      const assignedInfo = c.isCC
+        ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${c.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(c.assignedToNames) : ''} — you may also assign this</div>`
+        : (c.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(c.assignedToNames)}</div>` : '');
+      return `<div class="item">
+        <div class="item-header"><div class="item-title">🗂️ ${escapeHtmlDisplay(p.name)} — new calling and release</div></div>
+        <div class="item-meta">One conversation: call as <strong>${escapeHtmlDisplay(p.callingTitle)}</strong>, and release from <strong>${escapeHtmlDisplay(p.releaseFrom)}</strong>. Assign both to one member of the Stake Presidency.</div>
+        ${assignedInfo}
+        <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <select id="extAssignSp_${c.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
+              <option value="">Select SP member...</option>${spOptions}
+            </select>
+            <button class="btn btn-success" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, false)">Assign both</button>
+            ${(userData && userData.isPresidency) ? `<button class="btn btn-secondary" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, false, true)">🙋 Assign Myself</button>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+            <input type="date" id="extAssignDate_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
+            <input type="time" id="extAssignTime_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
+            <button class="btn btn-primary" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, true)">Schedule &amp; Assign both</button>
+          </div>
+        </div>
+        ${renderCallingControls(c)}
+      </div>`;
+    }
+
+    async function assignExtendGroup(ids, inputId, btn, withSchedule, myself) {
+      const spMemberId = myself ? getActorUserId() : ((document.getElementById('extAssignSp_' + inputId) || {}).value || '');
+      if (!spMemberId) { showToast('Please select someone to assign', 'error'); return; }
+      let appointmentDateTime = '';
+      if (withSchedule) {
+        const d = (document.getElementById('extAssignDate_' + inputId) || {}).value || '';
+        const t = (document.getElementById('extAssignTime_' + inputId) || {}).value || '';
+        if (!d || !t) { showToast('Pick a date and time, or use “Assign both” to assign without an appointment', 'error'); return; }
+        appointmentDateTime = d + 'T' + t;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.transition = 'opacity 0.2s'; itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('assignExtendCallGroup', { itemIds: ids, spMemberId: spMemberId, appointmentDateTime: appointmentDateTime });
+        if (itemEl) itemEl.remove();
+        showToast(withSchedule ? 'Both assigned & scheduled' : 'Both assigned', 'success');
+        scheduleSilentRefresh();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
+    }
+
     function renderExtendAssignSection(items, stakePresidency, highCouncilors) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendAssign\')"><div class="section-title">🗂️ Callings to Schedule/Assign</div><div class="section-meta">' + helpBtn('extendAssign') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-extendAssign"><div class="section-inner">';
@@ -2551,7 +2691,9 @@
         `<option value="${escapeHtml(hc.id)}">${escapeHtml(hc.name)}</option>`
       ).join('');
 
-      items.forEach(item => {
+      groupExtendPairs(items).forEach(entry => {
+        if (entry.pair) { html += renderExtendAssignPairCard(entry.pair, spOptions); return; }
+        const item = entry.single;
         const assignedInfo = item.isCC
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
           : (item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(item.assignedToNames)}</div>` : '');
@@ -3223,7 +3365,8 @@
                   `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'accepted', this)">✓ Accepted</button>
                    <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Declined</button>` :
                   isExtendRelease ?
-                  `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>` :
+                  `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'extended', this)">✓ Release Extended</button>`
+                 + (item.callingAction === 'Released' ? `<button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'declined', this)">✗ Keeping previous calling</button>` : '') :
                   /* Other CC types: render the same action button the primary sees,
                      so the cascade (col flips, downstream tasks) runs the same way. */
                   renderPrimaryActionForCCItem(item)
@@ -4754,7 +4897,9 @@
       }
     }
 
-    async function reassignTask(itemId, itemTitle) {
+    let currentReassignSiblings = [];
+    async function reassignTask(itemId, itemTitle, siblings) {
+      currentReassignSiblings = Array.isArray(siblings) ? siblings : [];   // the other task of a calling + release pair
       currentReassignId = itemId;
       currentReassignAppointmentStatus = null;
       document.getElementById('reassignTaskText').textContent = itemTitle;
@@ -4998,12 +5143,14 @@
 
       setSyncing(true);
       try {
-        await performAction('reassign', {
-          itemId: reassignedId,
-          primaryIds: primaryIds.join(','),
-          ccIds: ccIds.join(','),
-          keepAppointment: keepAppt ? 'true' : 'false'
-        });
+        for (const id of [reassignedId].concat(currentReassignSiblings || [])) {
+          await performAction('reassign', {
+            itemId: id,
+            primaryIds: primaryIds.join(','),
+            ccIds: ccIds.join(','),
+            keepAppointment: keepAppt ? 'true' : 'false'
+          });
+        }
         showToast('Task reassigned', 'success');
         scheduleSilentRefresh(1000);
       } catch (error) {
@@ -7697,6 +7844,10 @@
           break;
 
         // ── Executive secretary ──
+        case 'assignExtendCallGroup': {
+          const first = String(params.itemIds || '').split(',')[0];
+          return demoPerformAction('assignExtendCall', { itemId: first, spMemberId: params.spMemberId, appointmentDateTime: params.appointmentDateTime });
+        }
         case 'assignExtendCall': {
           // The person actually picked (it used to be the First Counselor whoever was chosen).
           const pickId = String(params.spMemberId || '');
