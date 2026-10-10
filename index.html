@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-09 view-as-pg';
+    const BUILD_STAMP = '2026-10-10 pending-wait';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1197,6 +1197,17 @@
         // the replay takes ~15s and a fixed delay would either be too short (the item reappears)
         // or needlessly slow. Keep the current view and look again shortly.
         const builtAt = new Date(rows[0].built_at).getTime();
+        // Still waiting on queued actions (0114)? Keep the current view and look again — the sync
+        // after one action can land before the next is applied, so a timestamp alone is not enough.
+        // (Only when something is already on screen: a first load shows this and re-checks shortly.)
+        if (Number(rows[0].pending) > 0 && !currentData) scheduleSilentRefresh(4000);
+        else if (Number(rows[0].pending) > 0) {
+          console.log('Phase 2: ' + rows[0].pending + ' queued action(s) not applied yet — keeping the current view');
+          window.__p2Holding = true;
+          window.__p2QueuedAt = window.__p2QueuedAt || Date.now();
+          scheduleSilentRefresh(4000);
+          return null;
+        }
         if (window.__p2QueuedAt && builtAt < window.__p2QueuedAt) {
           console.log('Phase 2: payload predates the queued action — keeping the current view');
           window.__p2Holding = true;         // silentRefresh must not fall back to Apps Script for this
