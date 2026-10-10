@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-10 pair-cards';
+    const BUILD_STAMP = '2026-10-10 extending-today';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1683,6 +1683,9 @@
       }
 
       // Sections
+      // Presidency, secretaries and clerks: today's extend appointments, whoever is extending.
+      if (userData && (userData.canReassign || userData.isPresidency)) html += renderExtendsTodaySection(data);
+
       if (data.stakeBusinessItems && data.stakeBusinessItems.length > 0) {
         html += renderStakeBusinessSection(data.stakeBusinessItems, data.highCouncilors || []);
       }
@@ -1897,6 +1900,89 @@
       return out;
     }
 
+    // "Tanner Gren — extend release from Ward Clerk (25th Ward)" — the person first, as people scan
+    // for names. Display only: the stored titles keep their wording (the server parses them).
+    function extendTitle(item) {
+      const t = String((item && item.displayText) || '');
+      const m = t.match(/extend (calling|release) to (.+?) (as|from) (.+)$/i);
+      if (!m) return t;
+      return m[2].trim() + ' — extend ' + m[1].toLowerCase() + ' ' + m[3].toLowerCase() + ' ' + m[4].trim();
+    }
+
+    // "Oct 10, 2026 at 7:00pm" → Date (local), or null.
+    function parseApptText(t) {
+      const m = String(t || '').match(/([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)?)?/i);
+      if (!m) return null;
+      const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].slice(0, 3).toLowerCase());
+      if (mon < 0) return null;
+      let h = m[4] ? parseInt(m[4], 10) : 0; const min = m[5] ? parseInt(m[5], 10) : 0; const ap = (m[6] || '').toLowerCase();
+      if (ap === 'pm' && h !== 12) h += 12; if (ap === 'am' && h === 12) h = 0;
+      return new Date(parseInt(m[3], 10), mon, parseInt(m[2], 10), h, min);
+    }
+
+    // ── 📅 Extending Today (2026-10-10) — for the presidency, secretaries and clerks: every open
+    // calling / release extend whose appointment is today, whoever it is assigned to. Built from the
+    // person's own extend tasks plus the extend tasks they are CC'd on (they are CC'd on all of them).
+    function renderExtendsTodaySection(data) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const seen = {}, rows = [], noAppt = [];
+      const consider = (it, mine) => {
+        if (!it || !/^extend-(calling|release)$/.test(it.actionType || '') || (it.status && it.status !== 'Open')) return;
+        const base = String(it.actionId || '').replace(/_[PC]\d*$/, '');
+        if (seen[base]) return;
+        const appt = mine ? it.appointmentStatus : ((String(it.notes || '').match(/Appointment:\s*(.+)/) || [])[1] || '');
+        const when = parseApptText(appt);
+        if (!when) { noAppt.push({ it, mine }); return; }
+        const d = new Date(when); d.setHours(0, 0, 0, 0);
+        if (d.getTime() !== today.getTime()) return;
+        seen[base] = true;
+        rows.push({ it, mine, when });
+      };
+      (data.extendItems || []).forEach(it => consider(it, true));
+      (data.ccItems || []).forEach(it => consider(it, false));
+      if (!rows.length) return '';
+      rows.sort((a, b) => a.when - b.when);
+      // A member's calling + release at the same appointment read as one line.
+      const byPerson = {}, lines = [];
+      rows.forEach(r => {
+        const sj = extendSubjectOf(r.it);
+        const k = sj ? sj.name.toLowerCase() + '|' + r.when.getTime() : r.it.actionId;
+        if (byPerson[k]) { byPerson[k].parts.push(r); return; }
+        byPerson[k] = { parts: [r], name: sj ? sj.name : '' };
+        lines.push(byPerson[k]);
+      });
+      // The other half of a calling + release pair shares the appointment (it is stored on one task).
+      noAppt.forEach(x => {
+        const sj = extendSubjectOf(x.it);
+        if (!sj) return;
+        const L = lines.find(l => l.name.toLowerCase() === sj.name.toLowerCase()
+                                && (l.parts[0].it.assignedToNames || '') === (x.it.assignedToNames || '')
+                                && !l.parts.some(p => (extendSubjectOf(p.it) || {}).kind === sj.kind));
+        if (L) L.parts.push({ it: x.it, mine: x.mine, when: L.parts[0].when });
+      });
+      const tf = d => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendsToday\')"><div class="section-title">📅 Extending Today</div><div class="section-meta">' + helpBtn('extendsToday') + '<span class="section-count">' + lines.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-extendsToday"><div class="section-inner">';
+      lines.forEach(L => {
+        const first = L.parts[0];
+        const title = L.parts.length > 1
+          ? escapeHtmlDisplay(L.name) + ' — new calling and release'
+          : escapeHtmlDisplay(extendTitle(first.it));
+        const detail = L.parts.length > 1 ? '<div class="item-meta">' + L.parts.map(p => escapeHtmlDisplay(extendTitle(p.it).replace(/^.*? — /, ''))).join(' · ') + '</div>' : '';
+        const who = first.it.assignedToNames || '';
+        const mine = L.parts.some(p => p.mine);
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">🕒 ${escapeHtmlDisplay(tf(first.when))} — ${title}</div>
+            ${mine ? '<div class="item-badges"><span class="badge badge-info">Yours</span></div>' : ''}</div>
+          ${detail}
+          ${who ? `<div class="item-meta">Extending: ${escapeHtmlDisplay(who)}</div>` : ''}
+          ${mine ? `<div class="item-meta"><a href="#" onclick="scrollToSection('extend');return false;">Record the answer below ↓</a></div>` : ''}
+        </div>`;
+      });
+      html += '</div></div></div>';
+      return html;
+    }
+
     function renderExtendPairCard(p) {
       const c = p.calling, r = p.release;
       const canReassign = userData.canReassign || false;
@@ -1976,7 +2062,7 @@
         }
 
         html += `<div class="item" id="item-${item.actionId}">
-          <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(extendTitle(item)) || 'N/A'}</div></div>
           ${schedulePickerHtml(item.callingRefId || item.referenceId, item.scheduledStakeBusiness)}
           ${assignedInfo}
           ${appointmentStatusHtml}
@@ -2731,7 +2817,7 @@
           </div>`;
 
         html += `<div class="item">
-          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText) || 'N/A'}</div></div>
+          <div class="item-header"><div class="item-title">${escapeHtmlDisplay(extendTitle(item)) || 'N/A'}</div></div>
           ${assignedInfo}
           ${binReasonInfo}
           <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
@@ -4353,6 +4439,10 @@
           '<li><b>🙋 Assign Myself</b> (stake presidency): assigns it to you in one tap — with the appointment too, if you have filled in a date and time.</li>' +
           '<li>Callings marked <b>SPB/HC</b> in the set-apart column offer the <b>High Council</b> as well as the presidency; plain <b>SPB</b> offers the presidency only.</li>' +
           '</ul>'
+      },
+      extendsToday: {
+        title: 'Extending Today',
+        body: '<p>Every calling and release being extended <b>today</b>, by anyone — with the time and who is extending. Shown to the Stake Presidency, secretaries and clerks so you know who is meeting with whom.</p><p>A member being called and released at the same appointment shows as one line. Your own appointments are marked <b>Yours</b>; record the answer in <b>Callings &amp; Releases to Extend</b>.</p>'
       },
       extendAssign: {
         title: 'Callings to Schedule/Assign',
@@ -6697,8 +6787,10 @@
       sadie:   'Sadie Larkspur',     // called Stake Relief Society Secretary (24th Ward)
       tanner:  'Tanner Holbrook',    // called High Councilor (32nd Ward) — needs HP sustaining
       dallin:  'Dallin Whitmer',     // ordination to Elder, 6-7th Ward
-      emmett:  'Emmett Rowe',        // called Stake Institute Representative — the PRESIDENT extends
-      desmond: 'Desmond Marchetti'   // released as Ward Clerk — release-only
+      // Desmond is the demo's "one conversation" (2026-10-10): released as Ward Clerk AND called as
+      // Stake Institute Representative, both extended by the president — so his two tasks show as one card.
+      emmett:  'Desmond Marchetti',  // called Stake Institute Representative — the PRESIDENT extends
+      desmond: 'Desmond Marchetti'   // released as Ward Clerk — release-only, same person
     };
     const DEMO_SP = ['Pres. Smith', 'Pres. Plothow', 'Pres. Nielsen'];
     const DEMO_HC_NAMES = ['Bro. Ainsworth', 'Bro. Bellview', 'Bro. Corbridge', 'Bro. Duffin', 'Bro. Eastman',
@@ -7304,7 +7396,7 @@
           assignedToNames: DEMO_SP[0], appointmentStatus: s.emmettAppt || 'Pending'
         });
         if (demoItemApproved('r1') && !s.desmondExtended) add({
-          actionId: 'DEMO_EXT_DESMOND', actionType: 'extend-release', type: 'extend-release',
+          actionId: 'DEMO_EXT_DESMOND', actionType: 'extend-release', type: 'extend-release', callingAction: 'Released',
           displayText: 'Extend release to ' + DEMO_CAST.desmond + ' from Ward Clerk (' + DEMO_WARD + ')',
           assignedToNames: DEMO_SP[0]
         });
@@ -7553,7 +7645,7 @@
           appointmentStatus: s.emmettAppt || 'Pending', assignedToNames: DEMO_SP[0]
         });
         if (demoItemApproved('r1') && !s.desmondExtended) data.extendItems.push({
-          actionId: 'DEMO_EXT_DESMOND', type: 'extend-release', actionType: 'extend-release',
+          actionId: 'DEMO_EXT_DESMOND', type: 'extend-release', actionType: 'extend-release', callingAction: 'Released',
           displayText: 'Extend release to ' + DEMO_CAST.desmond + ' from Ward Clerk (' + DEMO_WARD + ')',
           assignedToNames: DEMO_SP[0]
         });
@@ -7776,6 +7868,14 @@
           break;
         case 'declined':
           if (id === 'DEMO_EXT_PORTER') { s.porterAccepted = true; showToast('In real life, declining ends the process and notifies the Stake Presidency. For the demo, let\'s pretend he said yes 😉', 'success'); }
+          else if (id === 'DEMO_EXT_EMMETT' || id === 'DEMO_EXT_TANNER' || id === 'DEMO_EXT_SADIE') {
+            if (id === 'DEMO_EXT_EMMETT') s.emmettAccepted = true; else if (id === 'DEMO_EXT_TANNER') s.tannerAccepted = true; else s.sadieAccepted = true;
+            showToast('In real life, declining stops the calling and the presidency decides what next. For the demo, let\'s pretend they said yes 😉', 'success');
+          } else if (id === 'DEMO_EXT_DESMOND') {
+            // "Keeping previous calling" on a combined card: the release is declined.
+            s.desmondExtended = true;
+            showToast('Recorded: he keeps Ward Clerk as well. In real life the release is marked declined and is not read on Sunday; the demo moves on.', 'success');
+          }
           break;
         case 'extended':
           if (id === 'DEMO_EXT_MARCUS') s.marcusExtended = true;
@@ -8264,12 +8364,16 @@
           mk(DEMO_CAST.tanner, '32nd Ward',
             track('tanner', { calling: 'High Councilor', action: 'Called',
                               phases: tanner.phases, currentPhase: tanner.currentPhase, progress: progress.tanner }), null),
-          mk(DEMO_CAST.emmett, DEMO_WARD,
+          // One member, two tracks: called as Stake Institute Representative, released as Ward Clerk.
+          Object.assign(mk(DEMO_CAST.emmett, DEMO_WARD,
             track('emmett', { calling: 'Stake Institute Representative', action: 'Called',
-                              phases: emmett.phases, currentPhase: emmett.currentPhase, progress: progress.emmett }), null),
-          mk(DEMO_CAST.desmond, DEMO_WARD,
-            track('desmond', { calling: 'Ward Clerk', action: 'Released',
-                                phases: desmond.phases, currentPhase: desmond.currentPhase, progress: progress.desmond }), null)
+                              phases: emmett.phases, currentPhase: emmett.currentPhase, progress: progress.emmett }), null), {
+            callings: [
+              track('emmett', { calling: 'Stake Institute Representative', action: 'Called',
+                                phases: emmett.phases, currentPhase: emmett.currentPhase, progress: progress.emmett }),
+              track('desmond', { calling: 'Ward Clerk', action: 'Released',
+                                 phases: desmond.phases, currentPhase: desmond.currentPhase, progress: progress.desmond })
+            ] })
         ]
       };
     }
