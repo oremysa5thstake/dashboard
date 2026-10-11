@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-10 extending-today';
+    const BUILD_STAMP = '2026-10-11 calling-groups';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1833,13 +1833,48 @@
       document.getElementById(renderTargetId).innerHTML = html;
     }
 
+    function renderApprovalGroupCard(list) {
+      const first = list[0];
+      const itemId = 'calling_' + first.rowIndex;
+      const refArg = first.ref ? ", {ref: '" + String(first.ref).replace(/[^0-9A-Za-z:.\-+ ]/g, '') + "'}" : '';
+      const lines = list.map(it => `<div class="item-meta">• ${escapeHtmlDisplay(it.calling || 'N/A')} — ${escapeHtmlDisplay(it.unit || 'N/A')}`
+        + (it.releases ? ` <span style="color:#666">(replaces <strong>${escapeHtmlDisplay(it.releases)}</strong>)</span>` : '') + '</div>').join('');
+      const hp = list.map(it => it.hpNote).filter(Boolean)[0] || '';
+      return `<div class="item">
+        <div class="item-header"><div class="item-title">${escapeHtmlDisplay(first.memberName || 'N/A')}
+          <span style="display:inline-block;background:#1a6159;color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px;margin-left:8px;vertical-align:middle">${list.length} callings</span></div></div>
+        ${lines}
+        <div class="item-meta" style="color:#666;font-style:italic;">Approved together — one vote covers all ${list.length}.</div>
+        ${list.some(it => it.urgency) ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
+        ${hp ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + hp + '</div>' : ''}
+        <div class="item-actions">
+          <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this${refArg})">✓ Approve all ${list.length}</button>
+          <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this${refArg})">⚠️ Concerns</button>
+        </div>
+      </div>`;
+    }
+
     function renderApprovalsSection(items) {
       let html = '<div class="section voting-section"><div class="section-header expanded" onclick="toggleSection(\'approvals\')"><div class="section-title">📋 Calling Approvals</div><div class="section-meta">' + helpBtn('approvals') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-approvals"><div class="section-inner">';
       html += '<div class="bulk-actions"><button class="btn btn-success" onclick="approveAll(this)">✓ Approve All</button></div>';
 
-      items.forEach(item => {
-        // Construct itemId in format: "calling_ROWINDEX" or "ordination_ROWINDEX"
+      // Several callings for one member in one submission share a groupId: one card, one vote (the
+      // server copies the vote to every calling in the group — Core.js _recordCallingVote).
+      const groupsSeen = {};
+      const entries = [];
+      items.forEach(it => {
+        const g = it.groupId || '';
+        if (g && groupsSeen[g]) { groupsSeen[g].push(it); return; }
+        const list = [it];
+        if (g) groupsSeen[g] = list;
+        entries.push(list);
+      });
+
+      entries.forEach(list => {
+        if (list.length > 1) { html += renderApprovalGroupCard(list); return; }
+        const item = list[0];
+        // Construct itemId in format: "calling_ROWINDEX" or "ordination_ROWINDEX""
         const itemId = (item.type || 'calling') + '_' + item.rowIndex;
         // The row's timestamp, when the payload has one, so the vote is verified server-side.
         const refArg = item.ref ? ", {ref: '" + String(item.ref).replace(/[^0-9A-Za-z:.\-+ ]/g, '') + "'}" : '';
@@ -1880,143 +1915,72 @@
       const m = String((item && item.displayText) || '').match(/extend (calling|release) to (.+?) (?:as|from) (.+?) \(/i);
       return m ? { kind: m[1].toLowerCase(), name: m[2].trim(), calling: m[3].trim() } : null;
     }
-    // [{ single: item } | { pair: { calling, release, name } }] in the original order.
+    // [{ single: item } | { pair: { name, parts: [{ item, kind, calling }] } }] in the original order.
+    // Any two or more tasks for the same member — a calling + release, or several callings submitted
+    // together — are one conversation and one card (2026-10-10 / 10-11).
     function groupExtendPairs(items, keyExtra) {
       const byKey = {}, out = [];
       (items || []).forEach(it => {
-        const s = extendSubjectOf(it);
-        const k = s ? s.name.toLowerCase() + '|' + (keyExtra ? keyExtra(it) : '') : null;
-        if (k && byKey[k] && !byKey[k].pair && byKey[k].first.kind !== s.kind) {
-          const f = byKey[k];
-          f.pair = s.kind === 'release' ? { calling: f.first.item, release: it, name: s.name, callingTitle: f.first.calling, releaseFrom: s.calling }
-                                        : { calling: it, release: f.first.item, name: s.name, callingTitle: s.calling, releaseFrom: f.first.calling };
-          f.entry.pair = f.pair; delete f.entry.single;
+        const sj = extendSubjectOf(it);
+        const k = sj ? sj.name.toLowerCase() + '|' + (keyExtra ? keyExtra(it) : '') : null;
+        const part = { item: it, kind: sj ? sj.kind : '', calling: sj ? sj.calling : '' };
+        if (k && byKey[k]) {
+          const e = byKey[k];
+          if (e.single) { e.pair = { name: sj.name, parts: [e.firstPart] }; delete e.single; }
+          e.pair.parts.push(part);
           return;
         }
-        const entry = { single: it };
+        const entry = { single: it, firstPart: part };
         out.push(entry);
-        if (k && !byKey[k]) byKey[k] = { first: { item: it, kind: s.kind, calling: s.calling }, entry: entry };
+        if (k) byKey[k] = entry;
       });
       return out;
     }
 
-    // "Tanner Gren — extend release from Ward Clerk (25th Ward)" — the person first, as people scan
-    // for names. Display only: the stored titles keep their wording (the server parses them).
-    function extendTitle(item) {
-      const t = String((item && item.displayText) || '');
-      const m = t.match(/extend (calling|release) to (.+?) (as|from) (.+)$/i);
-      if (!m) return t;
-      return m[2].trim() + ' — extend ' + m[1].toLowerCase() + ' ' + m[3].toLowerCase() + ' ' + m[4].trim();
-    }
-
-    // "Oct 10, 2026 at 7:00pm" → Date (local), or null.
-    function parseApptText(t) {
-      const m = String(t || '').match(/([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)?)?/i);
-      if (!m) return null;
-      const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].slice(0, 3).toLowerCase());
-      if (mon < 0) return null;
-      let h = m[4] ? parseInt(m[4], 10) : 0; const min = m[5] ? parseInt(m[5], 10) : 0; const ap = (m[6] || '').toLowerCase();
-      if (ap === 'pm' && h !== 12) h += 12; if (ap === 'am' && h === 12) h = 0;
-      return new Date(parseInt(m[3], 10), mon, parseInt(m[2], 10), h, min);
-    }
-
-    // ── 📅 Extending Today (2026-10-10) — for the presidency, secretaries and clerks: every open
-    // calling / release extend whose appointment is today, whoever it is assigned to. Built from the
-    // person's own extend tasks plus the extend tasks they are CC'd on (they are CC'd on all of them).
-    function renderExtendsTodaySection(data) {
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const seen = {}, rows = [], noAppt = [];
-      const consider = (it, mine) => {
-        if (!it || !/^extend-(calling|release)$/.test(it.actionType || '') || (it.status && it.status !== 'Open')) return;
-        const base = String(it.actionId || '').replace(/_[PC]\d*$/, '');
-        if (seen[base]) return;
-        const appt = mine ? it.appointmentStatus : ((String(it.notes || '').match(/Appointment:\s*(.+)/) || [])[1] || '');
-        const when = parseApptText(appt);
-        if (!when) { noAppt.push({ it, mine }); return; }
-        const d = new Date(when); d.setHours(0, 0, 0, 0);
-        if (d.getTime() !== today.getTime()) return;
-        seen[base] = true;
-        rows.push({ it, mine, when });
-      };
-      (data.extendItems || []).forEach(it => consider(it, true));
-      (data.ccItems || []).forEach(it => consider(it, false));
-      if (!rows.length) return '';
-      rows.sort((a, b) => a.when - b.when);
-      // A member's calling + release at the same appointment read as one line.
-      const byPerson = {}, lines = [];
-      rows.forEach(r => {
-        const sj = extendSubjectOf(r.it);
-        const k = sj ? sj.name.toLowerCase() + '|' + r.when.getTime() : r.it.actionId;
-        if (byPerson[k]) { byPerson[k].parts.push(r); return; }
-        byPerson[k] = { parts: [r], name: sj ? sj.name : '' };
-        lines.push(byPerson[k]);
-      });
-      // The other half of a calling + release pair shares the appointment (it is stored on one task).
-      noAppt.forEach(x => {
-        const sj = extendSubjectOf(x.it);
-        if (!sj) return;
-        const L = lines.find(l => l.name.toLowerCase() === sj.name.toLowerCase()
-                                && (l.parts[0].it.assignedToNames || '') === (x.it.assignedToNames || '')
-                                && !l.parts.some(p => (extendSubjectOf(p.it) || {}).kind === sj.kind));
-        if (L) L.parts.push({ it: x.it, mine: x.mine, when: L.parts[0].when });
-      });
-      const tf = d => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendsToday\')"><div class="section-title">📅 Extending Today</div><div class="section-meta">' + helpBtn('extendsToday') + '<span class="section-count">' + lines.length + '</span><span class="chevron">▼</span></div></div>';
-      html += '<div class="section-content expanded" id="section-extendsToday"><div class="section-inner">';
-      lines.forEach(L => {
-        const first = L.parts[0];
-        const title = L.parts.length > 1
-          ? escapeHtmlDisplay(L.name) + ' — new calling and release'
-          : escapeHtmlDisplay(extendTitle(first.it));
-        const detail = L.parts.length > 1 ? '<div class="item-meta">' + L.parts.map(p => escapeHtmlDisplay(extendTitle(p.it).replace(/^.*? — /, ''))).join(' · ') + '</div>' : '';
-        const who = first.it.assignedToNames || '';
-        const mine = L.parts.some(p => p.mine);
-        html += `<div class="item">
-          <div class="item-header"><div class="item-title">🕒 ${escapeHtmlDisplay(tf(first.when))} — ${title}</div>
-            ${mine ? '<div class="item-badges"><span class="badge badge-info">Yours</span></div>' : ''}</div>
-          ${detail}
-          ${who ? `<div class="item-meta">Extending: ${escapeHtmlDisplay(who)}</div>` : ''}
-          ${mine ? `<div class="item-meta"><a href="#" onclick="scrollToSection('extend');return false;">Record the answer below ↓</a></div>` : ''}
-        </div>`;
-      });
-      html += '</div></div></div>';
-      return html;
-    }
-
     function renderExtendPairCard(p) {
-      const c = p.calling, r = p.release;
+      const parts = p.parts, first = parts[0].item;
       const canReassign = userData.canReassign || false;
-      const apptText = c.appointmentStatus || r.appointmentStatus || 'Pending';
-      const ids = c.actionId + ',' + r.actionId;
-      const releaseOwn = r.callingAction === 'Released';   // their own release request (can be declined)
-      return `<div class="item" id="item-${c.actionId}">
-        <div class="item-header"><div class="item-title">📞 ${escapeHtmlDisplay(p.name)} — new calling and release</div></div>
-        <div class="item-meta">One conversation: call as <strong>${escapeHtmlDisplay(p.callingTitle)}</strong>, and release from <strong>${escapeHtmlDisplay(p.releaseFrom)}</strong>.</div>
-        ${schedulePickerHtml(c.callingRefId || c.referenceId, c.scheduledStakeBusiness)}
-        ${c.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(c.assignedToNames)}</div>` : ''}
-        <div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}${apptText !== 'Pending' ? gcalLinkHtml(c.displayText, apptText) : ''}</div>
+      const callings = parts.filter(x => x.kind !== 'release'), releases = parts.filter(x => x.kind === 'release');
+      const apptItem = parts.map(x => x.item).find(it => it.appointmentStatus && it.appointmentStatus !== 'Pending');
+      const apptText = apptItem ? apptItem.appointmentStatus : 'Pending';
+      const ids = parts.map(x => x.item.actionId).join(',');
+      const others = parts.slice(1).map(x => "'" + x.item.actionId + "'").join(',');
+      const what = [callings.length ? (callings.length > 1 ? callings.length + ' callings' : 'new calling') : '',
+                    releases.length ? 'release' : ''].filter(Boolean).join(' and ');
+      const summary = [callings.length ? 'call as <strong>' + callings.map(x => escapeHtmlDisplay(x.calling)).join('</strong>, <strong>') + '</strong>' : '',
+                       releases.length ? 'release from <strong>' + releases.map(x => escapeHtmlDisplay(x.calling)).join('</strong>, <strong>') + '</strong>' : ''].filter(Boolean).join(', and ');
+      const row = (x) => {
+        const it = x.item;
+        if (x.kind === 'release') return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:13px;min-width:150px;">👋 Release from ${escapeHtmlDisplay(x.calling)}</span>
+            <button class="btn btn-success" onclick="handleAction('${it.actionId}', 'extended', this)">✓ Release Extended</button>
+            ${it.callingAction === 'Released' ? `<button class="btn btn-danger" onclick="handleAction('${it.actionId}', 'declined', this)">✗ Keeping previous calling</button>` : ''}
+          </div>`;
+        return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:13px;min-width:150px;">📋 ${escapeHtmlDisplay(x.calling)}</span>
+            <button class="btn btn-success" onclick="handleAction('${it.actionId}', 'accepted', this)">✓ Accepted</button>
+            <button class="btn btn-danger" onclick="handleAction('${it.actionId}', 'declined', this)">✗ Declined</button>
+          </div>`;
+      };
+      return `<div class="item" id="item-${first.actionId}">
+        <div class="item-header"><div class="item-title">📞 ${escapeHtmlDisplay(p.name)} — ${what}</div></div>
+        <div class="item-meta">One conversation: ${summary}.</div>
+        ${schedulePickerHtml(first.callingRefId || first.referenceId, first.scheduledStakeBusiness)}
+        ${first.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(first.assignedToNames)}</div>` : ''}
+        <div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}${apptText !== 'Pending' ? gcalLinkHtml(first.displayText, apptText) : ''}</div>
         <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:8px;">
+          ${callings.map(row).join('')}${releases.map(row).join('')}
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <span style="font-size:13px;min-width:120px;">📋 New calling</span>
-            <button class="btn btn-success" onclick="handleAction('${c.actionId}', 'accepted', this)">✓ Accepted</button>
-            <button class="btn btn-danger" onclick="handleAction('${c.actionId}', 'declined', this)">✗ Declined</button>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <span style="font-size:13px;min-width:120px;">👋 Release</span>
-            <button class="btn btn-success" onclick="handleAction('${r.actionId}', 'extended', this)">✓ Release Extended</button>
-            ${releaseOwn ? `<button class="btn btn-danger" onclick="handleAction('${r.actionId}', 'declined', this)">✗ Keeping previous calling</button>` : ''}
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${c.actionId}', '${escapeHtml(c.displayText)}', ['${r.actionId}'])">↻ Reassign both</button>` : ''}
-            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${c.actionId}', this)">🗂️ Send both to Bin</button>` : ''}
+            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${first.actionId}', '${escapeHtml(first.displayText)}', [${others}])">↻ Reassign all</button>` : ''}
+            ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${first.actionId}', this)">🗂️ Send all to Bin</button>` : ''}
           </div>
           ${apptText === 'Pending' ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-              <input type="date" id="apptDate_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <input type="time" id="apptTime_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
-              <button class="btn btn-primary btn-sm" onclick="scheduleAppointmentGroup('${ids}', '${c.actionId}', this)">📅 Appointment Scheduled</button>
+              <input type="date" id="apptDate_${first.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <input type="time" id="apptTime_${first.actionId}" class="form-input" style="width:auto;font-size:12px;">
+              <button class="btn btn-primary btn-sm" onclick="scheduleAppointmentGroup('${ids}', '${first.actionId}', this)">📅 Appointment Scheduled</button>
             </div>` : ''}
         </div>
-        ${renderCallingControls(c)}
+        ${renderCallingControls(first)}
       </div>`;
     }
 
@@ -2714,27 +2678,32 @@
     // call AND set the appointment, in one step (mirrors ordination interview scheduling).
     // A member's calling + release in the bin: one assignment for both — always the presidency (SPB).
     function renderExtendAssignPairCard(p, spOptions) {
-      const c = p.calling, r = p.release;
-      const ids = c.actionId + ',' + r.actionId;
+      const parts = p.parts, c = parts[0].item;
+      const ids = parts.map(x => x.item.actionId).join(',');
+      const callings = parts.filter(x => x.kind !== 'release'), releases = parts.filter(x => x.kind === 'release');
+      const what = [callings.length ? (callings.length > 1 ? callings.length + ' callings' : 'new calling') : '',
+                    releases.length ? 'release' : ''].filter(Boolean).join(' and ');
+      const summary = [callings.length ? 'call as <strong>' + callings.map(x => escapeHtmlDisplay(x.calling)).join('</strong>, <strong>') + '</strong>' : '',
+                       releases.length ? 'release from <strong>' + releases.map(x => escapeHtmlDisplay(x.calling)).join('</strong>, <strong>') + '</strong>' : ''].filter(Boolean).join(', and ');
       const assignedInfo = c.isCC
         ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${c.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(c.assignedToNames) : ''} — you may also assign this</div>`
         : (c.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtmlDisplay(c.assignedToNames)}</div>` : '');
       return `<div class="item">
-        <div class="item-header"><div class="item-title">🗂️ ${escapeHtmlDisplay(p.name)} — new calling and release</div></div>
-        <div class="item-meta">One conversation: call as <strong>${escapeHtmlDisplay(p.callingTitle)}</strong>, and release from <strong>${escapeHtmlDisplay(p.releaseFrom)}</strong>. Assign both to one member of the Stake Presidency.</div>
+        <div class="item-header"><div class="item-title">🗂️ ${escapeHtmlDisplay(p.name)} — ${what}</div></div>
+        <div class="item-meta">One conversation: ${summary}. Assign all of it to one member of the Stake Presidency.</div>
         ${assignedInfo}
         <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <select id="extAssignSp_${c.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
               <option value="">Select SP member...</option>${spOptions}
             </select>
-            <button class="btn btn-success" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, false)">Assign both</button>
+            <button class="btn btn-success" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, false)">Assign all</button>
             ${(userData && userData.isPresidency) ? `<button class="btn btn-secondary" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, false, true)">🙋 Assign Myself</button>` : ''}
           </div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
             <input type="date" id="extAssignDate_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
             <input type="time" id="extAssignTime_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
-            <button class="btn btn-primary" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, true)">Schedule &amp; Assign both</button>
+            <button class="btn btn-primary" onclick="assignExtendGroup('${ids}', '${c.actionId}', this, true)">Schedule &amp; Assign all</button>
           </div>
         </div>
         ${renderCallingControls(c)}
@@ -2748,7 +2717,7 @@
       if (withSchedule) {
         const d = (document.getElementById('extAssignDate_' + inputId) || {}).value || '';
         const t = (document.getElementById('extAssignTime_' + inputId) || {}).value || '';
-        if (!d || !t) { showToast('Pick a date and time, or use “Assign both” to assign without an appointment', 'error'); return; }
+        if (!d || !t) { showToast('Pick a date and time, or use “Assign all” to assign without an appointment', 'error'); return; }
         appointmentDateTime = d + 'T' + t;
       }
       const itemEl = btn ? btn.closest('.item') : null;
@@ -2757,7 +2726,7 @@
       try {
         await performAction('assignExtendCallGroup', { itemIds: ids, spMemberId: spMemberId, appointmentDateTime: appointmentDateTime });
         if (itemEl) itemEl.remove();
-        showToast(withSchedule ? 'Both assigned & scheduled' : 'Both assigned', 'success');
+        showToast(withSchedule ? 'Assigned & scheduled' : 'Assigned', 'success');
         scheduleSilentRefresh();
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
