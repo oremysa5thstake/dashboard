@@ -1050,7 +1050,7 @@
       'ordinationInterviewPassed', 'ordinationInterviewReturnToBishop',
       'ordinationInterviewSchedulePassed', 'ordinationInterviewScheduleReturnToBishop',
       // the schedule/assign bins
-      'assignExtendCall', 'assignExtendCallGroup', 'assignSettingApart', 'assignOrdinationInterview',
+      'assignExtendCall', 'assignExtendCallGroup', 'assignSettingApart', 'assignSettingApartGroup', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
       // appointments
       'scheduleAppointment', 'rescheduleAppointment', 'dismissAppointment',
@@ -2243,11 +2243,83 @@
       return m && m.length ? m[m.length - 1].replace(/[()]/g, '') : '';
     }
 
+    // ── A member set apart to several callings at once: one card (2026-10-11) ──
+    function saMemberOf(item) {
+      return (String(item.notes || '').match(/Member:\s*(.+)/) || [])[1] || item.callingMember || String(item.displayText || '').split(' — ')[0].replace(/^Schedule & assign — set apart /, '').split(' as ')[0];
+    }
+    function saCallingOf(item) {
+      return (String(item.notes || '').match(/Calling:\s*(.+)/) || [])[1] || (String(item.displayText || '').match(/ as (.+?) \(/) || [])[1] || '';
+    }
+    // [{ single } | { group: { name, items } }] — same member (and, for assigned tasks, same assignee).
+    function groupSettingAparts(items, keyExtra) {
+      const by = {}, out = [];
+      (items || []).forEach(it => {
+        if (it.actionType === 'oou-record') { out.push({ single: it }); return; }
+        const k = saMemberOf(it).trim().toLowerCase() + '|' + (keyExtra ? keyExtra(it) : '');
+        if (by[k]) { const e = by[k]; if (e.single) { e.group = { name: saMemberOf(e.single).trim(), items: [e.single] }; delete e.single; } e.group.items.push(it); return; }
+        const e = { single: it }; out.push(e); by[k] = e;
+      });
+      return out;
+    }
+    async function setApartGroup(ids, btn) {
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      const itemEl = btn ? btn.closest('.item') : null;
+      setSyncing(true);
+      try {
+        for (const id of ids.split(',')) await performAction('setApart', { itemId: id });
+        if (itemEl) itemEl.remove();
+        showToast('Recorded as set apart', 'success');
+        scheduleSilentRefresh();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Set Apart'; }
+      } finally { setSyncing(false); }
+    }
+    async function assignSettingApartGroupUI(ids, inputId, btn, withSchedule) {
+      const assigneeId = (document.getElementById('saAssignWho_' + inputId) || {}).value || '';
+      if (!assigneeId) { showToast('Please choose who will set them apart', 'error'); return; }
+      let appointmentDateTime = '';
+      if (withSchedule) {
+        const d = (document.getElementById('saAssignDate_' + inputId) || {}).value || '', t = (document.getElementById('saAssignTime_' + inputId) || {}).value || '';
+        if (!d || !t) { showToast('Pick a date and time, or use “Assign all” to assign without one', 'error'); return; }
+        appointmentDateTime = d + 'T' + t;
+      }
+      const itemEl = btn ? btn.closest('.item') : null;
+      if (itemEl) { itemEl.style.opacity = '0.25'; itemEl.style.pointerEvents = 'none'; }
+      setSyncing(true);
+      try {
+        await performAction('assignSettingApartGroup', { itemIds: ids, assigneeId: assigneeId, appointmentDateTime: appointmentDateTime });
+        if (itemEl) itemEl.remove();
+        showToast(withSchedule ? 'Assigned & scheduled' : 'Assigned', 'success');
+        scheduleSilentRefresh();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (itemEl) { itemEl.style.opacity = '1'; itemEl.style.pointerEvents = ''; }
+      } finally { setSyncing(false); }
+    }
+
     function renderSettingApartsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'settingAparts\')"><div class="section-title">🙏 Setting Aparts</div><div class="section-meta">' + helpBtn('settingAparts') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-settingAparts"><div class="section-inner">';
 
-      items.forEach(item => {
+      groupSettingAparts(items, it => it.assignedToNames || '').forEach(entry => {
+        if (entry.group) {
+          const g = entry.group, first = g.items[0];
+          const ids = g.items.map(it => it.actionId + '_SOURCEROW_' + (it.sourceRow || 0)).join(',');
+          const ordain = g.items.some(it => /\bOrdination:/.test(String(it.notes || '')));
+          html += `<div class="item" id="item-${first.actionId}">
+            <div class="item-header"><div class="item-title">🙏 ${escapeHtmlDisplay(g.name)} — set apart as ${escapeHtmlDisplay(g.items.map(saCallingOf).join(', '))}</div></div>
+            ${first.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(first.assignedToNames)}</div>` : ''}
+            <div class="item-meta" style="color:#666;font-style:italic;">One setting apart for all ${g.items.length} callings.</div>
+            <div class="item-actions">
+              <button class="btn btn-success" onclick="setApartGroup('${ids}', this)">${ordain ? '✓ Set Apart &amp; Ordained' : '✓ Set Apart'}</button>
+              ${userData.canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendSettingApartToBin('${first.actionId}', this)">🤲 Send to Bin</button>` : ''}
+            </div>
+            ${renderCallingControls(first)}
+          </div>`;
+          return;
+        }
+        const item = entry.single;
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         const ward = item.callingWard || wardFromDisplayText(item.displayText);
         const memberName = item.callingMember || String(item.displayText || '').split(' — ')[0];
@@ -2570,8 +2642,30 @@
       const hcOptions = (highCouncilors || []).map(hc =>
         `<option value="${escapeHtml(hc.id)}">${escapeHtml(hc.name)}</option>`).join('');
 
-      groupExtendPairs(items).forEach(entry => {
-        if (entry.pair) { html += renderExtendAssignPairCard(entry.pair, spOptions); return; }
+      groupSettingAparts(items).forEach(entry => {
+        if (entry.group) {
+          const g = entry.group, c = g.items[0];
+          const ids = g.items.map(it => it.actionId).join(',');
+          html += `<div class="item">
+            <div class="item-header"><div class="item-title">🤲 ${escapeHtmlDisplay(g.name)} — set apart as ${escapeHtmlDisplay(g.items.map(saCallingOf).join(', '))}</div></div>
+            <div class="item-meta">One setting apart for all ${g.items.length} callings. Assign it to one member of the Stake Presidency.</div>
+            <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                <select id="saAssignWho_${c.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
+                  <option value="">Select SP member...</option>${spOptions}
+                </select>
+                <button class="btn btn-success" onclick="assignSettingApartGroupUI('${ids}', '${c.actionId}', this, false)">Assign all</button>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+                <input type="date" id="saAssignDate_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
+                <input type="time" id="saAssignTime_${c.actionId}" class="form-input" style="width:auto;font-size:12px;">
+                <button class="btn btn-primary" onclick="assignSettingApartGroupUI('${ids}', '${c.actionId}', this, true)">Schedule &amp; Assign all</button>
+              </div>
+            </div>
+            ${renderCallingControls(c)}
+          </div>`;
+          return;
+        }
         const item = entry.single;
         const assignedInfo = item.isCC
           ? `<div class="item-meta" style="color:#888;font-style:italic;">CC'd${item.assignedToNames ? ' — assigned to ' + escapeHtmlDisplay(item.assignedToNames) : ''} — you may also assign this</div>`
@@ -7913,6 +8007,11 @@
           break;
 
         // ── Executive secretary ──
+        case 'assignSettingApartGroup': {
+          String(params.itemIds || '').split(',').forEach(id => { s.saAssigned = s.saAssigned || {}; s.saAssigned[id] = params.assigneeId; });
+          showToast('Assigned — one setting apart for all of their callings.', 'success');
+          break;
+        }
         case 'assignExtendCallGroup': {
           const first = String(params.itemIds || '').split(',')[0];
           return demoPerformAction('assignExtendCall', { itemId: first, spMemberId: params.spMemberId, appointmentDateTime: params.appointmentDateTime });
