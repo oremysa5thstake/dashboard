@@ -173,6 +173,7 @@
   .tb-f b{font-weight:600;word-break:break-word}
   .tb-lab{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
     color:#8a929b;margin-bottom:10px}
+  .tb-ro{font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:#333;padding:6px 0}
   .tb-lab select,.tb-lab input,.tb-lab textarea{display:block;width:100%;font:inherit;font-size:13px;
     font-weight:400;text-transform:none;letter-spacing:0;color:#222;margin-top:3px;padding:6px 8px;
     border:1px solid #ccd1d6;border-radius:5px;box-sizing:border-box}
@@ -2402,6 +2403,11 @@ function renderTaskDetail(g) {
       </div>
       <button class="tb-save" onclick="saveAssignees('${esc(g.baseId)}')">Save who it's assigned to</button>
     </div>
+    <label class="tb-lab">Task text
+      ${/^extend-(calling|release|assign)$/.test(g.actionType || '')
+        ? `<div class="tb-ro">${esc(g.displayText || '')}<div style="font-size:12px;color:#777;margin-top:3px;">An extend task names the member and calling, which the system relies on — not editable here.</div></div>`
+        : `<textarea rows="2" onchange="saveTask('${esc(g.baseId)}','displayText',this.value)">${esc(g.displayText || '')}</textarea>`}
+    </label>
     <label class="tb-lab">Status
       <select onchange="saveTask('${esc(g.baseId)}','status',this.value)">
         ${TASKS.statuses.map(v => '<option' + (v === g.status ? ' selected' : '') + '>' + esc(v) + '</option>').join('')}
