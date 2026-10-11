@@ -464,6 +464,21 @@
     </div>
   </div>
 
+  <!-- Stake Callings Roster Modal (roster-update tasks) -->
+  <div class="modal-overlay" id="rosterModal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <span class="modal-title">📇 Update Stake Callings</span>
+        <button class="modal-close" onclick="closeRosterModal()">×</button>
+      </div>
+      <div class="modal-body" id="rosterBody"><div class="ms-empty">Loading…</div></div>
+      <div class="modal-footer" id="rosterFooter" style="flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-secondary" onclick="closeRosterModal()">Cancel</button>
+        <button class="btn btn-primary" id="rosterSaveBtn" onclick="saveRosterEntry()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Create Task Modal -->
   <div class="modal-overlay" id="newTaskModal">
     <div class="modal">
@@ -2337,7 +2352,7 @@
     function groupSettingAparts(items, keyExtra) {
       const by = {}, out = [];
       (items || []).forEach(it => {
-        if (it.actionType === 'oou-record') { out.push({ single: it }); return; }
+        if (it.actionType === 'oou-record' || it.actionType === 'roster-update') { out.push({ single: it }); return; }
         const k = saMemberOf(it).trim().toLowerCase() + '|' + (keyExtra ? keyExtra(it) : '');
         if (by[k]) { const e = by[k]; if (e.single) { e.group = { name: saMemberOf(e.single).trim(), items: [e.single] }; delete e.single; } e.group.items.push(it); return; }
         const e = { single: it }; out.push(e); by[k] = e;
@@ -2410,6 +2425,23 @@
         // Companion task for Out-of-Unit members: collect their contact info and
         // send it to the stake clerks. Separate from the Set Apart task so the
         // two can be completed independently and in either order.
+        // Stake Callings roster task for the stake clerks (Roster.js).
+        if (item.actionType === 'roster-update') {
+          const rn = String(item.notes || '');
+          const rRemove = /^Roster:\s*remove/m.test(rn);
+          const rStatus = (rn.match(/^Status:\s*(.+)$/m) || [])[1];
+          html += `<div class="item" id="item-${item.actionId}">
+            <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
+            ${assignedInfo}
+            <div class="item-meta" style="color:#1e3a5f;background:#e8f0fb;padding:8px;border-radius:4px;margin-top:6px;">📇 ${rRemove
+              ? '<strong>Released.</strong> If someone is taking this slot, this closes itself when they are saved. If nobody is, clear the row.'
+              : '<strong>New on the Stake Callings sheet.</strong> Collect their details and pick their slot. You can save before they have a Slack ID — invite them to Slack with their email, then come back and add it.'}</div>
+            ${rStatus ? `<div class="item-meta" style="color:#856404;font-weight:600;">⏳ ${escapeHtmlDisplay(rStatus)}</div>` : ''}
+            <div class="item-actions">${rosterTaskButton(item)}</div>
+          </div>`;
+          return;
+        }
+
         if (item.actionType === 'oou-record') {
           html += `<div class="item" id="item-${item.actionId}">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
@@ -3375,6 +3407,8 @@
           const oouMember = escapeHtml(item.callingMember || String(item.displayText || '').split(' — ')[0]).replace(/'/g, "\\'");
           return `<button class="btn btn-primary" onclick="openOutOfUnitModal('${a}', '${oouMember}', '${oouWard}')">📇 Fill Out Record Form</button>`;
         }
+        case 'roster-update':
+          return rosterTaskButton(item);
         case 'ordination-record-lcr':
           return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markOrdinationLcrRecorded', this)">✓ Mark Recorded on LCR</button>`;
         case 'ordination-print-certificate':
@@ -3423,7 +3457,7 @@
       { key: 'assign',   label: '🗂️ To Schedule / Assign',             types: ['extend-assign', 'setting-apart-assign'] },
       { key: 'appt',     label: '📅 Appointments',                     types: ['appointment-scheduling'] },
       { key: 'business', label: '⛪ Stake Business',                    types: ['stake-business-confirm', 'sustaining-report'] },
-      { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record'] },
+      { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record', 'roster-update'] },
       { key: 'ord',      label: '🙏 Ordinations',                      types: ['coordinate-ordination', 'ordination-notification', 'ordination-report', 'ordination-interview', 'ordination-interview-schedule', 'ordination-record-lcr', 'ordination-print-certificate', 'ordination-sign-certificate', 'ordination-deliver-certificate'] },
       { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
       { key: 'tasks',    label: '📋 Tasks &amp; Mentions',              types: ['task', 'task-primary', 'mention'] },
@@ -6820,6 +6854,148 @@
     }
 
     // ============================================================
+    // STAKE CALLINGS ROSTER (roster-update tasks — Roster.js)
+    // ============================================================
+    // A new person sustained to a calling with a Stake Callings row: the clerk picks the slot and
+    // fills the row. Saving without a Slack ID is allowed (they have to be invited by email first)
+    // and keeps the task open. A release: one button clears the row, unless a replacement's save
+    // already did.
+
+    let currentRosterItemId = null;
+    let currentRosterInfo = null;
+
+    function rosterTaskButton(item) {
+      const a = item.actionId;
+      if (/^Roster:\s*remove/m.test(String(item.notes || ''))) {
+        return `<button class="btn btn-danger" onclick="clearRosterRow('${a}', this)">🧹 Clear Row</button>`;
+      }
+      const saved = /^Status:/m.test(String(item.notes || ''));
+      return `<button class="btn btn-primary" onclick="openRosterModal('${a}')">📇 ${saved ? 'Add Slack ID / Edit' : 'Update Stake Callings'}</button>`;
+    }
+
+    async function openRosterModal(actionId) {
+      currentRosterItemId = actionId;
+      currentRosterInfo = null;
+      document.getElementById('rosterBody').innerHTML = '<div class="ms-empty">Loading…</div>';
+      document.getElementById('rosterFooter').innerHTML = `<button class="btn btn-secondary" onclick="closeRosterModal()">Cancel</button>
+        <button class="btn btn-primary" id="rosterSaveBtn" onclick="saveRosterEntry()" disabled>Save</button>`;
+      document.getElementById('rosterModal').classList.add('show');
+      try {
+        const info = await performAction('getRosterTaskInfo', { itemId: actionId });
+        currentRosterInfo = info;
+        renderRosterForm(info);
+      } catch (e) {
+        document.getElementById('rosterBody').innerHTML = '<div class="ms-empty">⚠️ Could not load: ' + escapeHtmlDisplay(e.message || 'error') + '</div>';
+      }
+    }
+
+    function closeRosterModal() {
+      document.getElementById('rosterModal').classList.remove('show');
+      currentRosterItemId = null;
+      currentRosterInfo = null;
+    }
+
+    function renderRosterForm(info) {
+      const v = info.saved || {};
+      const esc = escapeHtmlDisplay;
+      const slotOpts = (info.slots || []).map(sl => {
+        const who = sl.name ? (sl.name + (sl.leaving ? ' — being released' : '')) : 'empty';
+        return `<option value="${sl.row}" ${sl.row === info.suggestedRow ? 'selected' : ''}>${esc(sl.calling)} — ${esc(who)}</option>`;
+      }).join('');
+      const wardOpts = ['<option value="">— none —</option>'].concat(IN_UNIT_WARDS.map(w => {
+        const full = w + ' Ward';
+        return `<option ${String(v.ward || '') === full ? 'selected' : ''}>${full}</option>`;
+      })).join('');
+      const presOpts = ['<option value="">— none —</option>'].concat((info.presidency || []).map(p =>
+        `<option ${String(v.presidency || '') === p ? 'selected' : ''}>${esc(p)}</option>`)).join('');
+      const field = (id, label, val, attrs) => `<div class="form-group"><label class="form-label">${label}</label>
+        <input class="form-input" id="${id}" value="${esc(val == null ? '' : String(val))}" ${attrs || ''}></div>`;
+      document.getElementById('rosterBody').innerHTML = `
+        <div style="font-size:13px;color:#555;line-height:1.5;background:#e8f0fb;border-radius:6px;padding:10px 12px;margin-bottom:14px;">
+          <strong>${esc(info.member)}</strong> — ${esc(info.calling)}${info.ward ? ' (' + esc(info.ward) + ')' : ''}.
+          Saving writes their row on Stake Callings${/high councilor|stake president/i.test(info.calling) ? ', their approval/sustaining vote columns' : ''}${info.wardScoped ? '' : ' and, if you give a ward, that ward\'s Ward HC on Stake Business Assignments'}.
+          Whoever held the slot is replaced. Notifications start as <em>Hourly</em> (primary) and <em>Daily</em> (CC'd).
+        </div>
+        <div class="form-group"><label class="form-label">Slot *</label>
+          <select class="form-input" id="rosterSlot" onchange="rosterSlotChanged()">${slotOpts}</select>
+          <div id="rosterSlotWarn" class="item-meta" style="color:#b45309;margin-top:4px;"></div></div>
+        ${field('rosterTitle', 'Title Name * <span style="color:#888;font-weight:400;">(e.g. Bro. Smith)</span>', v.title || info.titleGuess)}
+        ${field('rosterName', 'Full Name *', v.name || info.member)}
+        ${field('rosterEmail', 'Email * <span style="color:#888;font-weight:400;">(used to invite them to Slack)</span>', v.email, 'type="email" placeholder="name@example.com"')}
+        ${field('rosterPhone', 'Phone', v.phone, 'type="tel" placeholder="e.g. 801-555-1234"')}
+        ${info.wardScoped ? '' : `<div class="form-group"><label class="form-label">Ward Assignment</label><select class="form-input" id="rosterWard">${wardOpts}</select></div>`}
+        ${field('rosterResp1', 'First Responsibility', v.resp1)}
+        ${field('rosterResp2', 'Second Responsibility', v.resp2)}
+        <div class="form-group"><label class="form-label">Presidency</label><select class="form-input" id="rosterPresidency">${presOpts}</select></div>
+        ${field('rosterSlack', 'Slack ID <span style="color:#888;font-weight:400;">(once they have joined Slack — leave blank for now if not)</span>', v.slackId, 'placeholder="U0…" autocapitalize="characters"')}`;
+      document.getElementById('rosterSaveBtn').disabled = !(info.slots || []).length;
+      rosterSlotChanged();
+    }
+
+    function rosterSlotChanged() {
+      const info = currentRosterInfo; if (!info) return;
+      const row = parseInt((document.getElementById('rosterSlot') || {}).value, 10);
+      const sl = (info.slots || []).find(x => x.row === row);
+      const warn = document.getElementById('rosterSlotWarn');
+      if (!warn) return;
+      const nameKey = x => String(x || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+      warn.textContent = (sl && sl.name && !sl.leaving && nameKey(sl.name) !== nameKey(info.member))
+        ? '⚠️ ' + sl.name + ' is in this slot and is not being released — saving replaces them.' : '';
+    }
+
+    async function saveRosterEntry() {
+      const g = id => ((document.getElementById(id) || {}).value || '').trim();
+      const params = { itemId: currentRosterItemId, row: g('rosterSlot'), title: g('rosterTitle'), name: g('rosterName'),
+        email: g('rosterEmail'), phone: g('rosterPhone'), ward: g('rosterWard'), resp1: g('rosterResp1'),
+        resp2: g('rosterResp2'), presidency: g('rosterPresidency'), slackId: g('rosterSlack') };
+      if (!params.row || !params.title || !params.name || !params.email) {
+        showToast('Slot, title name, full name and email are required', 'error'); return;
+      }
+      const btn = document.getElementById('rosterSaveBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('saveRosterEntry', params);
+        const esc = escapeHtmlDisplay;
+        const lines = ['✓ Saved to <strong>' + esc(res.slot || 'Stake Callings') + '</strong>' + (res.replaced ? ' (replacing ' + esc(res.replaced) + ')' : '') + '.'];
+        if (res.voteColumns) lines.push('✓ Their approval / sustaining vote columns are updated.');
+        if (res.wardAssignments) lines.push('✓ Stake Business Assignments updated.');
+        if (res.complete) {
+          lines.push('✓ Enrolled on the dashboard — task complete.');
+          if (res.dashboardUrl) lines.push(`Their dashboard link:<br><input class="form-input" readonly value="${esc(res.dashboardUrl)}" onclick="this.select()" style="margin-top:4px;">`);
+        } else {
+          lines.push('⏳ <strong>Slack ID still needed.</strong> Invite them to Slack at ' + esc(params.email) + '; once they join, reopen this task and add their Slack ID. The task stays open until then.');
+        }
+        document.getElementById('rosterBody').innerHTML = '<div style="line-height:1.7;font-size:14px;">' + lines.join('<br>') + '</div>';
+        document.getElementById('rosterFooter').innerHTML = '<button class="btn btn-primary" onclick="closeRosterModal()">Done</button>';
+        if (res.complete) {
+          const card = document.getElementById('item-' + params.itemId);
+          if (card) { card.style.opacity = '0.35'; card.style.pointerEvents = 'none'; }
+        }
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      } finally { setSyncing(false); }
+    }
+
+    async function clearRosterRow(actionId, btn) {
+      if (!confirm('Clear this person from the Stake Callings sheet (and their vote columns, if any)?')) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('clearRosterRow', { itemId: actionId });
+        showToast(res.alreadyGone ? 'They were already off the sheet — task closed' : 'Cleared ' + (res.slot || 'the row'), 'success');
+        const card = document.getElementById('item-' + actionId);
+        if (card) card.remove();
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '🧹 Clear Row'; }
+      } finally { setSyncing(false); }
+    }
+
+    // ============================================================
     // ORDINATION SUSTAINING — Report Sustained + Transfer
     // ============================================================
 
@@ -7869,6 +8045,14 @@
           displayText: DEMO_CAST.dallin + ' — deliver the certificate to him' });
       }
 
+      // ── Stake Callings roster: Tanner is a new High Councilor (same moment as his setting apart) ──
+      if (s.sus[4] === true && !s.rosterDone) data.settingAparts.push({
+        actionId: 'DEMO_ROSTER_TANNER', actionType: 'roster-update',
+        displayText: 'Stake Callings: add ' + DEMO_CAST.tanner + ' as High Councilor',
+        notes: 'Member: ' + DEMO_CAST.tanner + '\nCalling: High Councilor\nWard: 32nd Ward\nRoster: add'
+             + (s.rosterSaved ? '\nStatus: saved — Slack ID still needed' : '')
+      });
+
       // Presidency / clerks / secretaries only — a high councilor has no such section.
       if (DEMO_ROLE !== 'hc') data.approvalStatus = demoApprovalStatus();
       data.ccItems = demoCcItems();
@@ -7928,7 +8112,7 @@
     // Demo replacement for the backend API. Mutates state, saves, and lets the
     // normal scheduleSilentRefresh path re-render from the new state.
     // Actions that only read — never logged, never undoable.
-    const DEMO_READ_ONLY = { getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1,
+    const DEMO_READ_ONLY = { getRosterTaskInfo: 1, getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1,
       sbOpenSundays: 1, getHcsWithPendingApprovals: 1, getStakeBusinessAssignments: 1, conductingCandidates: 1,
       sbBlockouts: 1, blockedReleases: 1, getUsers: 1, getTaskAssignments: 1, runScript: 1, syncSheets: 1 };
 
@@ -7948,6 +8132,7 @@
         extended: 'Marked a release extended', sbConfirm: 'Confirmed conducting stake business',
         sustainingReportMark: 'Marked a sustaining', sustainingReportAll: 'Marked all remaining sustained',
         setApart: 'Marked someone set apart', submitOutOfUnitRecord: 'Submitted an out-of-unit record',
+        saveRosterEntry: 'Updated the Stake Callings sheet', clearRosterRow: 'Cleared a Stake Callings row',
         saveOrdinationDate: 'Saved an ordination date', reportSustaining: 'Reported an ordination sustaining',
         submitOrdinationReport: 'Reported an ordination',
         markOrdinationLcrRecorded: 'Recorded an ordinance on LCR',
@@ -7960,6 +8145,7 @@
       return map[action] || ('Recorded: ' + action);
     }
 
+    let demoActionResult = null;   // an action whose UI reads a richer result than { success }
     async function demoPerformAction(action, params) {
       const s = demoState;
       const id = String(params.itemId || '');
@@ -8048,6 +8234,25 @@
           if (id.indexOf('DEMO_SA_SADIE') === 0) s.saSadie = true;
           if (id.indexOf('DEMO_SA_EMMETT') === 0) s.saEmmett = true;
           break;
+        case 'getRosterTaskInfo': {
+          const leavingAt = 7;   // the demo's outgoing high councilor
+          return { success: true, mode: 'add', member: DEMO_CAST.tanner, calling: 'High Councilor', ward: '32nd Ward',
+            slots: DEMO_HC_NAMES.concat(['Bro. Lindqvist']).map((n, i) => ({ row: 12 + i, calling: 'High Councilor ' + (i + 1),
+              name: n.replace(/^Bro\. /, 'Brother '), title: n, ward: '', leaving: i === leavingAt })),
+            suggestedRow: 12 + leavingAt, presidency: DEMO_SP.slice(), wardScoped: false,
+            titleGuess: 'Bro. ' + DEMO_CAST.tanner.split(' ').pop(),
+            saved: s.rosterSaved ? { name: DEMO_CAST.tanner, title: 'Bro. ' + DEMO_CAST.tanner.split(' ').pop(), email: s.rosterSaved } : null };
+        }
+        case 'saveRosterEntry':
+          if (params.slackId) { s.rosterDone = true; }
+          else s.rosterSaved = params.email || 'saved';
+          // Falls through to the log + save below; the form reads this result.
+          demoActionResult = { success: true, complete: !!params.slackId, slot: 'High Councilor ' + (parseInt(params.row, 10) - 11),
+            replaced: 'Brother Highsmith', voteColumns: true, wardAssignments: params.ward ? 2 : 0,
+            dashboardUrl: params.slackId ? '(demo — the real dashboard link appears here)' : '' };
+          break;
+        case 'clearRosterRow':
+          return { success: true };
         case 'submitOutOfUnitRecord':
           if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
           showToast('In real life this emails the member\'s details + ward-clerk instructions to the stake clerk and membership clerk. (Demo: no email sent.)', 'success');
@@ -8286,7 +8491,9 @@
         if (s.log.length > 30) s.log = s.log.slice(-30);
       }
       demoSave();
-      return { success: true };
+      const _res = demoActionResult || { success: true };
+      demoActionResult = null;
+      return _res;
     }
 
     // ── Demo Member Status ──────────────────────────────────────
