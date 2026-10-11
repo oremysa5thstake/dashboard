@@ -735,7 +735,7 @@
     // refresh within ten minutes of a deploy runs the OLD code — which cost a full round trip of
     // "it's still slow" when the fix was already live and byte-identical on the server. Now the
     // console says which build is actually running, so that question is answerable in one look.
-    const BUILD_STAMP = '2026-10-11 calling-groups';
+    const BUILD_STAMP = '2026-10-11 hotfix-today';
     console.log('%cDashboard build ' + BUILD_STAMP,
                 'background:#1a3a6b;color:#fff;padding:2px 6px;border-radius:3px');
     window.BUILD_STAMP = BUILD_STAMP;
@@ -1935,6 +1935,89 @@
         if (k) byKey[k] = entry;
       });
       return out;
+    }
+
+    // "Tanner Gren — extend release from Ward Clerk (25th Ward)" — the person first, as people scan
+    // for names. Display only: the stored titles keep their wording (the server parses them).
+    function extendTitle(item) {
+      const t = String((item && item.displayText) || '');
+      const m = t.match(/extend (calling|release) to (.+?) (as|from) (.+)$/i);
+      if (!m) return t;
+      return m[2].trim() + ' — extend ' + m[1].toLowerCase() + ' ' + m[3].toLowerCase() + ' ' + m[4].trim();
+    }
+
+    // "Oct 10, 2026 at 7:00pm" → Date (local), or null.
+    function parseApptText(t) {
+      const m = String(t || '').match(/([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)?)?/i);
+      if (!m) return null;
+      const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].slice(0, 3).toLowerCase());
+      if (mon < 0) return null;
+      let h = m[4] ? parseInt(m[4], 10) : 0; const min = m[5] ? parseInt(m[5], 10) : 0; const ap = (m[6] || '').toLowerCase();
+      if (ap === 'pm' && h !== 12) h += 12; if (ap === 'am' && h === 12) h = 0;
+      return new Date(parseInt(m[3], 10), mon, parseInt(m[2], 10), h, min);
+    }
+
+    // ── 📅 Extending Today (2026-10-10) — for the presidency, secretaries and clerks: every open
+    // calling / release extend whose appointment is today, whoever it is assigned to. Built from the
+    // person's own extend tasks plus the extend tasks they are CC'd on (they are CC'd on all of them).
+    function renderExtendsTodaySection(data) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const seen = {}, rows = [], noAppt = [];
+      const consider = (it, mine) => {
+        if (!it || !/^extend-(calling|release)$/.test(it.actionType || '') || (it.status && it.status !== 'Open')) return;
+        const base = String(it.actionId || '').replace(/_[PC]\d*$/, '');
+        if (seen[base]) return;
+        const appt = mine ? it.appointmentStatus : ((String(it.notes || '').match(/Appointment:\s*(.+)/) || [])[1] || '');
+        const when = parseApptText(appt);
+        if (!when) { noAppt.push({ it, mine }); return; }
+        const d = new Date(when); d.setHours(0, 0, 0, 0);
+        if (d.getTime() !== today.getTime()) return;
+        seen[base] = true;
+        rows.push({ it, mine, when });
+      };
+      (data.extendItems || []).forEach(it => consider(it, true));
+      (data.ccItems || []).forEach(it => consider(it, false));
+      if (!rows.length) return '';
+      rows.sort((a, b) => a.when - b.when);
+      // A member's calling + release at the same appointment read as one line.
+      const byPerson = {}, lines = [];
+      rows.forEach(r => {
+        const sj = extendSubjectOf(r.it);
+        const k = sj ? sj.name.toLowerCase() + '|' + r.when.getTime() : r.it.actionId;
+        if (byPerson[k]) { byPerson[k].parts.push(r); return; }
+        byPerson[k] = { parts: [r], name: sj ? sj.name : '' };
+        lines.push(byPerson[k]);
+      });
+      // The other half of a calling + release pair shares the appointment (it is stored on one task).
+      noAppt.forEach(x => {
+        const sj = extendSubjectOf(x.it);
+        if (!sj) return;
+        const L = lines.find(l => l.name.toLowerCase() === sj.name.toLowerCase()
+                                && (l.parts[0].it.assignedToNames || '') === (x.it.assignedToNames || '')
+                                && !l.parts.some(p => (extendSubjectOf(p.it) || {}).kind === sj.kind));
+        if (L) L.parts.push({ it: x.it, mine: x.mine, when: L.parts[0].when });
+      });
+      const tf = d => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'extendsToday\')"><div class="section-title">📅 Extending Today</div><div class="section-meta">' + helpBtn('extendsToday') + '<span class="section-count">' + lines.length + '</span><span class="chevron">▼</span></div></div>';
+      html += '<div class="section-content expanded" id="section-extendsToday"><div class="section-inner">';
+      lines.forEach(L => {
+        const first = L.parts[0];
+        const title = L.parts.length > 1
+          ? escapeHtmlDisplay(L.name) + ' — new calling and release'
+          : escapeHtmlDisplay(extendTitle(first.it));
+        const detail = L.parts.length > 1 ? '<div class="item-meta">' + L.parts.map(p => escapeHtmlDisplay(extendTitle(p.it).replace(/^.*? — /, ''))).join(' · ') + '</div>' : '';
+        const who = first.it.assignedToNames || '';
+        const mine = L.parts.some(p => p.mine);
+        html += `<div class="item">
+          <div class="item-header"><div class="item-title">🕒 ${escapeHtmlDisplay(tf(first.when))} — ${title}</div>
+            ${mine ? '<div class="item-badges"><span class="badge badge-info">Yours</span></div>' : ''}</div>
+          ${detail}
+          ${who ? `<div class="item-meta">Extending: ${escapeHtmlDisplay(who)}</div>` : ''}
+          ${mine ? `<div class="item-meta"><a href="#" onclick="scrollToSection('extend');return false;">Record the answer below ↓</a></div>` : ''}
+        </div>`;
+      });
+      html += '</div></div></div>';
+      return html;
     }
 
     function renderExtendPairCard(p) {
