@@ -2449,6 +2449,7 @@
             <div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:6px;">🏠 <strong>Out-of-Unit member</strong> — their record lives in another unit, so an out-of-unit record must be created in the YSA ward. Collect their contact info (the setting apart is a great moment) and submit it to the stake clerks here.</div>
             <div class="item-actions">
               <button class="btn btn-primary" onclick="openOutOfUnitModal('${item.actionId}', '${escapeHtml(memberName).replace(/'/g, "\\'")}', '${escapeHtml(ward).replace(/'/g, "\\'")}')">📇 Fill Out Record Form</button>
+              <button class="btn btn-secondary" onclick="dismissOouRecord('${item.actionId}', this)">✓ Already Has an Out-of-Unit Record</button>
             </div>
           </div>`;
           return;
@@ -3405,7 +3406,8 @@
         case 'oou-record': {
           const oouWard = escapeHtml(item.callingWard || wardFromDisplayText(item.displayText)).replace(/'/g, "\\'");
           const oouMember = escapeHtml(item.callingMember || String(item.displayText || '').split(' — ')[0]).replace(/'/g, "\\'");
-          return `<button class="btn btn-primary" onclick="openOutOfUnitModal('${a}', '${oouMember}', '${oouWard}')">📇 Fill Out Record Form</button>`;
+          return `<button class="btn btn-primary" onclick="openOutOfUnitModal('${a}', '${oouMember}', '${oouWard}')">📇 Fill Out Record Form</button>
+                  <button class="btn btn-secondary" onclick="dismissOouRecord('${a}', this)">✓ Already Has an Out-of-Unit Record</button>`;
         }
         case 'roster-update':
           return rosterTaskButton(item);
@@ -3547,7 +3549,14 @@
         ccGroupItems(openItems).forEach(bucket => {
           const groupOpenHtml = [];
           const pushHtml = (frag) => groupOpenHtml.push(frag);
-          bucket.items.forEach(item => {
+          // One person's extend tasks (several callings, or a calling + release) are one
+          // conversation — the CC'd copy shows the same combined card the assignee sees.
+          const ccEntries = bucket.group.key === 'extend'
+            ? groupExtendPairs(bucket.items, it => it.assignedToNames || '')
+            : bucket.items.map(it => ({ single: it }));
+          ccEntries.forEach(entry => {
+          if (entry.pair) { groupOpenHtml.push(renderExtendPairCard(entry.pair)); return; }
+          const item = entry.single;
           const isExtendCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
           const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
           const isExtend = isExtendCalling || isExtendRelease;
@@ -6816,6 +6825,23 @@
       clearModalDraft();
     }
 
+    // The member already has an out-of-unit record in the YSA ward: nothing to collect or send.
+    async function dismissOouRecord(actionId, btn) {
+      if (!confirm('Close this task because the member already has an out-of-unit record? Nothing is sent to the clerks.')) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        await performAction('dismissOouRecord', { itemId: actionId });
+        showToast('Closed — already has an out-of-unit record', 'success');
+        const card = document.getElementById('item-' + actionId);
+        if (card) card.remove();
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Already Has an Out-of-Unit Record'; }
+      } finally { setSyncing(false); }
+    }
+
     async function submitOutOfUnitRecord() {
       const name = document.getElementById('oouName').value.trim();
       const dob = document.getElementById('oouDob').value;
@@ -8132,7 +8158,7 @@
         extended: 'Marked a release extended', sbConfirm: 'Confirmed conducting stake business',
         sustainingReportMark: 'Marked a sustaining', sustainingReportAll: 'Marked all remaining sustained',
         setApart: 'Marked someone set apart', submitOutOfUnitRecord: 'Submitted an out-of-unit record',
-        saveRosterEntry: 'Updated the Stake Callings sheet', clearRosterRow: 'Cleared a Stake Callings row',
+        saveRosterEntry: 'Updated the Stake Callings sheet', dismissOouRecord: 'Closed an out-of-unit record task (already has one)', clearRosterRow: 'Cleared a Stake Callings row',
         saveOrdinationDate: 'Saved an ordination date', reportSustaining: 'Reported an ordination sustaining',
         submitOrdinationReport: 'Reported an ordination',
         markOrdinationLcrRecorded: 'Recorded an ordinance on LCR',
@@ -8253,6 +8279,10 @@
           break;
         case 'clearRosterRow':
           return { success: true };
+        case 'dismissOouRecord':
+          if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
+          showToast('In real life this closes the task for everyone on it — no email is sent.', 'success');
+          break;
         case 'submitOutOfUnitRecord':
           if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
           showToast('In real life this emails the member\'s details + ward-clerk instructions to the stake clerk and membership clerk. (Demo: no email sent.)', 'success');
