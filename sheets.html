@@ -511,8 +511,9 @@ function wardEditor(cell, onRendered, success, cancel) {
 
 // Grid edits that must wait for Apps Script: their result is shown (routed status, Hold, Sunday)
 // or they must be validated before anyone relies on them.
-const GRID_DIRECT = { 'callings.status': 1, 'callings.urgency': 1, 'callings.stake_business_date': 1,
-  'callings.held': 1, 'chart.calling': 1, 'roster.slack_id': 1 };
+// Status / Priority / Sched. Stake Bus. / Hold were direct until 2026-10-11 (15-30s each); they are
+// queued now, and their Stake Business follow-up runs once after the edits go quiet.
+const GRID_DIRECT = { 'chart.calling': 1, 'roster.slack_id': 1 };
 
 // A queued edit reaches the database ~10s later. Until then a reload would show the old value and
 // the edit would look lost, so each one is remembered here (30s) and laid over freshly loaded rows.
@@ -580,7 +581,8 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
   // Status and Priority on Callings go through the dashboard's pause/cancel handler, which also
   // tidies Stake Business and syncs the database before answering — 15-30s. Without a message the
   // cell just sat there and the edit looked like it had done nothing.
-  const slowEdit = gridName === 'callings' && (field === 'status' || field === 'urgency' || field === 'stake_business_date' || field === 'held');
+  const scheduleEdit = gridName === 'callings' && (field === 'status' || field === 'urgency' || field === 'stake_business_date' || field === 'held');
+  const slowEdit = false;   // nothing waits on the server any more (see GRID_DIRECT)
   if (slowEdit) toast('Saving… ' + (field === 'status'
       ? 'pausing or resuming also updates Stake Business — this takes about 20 seconds.'
       : field === 'stake_business_date' ? 'checking the Sunday and updating Stake Business — this takes about 15 seconds.'
@@ -595,6 +597,13 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
     if (queued) {
       markGridsStale();
       if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
+      // Hold and Sched. Stake Bus. are the same sheet cell (col AM) — keep the two in step locally.
+      if (gridName === 'callings' && field === 'held') {
+        cell.getRow().update(cell.getValue() ? { stake_business_date: 'HOLD', added_to_stake_business: false } : {});
+      } else if (gridName === 'callings' && field === 'stake_business_date') {
+        cell.getRow().update({ held: String(cell.getValue() || '').toUpperCase() === 'HOLD' });
+      }
+      if (scheduleEdit) toast('Saved ✓ — Stake Business and the agenda document catch up within a couple of minutes.');
       return;
     }
   }
@@ -695,15 +704,15 @@ async function saveBusinessCell(cell) {
       rowKey: String(row.rowId ?? ''), field: field,
       value: v === null || v === undefined ? '' : v
     });
-    // Date / Where / Ward move a row between groups and settle the wards' coverage, and the grid
-    // reloads to regroup — so those stay direct. Anything else is queued (2026-10-09).
-    if (!/^(meeting_date|where_|ward)$/.test(field)) {
-      if (await queueGridEdit({ rowKey: String(row.rowId ?? ''), field: field,
-                                value: v === null || v === undefined ? '' : v }, 'sbUpdateCell')) {
-        markGridsStale();
-        if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
-        return;
-      }
+    // Every field is queued (2026-10-11): the cell keeps the new value at once, the sheet gets it
+    // within seconds, and the document / report tasks / ward coverage catch up ~30s after the last
+    // edit (Apps Script's timer adds up to ~2 min). Date / Where / Ward regroup the grid shortly after.
+    if (await queueGridEdit({ rowKey: String(row.rowId ?? ''), field: field,
+                              value: v === null || v === undefined ? '' : v }, 'sbUpdateCell')) {
+      markGridsStale();
+      if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
+      if (field === 'meeting_date' || field === 'where_') scheduleRegroup();
+      return;
     }
     const data = await apiJson(API_URL + '?' + params.toString());
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
@@ -1774,10 +1783,20 @@ function switchTab(k) {
   tab = k;
   hideTabHelp();
   document.getElementById('search').value = '';
+  if (TABS[k] && TABS[k].custom === 'tasks') taskFilters.q = '';   // the top box is its search now
   renderTabs(); renderLegend(); load();
 }
 
+let _taskSearchTimer = null;
 function applyFilter() {
+  // The Action Items tab is a task list, not a grid: the top search box filters it (as you type,
+  // 300ms after the last key). It used to do nothing there (2026-10-11).
+  if (TABS[tab] && TABS[tab].custom === 'tasks') {
+    clearTimeout(_taskSearchTimer);
+    const q = (document.getElementById('search').value || '').trim();
+    _taskSearchTimer = setTimeout(() => { if (q !== (taskFilters.q || '')) setTaskFilter('q', q); }, 300);
+    return;
+  }
   if (!grid) return;
   const q = (document.getElementById('search').value || '').toLowerCase();
   const st = document.getElementById('statusFilter').value || '';
@@ -2337,10 +2356,6 @@ function renderTaskBrowser(d) {
       <label>Status
         <select onchange="setTaskFilter('status', this.value)">${opt(d.statuses, taskFilters.status)}</select>
       </label>
-      <label class="grow">Search
-        <input type="search" value="${esc(taskFilters.q)}" placeholder="name, calling, notes…"
-               onchange="setTaskFilter('q', this.value)">
-      </label>
       <button onclick="clearTaskFilters()">Clear</button>
     </div>
     <div class="tb-body">
@@ -2439,7 +2454,11 @@ function selectTask(baseId) {
 }
 
 function setTaskFilter(k, v) { taskFilters[k] = v; selectedTask = null; load(); }
-function clearTaskFilters() { taskFilters = { assignee: '', type: '', status: '', q: '' }; selectedTask = null; load(); }
+function clearTaskFilters() {
+  taskFilters = { assignee: '', type: '', status: '', q: '' }; selectedTask = null;
+  document.getElementById('search').value = '';
+  load();
+}
 
 // Phase 2 (2026-10-09): task edits are queued in Postgres. The change is shown at once, and the tab
 // re-reads after the database has caught up (~12s) — re-reading sooner would show the old state.
