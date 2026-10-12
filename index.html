@@ -1070,7 +1070,7 @@
       // appointments
       'scheduleAppointment', 'rescheduleAppointment', 'dismissAppointment',
       // ordinations
-      'submitOrdinationReport', 'transferOrdinationNotification', 'submitOutOfUnitRecord',
+      'submitOrdinationReport', 'transferOrdinationNotification', 'submitOutOfUnitRecord', 'dismissOouRecord',
       'saveOrdinationDate', 'markOrdinationLcrRecorded', 'markCertificatePrinted',
       'markCertificateSigned', 'markCertificateDelivered', 'recordSettingApartDone',
       // task management
@@ -6864,16 +6864,19 @@
     // The member already has an out-of-unit record in the YSA ward: nothing to collect or send.
     async function dismissOouRecord(actionId, btn) {
       if (!confirm('Close this task because the member already has an out-of-unit record? Nothing is sent to the clerks.')) return;
+      // Fade the card at once (it may be the CC'd copy, found via the button) — queued, so the
+      // server answers in well under a second and the refresh waits until the change is synced.
+      const card = (btn && btn.closest('.item')) || document.getElementById('item-' + actionId);
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      if (card) { card.style.transition = 'opacity .2s'; card.style.opacity = '0.25'; card.style.pointerEvents = 'none'; }
       setSyncing(true);
       try {
         await performAction('dismissOouRecord', { itemId: actionId });
         showToast('Closed — already has an out-of-unit record', 'success');
-        const card = document.getElementById('item-' + actionId);
         if (card) card.remove();
-        scheduleSilentRefresh(500);
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
+        if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
         if (btn) { btn.disabled = false; btn.textContent = '✓ Already Has an Out-of-Unit Record'; }
       } finally { setSyncing(false); }
     }
