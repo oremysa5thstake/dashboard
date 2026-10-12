@@ -2049,12 +2049,12 @@
                        releases.length ? 'release from <strong>' + releases.map(x => escapeHtmlDisplay(x.calling)).join('</strong>, <strong>') + '</strong>' : ''].filter(Boolean).join(', and ');
       const row = (x) => {
         const it = x.item;
-        if (x.kind === 'release') return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        if (x.kind === 'release') return `<div class="pair-part" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <span style="font-size:13px;min-width:150px;">👋 Release from ${escapeHtmlDisplay(x.calling)}</span>
             <button class="btn btn-success" onclick="handleAction('${it.actionId}', 'extended', this)">✓ Release Extended</button>
             ${it.callingAction === 'Released' ? `<button class="btn btn-danger" onclick="handleAction('${it.actionId}', 'declined', this)">✗ Keeping previous calling</button>` : ''}
           </div>`;
-        return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        return `<div class="pair-part" data-accept-id="${it.actionId}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <span style="font-size:13px;min-width:150px;">📋 ${escapeHtmlDisplay(x.calling)}</span>
             <button class="btn btn-success" onclick="handleAction('${it.actionId}', 'accepted', this)">✓ Accepted</button>
             <button class="btn btn-danger" onclick="handleAction('${it.actionId}', 'declined', this)">✗ Declined</button>
@@ -2068,6 +2068,7 @@
         <div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}${apptText !== 'Pending' ? gcalLinkHtml(first.displayText, apptText) : ''}</div>
         <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:8px;">
           ${callings.map(row).join('')}${releases.map(row).join('')}
+          ${callings.length > 1 ? `<div><button class="btn btn-success btn-sm" onclick="acceptAllInPair(this)">✓ Accept All ${callings.length} Callings</button></div>` : ''}
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${first.actionId}', '${escapeHtml(first.displayText)}', [${others}])">↻ Reassign all</button>` : ''}
             ${canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendExtendToBin('${first.actionId}', this)">🗂️ Send all to Bin</button>` : ''}
@@ -4977,7 +4978,11 @@
         btn.textContent = '…';
       }
 
-      const itemEl = btn ? btn.closest('.item') : null;
+      // In a combined card (one member, several callings / a release) each button answers ONE
+      // line — only that line fades; the card goes once every line is answered.
+      const partEl = btn ? btn.closest('.pair-part') : null;
+      const cardEl = partEl ? partEl.closest('.item') : null;
+      const itemEl = partEl || (btn ? btn.closest('.item') : null);
       if (itemEl) {
         itemEl.style.transition = 'opacity 0.2s';
         itemEl.style.opacity = '0.25';
@@ -4988,6 +4993,13 @@
       try {
         await performAction(action, Object.assign({ itemId: actionId }, extra || {}));
         if (itemEl) itemEl.remove();
+        if (cardEl && !cardEl.querySelector('.pair-part')) cardEl.remove();
+        else if (cardEl) {
+          const left = cardEl.querySelectorAll('.pair-part[data-accept-id]').length;
+          const all = cardEl.querySelector('[onclick^="acceptAllInPair"]');
+          if (all && left < 2) all.parentElement.remove();
+          else if (all) all.textContent = '✓ Accept All ' + left + ' Callings';
+        }
         showToast('Done', 'success');
         scheduleSilentRefresh(); // Sync sheet changes to UI in background
       } catch (error) {
@@ -5010,6 +5022,30 @@
         _handleActionInFlight.delete(inFlightKey);
         setSyncing(false);
       }
+    }
+
+    // "Accept All" on a combined card: accept every calling line still showing (not releases).
+    async function acceptAllInPair(btn) {
+      const card = btn.closest('.item');
+      const parts = card ? [...card.querySelectorAll('.pair-part[data-accept-id]')] : [];
+      if (!parts.length) return;
+      btn.disabled = true; btn.textContent = '…';
+      setSyncing(true);
+      let done = 0;
+      try {
+        for (const part of parts) {
+          part.style.opacity = '0.25'; part.style.pointerEvents = 'none';
+          await performAction('accepted', { itemId: part.dataset.acceptId });
+          part.remove(); done++;
+        }
+        if (!card.querySelector('.pair-part')) card.remove(); else btn.parentElement.remove();
+        showToast('Accepted ' + done + ' calling' + (done === 1 ? '' : 's'), 'success');
+        scheduleSilentRefresh();
+      } catch (e) {
+        showToast('Error after ' + done + ' accepted: ' + e.message, 'error');
+        parts.forEach(p => { if (p.isConnected) { p.style.opacity = '1'; p.style.pointerEvents = ''; } });
+        btn.disabled = false; btn.textContent = '✓ Accept All';
+      } finally { setSyncing(false); }
     }
 
     async function acknowledgeAllCC(btn) {
