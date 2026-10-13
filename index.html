@@ -2360,6 +2360,27 @@
       });
       return out;
     }
+    // One member set apart to several callings: one card, one button. Used by the assignee's
+    // Setting Aparts section AND the CC'd list (2026-10-13), so everyone sees the same card.
+    function renderSettingApartGroupCard(g) {
+      const first = g.items[0];
+      const ids = g.items.map(it => it.actionId + '_SOURCEROW_' + (it.sourceRow || 0)).join(',');
+      const ordain = g.items.some(it => /\bOrdination:/.test(String(it.notes || '')));
+      const appt = g.items.map(it => (String(it.notes || '').match(/Appointment:\s*(.+)/) || [])[1]).find(Boolean);
+      return `<div class="item" id="item-${first.actionId}">
+        <div class="item-header"><div class="item-title">🙏 ${escapeHtmlDisplay(g.name)} — set apart as ${escapeHtmlDisplay(g.items.map(saCallingOf).join(', '))}</div></div>
+        ${first.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(first.assignedToNames)}</div>` : ''}
+        ${appt ? `<div class="item-meta" style="color:#28a745;font-style:italic;">Appointment: ${escapeHtmlDisplay(appt)}</div>` : ''}
+        <div class="item-meta" style="color:#666;font-style:italic;">One setting apart for all ${g.items.length} callings.</div>
+        <div class="item-actions">
+          <button class="btn btn-success" onclick="setApartGroup('${ids}', this)">${ordain ? '✓ Set Apart &amp; Ordained' : '✓ Set Apart'}</button>
+          ${userData.canReassign ? `<button class="btn btn-secondary btn-sm" onclick="reassignTask('${first.actionId}', '${escapeHtml(first.displayText)}', [${g.items.slice(1).map(it => "'" + it.actionId + "'").join(',')}])">↻ Reassign all</button>` : ''}
+          ${userData.canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendSettingApartToBin('${first.actionId}', this)">🤲 Send to Bin</button>` : ''}
+        </div>
+        ${renderCallingControls(first)}
+      </div>`;
+    }
+
     async function setApartGroup(ids, btn) {
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       const itemEl = btn ? btn.closest('.item') : null;
@@ -2402,22 +2423,7 @@
       html += '<div class="section-content expanded" id="section-settingAparts"><div class="section-inner">';
 
       groupSettingAparts(items, it => it.assignedToNames || '').forEach(entry => {
-        if (entry.group) {
-          const g = entry.group, first = g.items[0];
-          const ids = g.items.map(it => it.actionId + '_SOURCEROW_' + (it.sourceRow || 0)).join(',');
-          const ordain = g.items.some(it => /\bOrdination:/.test(String(it.notes || '')));
-          html += `<div class="item" id="item-${first.actionId}">
-            <div class="item-header"><div class="item-title">🙏 ${escapeHtmlDisplay(g.name)} — set apart as ${escapeHtmlDisplay(g.items.map(saCallingOf).join(', '))}</div></div>
-            ${first.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(first.assignedToNames)}</div>` : ''}
-            <div class="item-meta" style="color:#666;font-style:italic;">One setting apart for all ${g.items.length} callings.</div>
-            <div class="item-actions">
-              <button class="btn btn-success" onclick="setApartGroup('${ids}', this)">${ordain ? '✓ Set Apart &amp; Ordained' : '✓ Set Apart'}</button>
-              ${userData.canReassign ? `<button class="btn btn-secondary btn-sm" onclick="sendSettingApartToBin('${first.actionId}', this)">🤲 Send to Bin</button>` : ''}
-            </div>
-            ${renderCallingControls(first)}
-          </div>`;
-          return;
-        }
+        if (entry.group) { html += renderSettingApartGroupCard(entry.group); return; }
         const item = entry.single;
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         const ward = item.callingWard || wardFromDisplayText(item.displayText);
@@ -3554,9 +3560,12 @@
           // conversation — the CC'd copy shows the same combined card the assignee sees.
           const ccEntries = bucket.group.key === 'extend'
             ? groupExtendPairs(bucket.items, it => it.assignedToNames || '')
+            : bucket.group.key === 'setapart'
+            ? groupSettingAparts(bucket.items, it => (it.actionType || '') + '|' + (it.assignedToNames || ''))
             : bucket.items.map(it => ({ single: it }));
           ccEntries.forEach(entry => {
           if (entry.pair) { groupOpenHtml.push(renderExtendPairCard(entry.pair)); return; }
+          if (entry.group) { groupOpenHtml.push(renderSettingApartGroupCard(entry.group)); return; }
           const item = entry.single;
           const isExtendCalling = item.type === 'extend-calling' || item.actionType === 'extend-calling';
           const isExtendRelease = item.type === 'extend-release' || item.actionType === 'extend-release';
