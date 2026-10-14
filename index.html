@@ -3516,6 +3516,23 @@
         + '</div>';
     }
 
+    /** Take acknowledged cards off the screen, tidy empty groups, and fix the section count. */
+    function _ackRemoveCards(ids) {
+      const sec = document.getElementById('section-ccCompleted');
+      if (!sec) return;
+      ids.forEach(id => { const el = sec.querySelector('#item-' + CSS.escape(id)); if (el) el.remove(); });
+      sec.querySelectorAll('.cc-group').forEach(g => {
+        const n = g.querySelectorAll('.item').length;
+        if (!n) g.remove();
+        else { const c = g.querySelector('.cc-group-count'); if (c) c.textContent = n; }
+      });
+      const left = sec.querySelectorAll('.item').length;
+      const box = sec.closest('.ack-section');
+      if (!left && box) { box.remove(); return; }
+      const cnt = box && box.querySelector('.section-count');
+      if (cnt) cnt.textContent = left;
+    }
+
     /** Acknowledge every completed CC item in one group — one request, like Acknowledge All. */
     async function acknowledgeCcGroup(ids, btn, ev) {
       if (ev) ev.stopPropagation();
@@ -3528,6 +3545,7 @@
         const fast = await writeToPostgres('act_acknowledge_cc', { p_action_ids: list });
         if (!fast) await performAction('ackCCGroup', { ids: list.join(',') });
         showToast('Acknowledged ' + list.length + ' item' + (list.length === 1 ? '' : 's'), 'success');
+        _ackRemoveCards(list);   // at once — not after the refresh catches up with the sheet
         scheduleSilentRefresh(800);
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
@@ -5063,6 +5081,10 @@
       try {
         await performAction('ackAllCC', {});
         showToast('All items acknowledged', 'success');
+        // Off the screen now. The save takes ~0.1s; waiting for the refresh (which holds until the
+        // Google Sheet has caught up, 5-15s) is what made acknowledging feel slow (2026-10-14).
+        const sec = btn && btn.closest('.ack-section');
+        if (sec) sec.remove();
         scheduleSilentRefresh(1000);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
