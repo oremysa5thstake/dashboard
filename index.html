@@ -643,8 +643,9 @@
         await silentRefresh();
       }, delay);
     }
-    async function silentRefresh() {
-      setSyncing(true);
+    async function silentRefresh(opts) {
+      const live = !!(opts && opts.live);
+      if (!live) setSyncing(true);
       try {
         // Phase 2 (2026-10-09): re-read the dashboard from Postgres, as the first load does. This
         // used to be an Apps Script forceRefresh build (~8s of quota) after EVERY action, for every
@@ -663,9 +664,13 @@
         }
         if (!data || data.success === false) return;
         if (!p2ViewingTarget()) saveDashboardCache(data);   // never store someone else's dashboard as ours
-        // Only re-render if counts changed (avoids jarring re-render while user is reading)
-        const changed = !currentData || JSON.stringify(currentData.counts) !== JSON.stringify(data.counts);
-        if (changed && !document.querySelector('.modal-overlay.show')) {
+        // Only re-render if counts changed (avoids jarring re-render while user is reading).
+        // A live check (someone ELSE changed something) compares the whole view: their change may
+        // not move a count — an appointment booked, a task reassigned — and should still show.
+        const changed = !currentData || (live
+          ? _liveSignature(currentData) !== _liveSignature(data)
+          : JSON.stringify(currentData.counts) !== JSON.stringify(data.counts));
+        if (changed && !document.querySelector('.modal-overlay.show') && !(live && _userIsMidEdit())) {
           const scrollY = window.scrollY;
           onDataLoaded(data);
           requestAnimationFrame(() => window.scrollTo(0, scrollY));
@@ -674,8 +679,59 @@
           currentData = data;
         }
       } catch (e) { /* silent */ }
-      finally { setSyncing(false); }
+      finally { if (!live) setSyncing(false); }
     }
+
+    // ── Live updates (2026-10-14) ───────────────────────────────────────────────
+    // An open, visible dashboard asks Postgres "has anything changed?" every 20s (dash_version,
+    // 0119 — a few bytes) and quietly re-reads only when it has. Another person's action reaches
+    // Postgres ~5-15s after their tap (through the sheet sync), so it shows here ~10-35s later.
+    // Paused in a background tab; checks at once on return. Never redraws over a half-filled field
+    // or an open popup — it waits for the next tick. (Planned: Supabase Realtime push once the
+    // Google Sheet is retired — see PROJECT.md.)
+    const LIVE_POLL_MS = 20000;
+    let _liveVersion = null, _liveBusy = false;
+
+    function _liveSignature(d) {
+      // Everything the person sees, minus fields that change on every build.
+      return JSON.stringify(d, (k, v) => (/^(builtAt|generatedAt|age_seconds|_serverMs|serverTime|cachedAt)$/.test(k) ? undefined : v));
+    }
+
+    function _userIsMidEdit() {
+      const a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
+      // A date/time or text box on a card that has been filled in but not submitted yet.
+      return [...document.querySelectorAll('.item input, .item textarea, .item select')].some(el =>
+        el.type !== 'hidden' && !el.readOnly && (el.tagName === 'SELECT' ? el.selectedIndex > 0 : el.value !== el.defaultValue));
+    }
+
+    async function liveCheck() {
+      if (DEMO_MODE || _liveBusy || document.visibilityState !== 'visible' || !userId) return;
+      if (typeof _handleActionInFlight !== 'undefined' && _handleActionInFlight.size) return;
+      const p2 = phase2Config();
+      if (!p2) return;
+      _liveBusy = true;
+      try {
+        const token = await ensurePhase2Token();
+        if (!token) return;
+        const r = await fetch(p2.url + '/rest/v1/rpc/dash_version', {
+          method: 'POST', headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_slack_id: getActorUserId(), p_token: token })
+        });
+        if (!r.ok) return;
+        const v = await r.json();
+        if (v == null) return;
+        if (_liveVersion !== null && v !== _liveVersion) {
+          if (_userIsMidEdit() || document.querySelector('.modal-overlay.show')) return;  // retry next tick
+          await silentRefresh({ live: true });
+        }
+        _liveVersion = v;
+      } catch (e) { /* offline or asleep — try again next tick */ }
+      finally { _liveBusy = false; }
+    }
+
+    setInterval(liveCheck, LIVE_POLL_MS);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') liveCheck(); });
 
     // Storage helper functions
     function setCookie(name, value, days) {
