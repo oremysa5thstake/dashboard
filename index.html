@@ -249,6 +249,7 @@
       </div>
     </header>
 
+    <div id="healthBanner" style="display:none;margin:0 0 10px;padding:10px 12px;border-radius:6px;background:#fff3cd;color:#664d03;border:1px solid #f0d58a;font-size:13px;line-height:1.5;"></div>
     <div id="content">
       <div class="loading">
         <div class="spinner"></div>
@@ -689,6 +690,26 @@
     // Paused in a background tab; checks at once on return. Never redraws over a half-filled field
     // or an open popup — it waits for the next tick. (Planned: Supabase Realtime push once the
     // Google Sheet is retired — see PROJECT.md.)
+    // ── Background-saving health (2026-10-14) ──────────────────────────────────
+    // Clerks, secretaries and the presidency see a banner — and only when something is off: a
+    // queued change waiting over 5 minutes, one that failed, or no full sync for 2½ hours. Nothing
+    // is sent anywhere. system_health (0125) refuses everyone else, which simply hides the banner.
+    async function checkSystemHealth() {
+      const box = document.getElementById('healthBanner');
+      if (!box || DEMO_MODE || !userData || !(userData.isAdmin || userData.canReassign) || p2ViewingTarget()) return;
+      const h = await writeToPostgres('system_health', {});
+      if (!h || h.ok !== false) { box.style.display = 'none'; return; }
+      const bits = [];
+      if (h.waiting && h.oldestWaitSeconds >= 300) bits.push(h.waiting + ' change' + (h.waiting === 1 ? ' has' : 's have') + ' been waiting ' + Math.round(h.oldestWaitSeconds / 60) + ' min to reach the Google Sheet');
+      if (h.failing) bits.push(h.failing + ' change' + (h.failing === 1 ? '' : 's') + ' failed to apply and will be retried');
+      if (h.lastFullSyncSeconds >= 9000) bits.push('the hourly sync has not run for ' + Math.round(h.lastFullSyncSeconds / 3600) + ' hours');
+      box.innerHTML = '⚠️ <strong>Background saving is behind:</strong> ' + escapeHtmlDisplay(bits.join('; ') || 'something is not keeping up')
+        + '. Your taps are kept and will be applied; if this lasts, check Apps Script (Admin Tools → Sync, or the script’s executions).';
+      box.style.display = 'block';
+    }
+    setInterval(checkSystemHealth, 5 * 60000);
+    setTimeout(checkSystemHealth, 8000);
+
     const LIVE_POLL_MS = 10000;
     let _liveVersion = null, _liveBusy = false;
 
