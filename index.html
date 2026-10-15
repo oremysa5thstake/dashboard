@@ -1143,7 +1143,9 @@
       'markCertificateSigned', 'markCertificateDelivered', 'recordSettingApartDone',
       // task management
       'markNameTagOrdered', 'setCallingPriority', 'setMemberStatusField', 'saveSetting',
-      'addAwayPeriod', 'removeAwayPeriod', 'reassign', 'createTask'
+      'addAwayPeriod', 'removeAwayPeriod', 'reassign', 'createTask',
+      // Stake Callings roster task (2026-10-14) — the form validates first; see saveRosterEntry()
+      'saveRosterEntry', 'clearRosterRow'
     ]);
 
     /**
@@ -7045,7 +7047,10 @@
         <button class="btn btn-primary" id="rosterSaveBtn" onclick="saveRosterEntry()" disabled>Save</button>`;
       document.getElementById('rosterModal').classList.add('show');
       try {
-        const info = await performAction('getRosterTaskInfo', { itemId: actionId });
+        // Postgres first (roster_task_info, 0121) — ~0.2s against ~6s through Apps Script.
+        let info = await writeToPostgres('roster_task_info', { p_item: actionId });
+        if (info && info.success === false) throw new Error(info.error || 'refused');
+        if (!info) info = await performAction('getRosterTaskInfo', { itemId: actionId });
         currentRosterInfo = info;
         renderRosterForm(info);
       } catch (e) {
@@ -7115,18 +7120,36 @@
       if (!params.row || !params.title || !params.name || !params.email) {
         showToast('Slot, title name, full name and email are required', 'error'); return;
       }
+      // Checked here because the save is queued: a refusal from the server would arrive too late
+      // to show. The server still checks the same things.
+      const nk = x => String(x || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+      params.slackId = params.slackId.toUpperCase();
+      if (params.slackId && !/^U[A-Z0-9]{6,}$/.test(params.slackId)) {
+        showToast('A Slack ID starts with U, e.g. U09ABC123', 'error'); return;
+      }
+      const dup = params.slackId && ((currentRosterInfo && currentRosterInfo.rosterIds) || [])
+        .find(x => x.slackId === params.slackId && String(x.row) !== String(params.row) && nk(x.name) !== nk(params.name));
+      if (dup) { showToast('That Slack ID is already on the roster for ' + dup.name + ' (' + dup.calling + ')', 'error'); return; }
       const btn = document.getElementById('rosterSaveBtn');
       if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
       setSyncing(true);
       try {
-        const res = await performAction('saveRosterEntry', params);
+        let res = await performAction('saveRosterEntry', params);
+        if (res && res.queued) {
+          // Queued (applied to the sheet within seconds): describe it from what the form knows.
+          const sl = ((currentRosterInfo && currentRosterInfo.slots) || []).find(x => String(x.row) === String(params.row)) || {};
+          res = { complete: !!params.slackId, slot: sl.calling || '',
+                  replaced: sl.name && nk(sl.name) !== nk(params.name) ? sl.name : '',
+                  wardAssignments: !!params.ward, queued: true };
+        }
         const esc = escapeHtmlDisplay;
         const lines = ['✓ Saved to <strong>' + esc(res.slot || 'Stake Callings') + '</strong>' + (res.replaced ? ' (replacing ' + esc(res.replaced) + ')' : '') + '.'];
-        if (res.voteColumns) lines.push('✓ Their approval / sustaining vote columns are updated.');
-        if (res.wardAssignments) lines.push('✓ Stake Business Assignments updated.');
+        if (res.voteColumns || res.queued) lines.push('✓ Their approval / sustaining vote columns follow the roster.');
+        if (res.wardAssignments) lines.push('✓ Stake Business Assignments ' + (res.queued ? 'will be updated' : 'updated') + '.');
         if (res.complete) {
           lines.push('✓ Enrolled on the dashboard — task complete.');
           if (res.dashboardUrl) lines.push(`Their dashboard link:<br><input class="form-input" readonly value="${esc(res.dashboardUrl)}" onclick="this.select()" style="margin-top:4px;">`);
+          else if (res.queued) { lines.push('<span id="rosterLinkBox" style="color:#666;">Their dashboard link will appear here in a moment…</span>'); fetchRosterLinkSoon(params.slackId); }
         } else {
           lines.push('⏳ <strong>Slack ID still needed.</strong> Invite them to Slack at ' + esc(params.email) + '; once they join, reopen this task and add their Slack ID. The task stays open until then.');
         }
@@ -7143,13 +7166,30 @@
       } finally { setSyncing(false); }
     }
 
+    // After a queued save the new person is enrolled within seconds; their link then appears in
+    // dashboard_links. Ask a few times while the box is still on screen.
+    async function fetchRosterLinkSoon(slackId) {
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 10000));
+        const box = document.getElementById('rosterLinkBox');
+        if (!box) return;
+        const url = await writeToPostgres('dashboard_link_for', { p_target: slackId });
+        if (url && typeof url === 'string') {
+          box.outerHTML = `Their dashboard link:<br><input class="form-input" readonly value="${escapeHtmlDisplay(url)}" onclick="this.select()" style="margin-top:4px;">`;
+          return;
+        }
+      }
+      const box = document.getElementById('rosterLinkBox');
+      if (box) box.textContent = 'Their dashboard link: Admin Tools → Share Link.';
+    }
+
     async function clearRosterRow(actionId, btn) {
       if (!confirm('Clear this person from the Stake Callings sheet (and their vote columns, if any)?')) return;
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
         const res = await performAction('clearRosterRow', { itemId: actionId });
-        showToast(res.alreadyGone ? 'They were already off the sheet — task closed' : 'Cleared ' + (res.slot || 'the row'), 'success');
+        showToast(res.alreadyGone ? 'They were already off the sheet — task closed' : 'Cleared ' + (res.slot || 'from the Stake Callings sheet'), 'success');
         const card = document.getElementById('item-' + actionId);
         if (card) card.remove();
         scheduleSilentRefresh(500);
