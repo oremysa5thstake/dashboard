@@ -825,11 +825,21 @@ async function ensureP2Token() {
   const have = p2Token();
   if (have) return have;
   try {
-    // Minted by Apps Script for a user it has already authenticated. Shared with the dashboard
-    // through localStorage, so opening Sheet Views after the dashboard costs nothing.
-    const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(USER_ID || ''));
-    if (!r.ok) return null;
-    const d = await r.json();
+    // Shared with the dashboard through localStorage, so opening Sheet Views after the dashboard
+    // costs nothing. Minted by Postgres (0120, same rules as Apps Script); Apps Script if refused.
+    let d = null;
+    try {
+      const pr = await fetch(SUPABASE_URL + '/rest/v1/rpc/session_from_link', {
+        method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_slack_id: USER_ID || '', p_lk: window.__linkCode || '' })
+      });
+      if (pr.ok) d = await pr.json();
+    } catch (e) { d = null; }
+    if (!d || !d.success || !d.token) {
+      const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(USER_ID || ''));
+      if (!r.ok) return null;
+      d = await r.json();
+    }
     if (!d || !d.success || !d.token) return null;
     localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
       token: d.token, expiresAt: d.expiresAt, userId: USER_ID, issuedAt: Date.now()

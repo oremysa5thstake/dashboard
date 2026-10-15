@@ -683,13 +683,13 @@
     }
 
     // ── Live updates (2026-10-14) ───────────────────────────────────────────────
-    // An open, visible dashboard asks Postgres "has anything changed?" every 20s (dash_version,
+    // An open, visible dashboard asks Postgres "has anything changed?" every 10s (dash_version,
     // 0119 — a few bytes) and quietly re-reads only when it has. Another person's action reaches
-    // Postgres ~5-15s after their tap (through the sheet sync), so it shows here ~10-35s later.
+    // Postgres ~5-15s after their tap (through the sheet sync), so it shows here ~5-25s later.
     // Paused in a background tab; checks at once on return. Never redraws over a half-filled field
     // or an open popup — it waits for the next tick. (Planned: Supabase Realtime push once the
     // Google Sheet is retired — see PROJECT.md.)
-    const LIVE_POLL_MS = 20000;
+    const LIVE_POLL_MS = 10000;
     let _liveVersion = null, _liveBusy = false;
 
     function _liveSignature(d) {
@@ -975,9 +975,21 @@
         try {
           // For the person signed in — never the user being viewed in the Admin Tools overlay
           // (minting for them and storing it as ours broke every later read, 2026-10-09).
-          const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(getActorUserId()));
-          if (!r.ok) return null;
-          const d = await r.json();
+          // Postgres first (0120, ~0.1s): same enrolment + link-code rules as Apps Script, which
+          // took 2–5s and was behind every slow load in perf_log. Apps Script only if refused.
+          let d = null;
+          try {
+            const pr = await fetch(P2_URL + '/rest/v1/rpc/session_from_link', {
+              method: 'POST', headers: { apikey: P2_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ p_slack_id: getActorUserId(), p_lk: window.__linkCode || '' })
+            });
+            if (pr.ok) d = await pr.json();
+          } catch (e) { d = null; }
+          if (!d || !d.success || !d.token) {
+            const r = await fetch(API_URL + '?action=sessionToken&userId=' + encodeURIComponent(getActorUserId()));
+            if (!r.ok) return null;
+            d = await r.json();
+          }
           if (!d || !d.success || !d.token) return null;
           localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({
             token: d.token, expiresAt: d.expiresAt, userId: getActorUserId(), issuedAt: Date.now()
