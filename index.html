@@ -1151,7 +1151,7 @@
       'sbMarkAlreadyConfirmed', 'sbDismissReplacement', 'reportSustaining',
       'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
       'restoreNormalAssignments', 'releaseHold', 'setConducting', 'sbAddBlockout', 'sbRemoveBlockout',
-      'recordVote', 'ctrReview', 'priesthoodReview', 'sbSetScheduled',
+      'recordVote', 'ctrReview', 'priesthoodReview', 'sbSetScheduled', 'sbAskWards',
       'ordinationInterviewPassed', 'ordinationInterviewReturnToBishop',
       'ordinationInterviewSchedulePassed', 'ordinationInterviewScheduleReturnToBishop',
       // the schedule/assign bins
@@ -1421,7 +1421,7 @@
     //
     // Loaded on demand rather than with the dashboard: most cards are never scheduled by hand,
     // and one request per card on every load would be wasteful.
-    function schedulePickerHtml(ts, current) {
+    function schedulePickerHtml(ts, current, moreRefs) {
       if (!ts) return '';
       const id = 'sbpick_' + String(ts).replace(/[^A-Za-z0-9]/g, '');
       const shown = current
@@ -1434,7 +1434,96 @@
             ? `📅 Stake business: <strong>${escapeHtmlDisplay(shown)}</strong> `
             : '📅 Stake business: <em>next available</em> ')
         + `<button class="btn btn-secondary btn-sm" style="margin-left:4px"
-             onclick="loadSundayPicker('${escapeHtml(String(ts))}','${id}')">Change…</button></div>`;
+             onclick="loadSundayPicker('${escapeHtml(String(ts))}','${id}')">Change…</button></div>`
+        + sbRiskSlot(ts, moreRefs);
+    }
+
+    // ── Stake business coverage risk (2026-10-15) ───────────────────────────────
+    // sb_risk_items (0127/0128): callings that would land on a Sunday needing a ward that has no
+    // other business and whose high councilor nobody has asked. Cards get a warning (with "Plan
+    // for <next Sunday>"); clerks / secretaries / presidency also get a list with "Ask now".
+    // Filled after each render into placeholders, so it never delays drawing the dashboard.
+    let _sbRisk = { items: [], admin: false, byKey: {} };
+    function _sbKey(ref) { const t = Date.parse(String(ref || '')); return isNaN(t) ? String(ref || '') : String(Math.floor(t / 1000)); }
+    // One slot may cover several calling rows (a combined card): data-ref holds every key, space-separated.
+    function sbRiskSlot(ref, more) {
+      const keys = [ref].concat(more || []).filter(Boolean).map(_sbKey);
+      return keys.length ? `<div class="sb-risk" data-ref="${escapeHtml(keys.join(' '))}"></div>` : '';
+    }
+
+    // Demo: Tanner's high-council calling, accepted on a Sunday his ward's high councilor was never
+    // asked about — shown to the presidency, clerk and secretary roles once Tanner's call is approved.
+    function demoSbRisk() {
+      const s = demoState || {};
+      if (!s.approved || !s.approved.c3 || s.tannerAccepted || s.sbRiskHandled || DEMO_ROLE === 'hc') return { items: [], admin: false, byKey: {} };
+      const it = { ref: 'demo-tanner', taskRef: 'demo-tanner', member: DEMO_CAST.tanner, calling: 'High Councilor', action: 'Called',
+                   appointment: 'Sunday at 9:00am', sunday: 'demo', sundayLabel: 'this Sunday', wards: ['32nd Ward'],
+                   next: 'demo-next', nextLabel: 'next Sunday' };
+      return { items: [it], admin: true, byKey: { 'demo-tanner': it } };
+    }
+
+    async function loadSbRisk() {
+      if (DEMO_MODE) { _sbRisk = demoSbRisk(); fillSbRisk(); return; }
+      if (p2ViewingTarget()) return;
+      const d = await writeToPostgres('sb_risk_items', {});
+      if (!d || !d.success) return;
+      const byKey = {};
+      (d.items || []).forEach(it => { byKey[_sbKey(it.ref)] = it; byKey[_sbKey(it.taskRef)] = it; });
+      _sbRisk = { items: d.items || [], admin: !!d.admin, byKey: byKey };
+      fillSbRisk();
+    }
+
+    function _sbWardList(ws) { return ws.length > 1 ? ws.slice(0, -1).join(', ') + ' and ' + ws[ws.length - 1] : ws[0]; }
+
+    function sbRiskButtons(it, withAsk) {
+      const ref = escapeHtml(it.ref);
+      return `<button class="btn btn-secondary btn-sm" onclick="sbPlanNextWeek('${ref}','${it.next}','${escapeHtml(it.nextLabel)}',this)">📅 Plan for ${escapeHtmlDisplay(it.nextLabel)}</button>`
+        + (withAsk ? ` <button class="btn btn-primary btn-sm" onclick="sbAskNow('${escapeHtml(it.wards.join('|'))}','${it.sunday}',this)">🙋 Ask ${it.wards.length > 1 ? 'them' : 'him'} now</button>` : '');
+    }
+
+    function fillSbRisk() {
+      document.querySelectorAll('.sb-risk').forEach(el => {
+        const it = String(el.dataset.ref || '').split(' ').map(k => _sbRisk.byKey[k]).find(Boolean);
+        el.innerHTML = !it ? '' : `<div class="item-meta" style="margin-top:6px;padding:8px;border-radius:6px;background:#fff3cd;color:#664d03;">
+          ⚠️ If this is ${it.action === 'Released' ? 'extended' : 'accepted'} ${it.appointment ? 'at the appointment' : 'now'}, it is read on <strong>${escapeHtmlDisplay(it.sundayLabel)}</strong> —
+          and nobody has asked a high councilor to conduct in the <strong>${escapeHtmlDisplay(_sbWardList(it.wards))}</strong> (no other stake business there that day).
+          Consider planning it for ${escapeHtmlDisplay(it.nextLabel)}.
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${sbRiskButtons(it, _sbRisk.admin)}</div></div>`;
+      });
+      const box = document.getElementById('sbRiskList');
+      if (!box) return;
+      if (!_sbRisk.admin || !_sbRisk.items.length) { box.innerHTML = ''; return; }
+      box.innerHTML = `<div class="section"><div class="section-header expanded"><div class="section-title">⚠️ Stake Business at Risk</div><div class="section-meta"><span class="section-count">${_sbRisk.items.length}</span></div></div>
+        <div class="section-content expanded"><div class="section-inner">
+        <div class="item-meta" style="margin-bottom:8px;">These would be read on a Sunday where a ward has no other business and nobody has asked its high councilor to conduct. Ask now, or plan them for the next Sunday.</div>`
+        + _sbRisk.items.map(it => `<div class="item"><div class="item-header"><div class="item-title">${escapeHtmlDisplay(it.member)} — ${it.action === 'Released' ? 'release from' : 'call as'} ${escapeHtmlDisplay(it.calling)}</div></div>
+          <div class="item-meta">${it.appointment ? 'Appointment: ' + escapeHtmlDisplay(it.appointment) + ' · ' : ''}Read on ${escapeHtmlDisplay(it.sundayLabel)} · not yet asked: ${escapeHtmlDisplay(_sbWardList(it.wards))}</div>
+          <div class="item-actions">${sbRiskButtons(it, true)}</div></div>`).join('')
+        + '</div></div></div>';
+    }
+
+    async function sbPlanNextWeek(ref, ymd, label, btn) {
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      try {
+        await performAction('sbSetScheduled', { timestamp: ref, date: ymd });
+        showToast('Planned for ' + label, 'success');
+        _sbRisk.items = _sbRisk.items.filter(i => i.ref !== ref);
+        Object.keys(_sbRisk.byKey).forEach(k => { if (_sbRisk.byKey[k].ref === ref) delete _sbRisk.byKey[k]; });
+        fillSbRisk();
+        scheduleSilentRefresh(9000);
+      } catch (e) { showToast('Error: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = '📅 Plan for ' + label; } }
+    }
+
+    async function sbAskNow(wards, sunday, btn) {
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      try {
+        await performAction('sbAskWards', { wards: wards, sunday: sunday });
+        showToast('Asked — their high councilor gets the availability check now', 'success');
+        const set = new Set(wards.split('|'));
+        _sbRisk.items = _sbRisk.items.map(i => i.sunday === sunday ? Object.assign({}, i, { wards: i.wards.filter(w => !set.has(w)) }) : i).filter(i => i.wards.length);
+        const byKey = {}; _sbRisk.items.forEach(it => { byKey[_sbKey(it.ref)] = it; byKey[_sbKey(it.taskRef)] = it; });
+        _sbRisk.byKey = byKey; fillSbRisk();
+      } catch (e) { showToast('Error: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = '🙋 Ask now'; } }
     }
 
     async function loadSundayPicker(ts, boxId) {
@@ -1671,6 +1760,8 @@
       const _scrollY = window.scrollY;
       renderDashboard(data);
       restoreSectionState();
+      fillSbRisk();                                                   // last known, at once
+      if (!window.__sbRiskAt || Date.now() - window.__sbRiskAt > 15000) { window.__sbRiskAt = Date.now(); loadSbRisk(); }
       // Re-rendering resets scroll; put the reader back where they were. Only for a refresh
       // of an already-drawn dashboard, so the first load still starts at the top.
       if (_dashboardDrawnOnce && _scrollY > 0) window.scrollTo(0, _scrollY);
@@ -1703,6 +1794,7 @@
       if (data.dashboardMessage) {
         html += `<div class="dashboard-message">${escapeHtml(data.dashboardMessage)}</div>`;
       }
+      html += '<div id="sbRiskList"></div>';   // filled by loadSbRisk (clerks / secretaries / presidency)
 
       // Stake links
       // TEMPORARY: the boundary planner link is shown to the stake presidency (and
@@ -2160,7 +2252,8 @@
       return `<div class="item" id="item-${first.actionId}">
         <div class="item-header"><div class="item-title">📞 ${escapeHtmlDisplay(p.name)} — ${what}</div></div>
         <div class="item-meta">One conversation: ${summary}.</div>
-        ${schedulePickerHtml(first.callingRefId || first.referenceId, first.scheduledStakeBusiness)}
+        ${schedulePickerHtml(first.callingRefId || first.referenceId, first.scheduledStakeBusiness,
+            parts.slice(1).map(x => x.item.callingRefId || x.item.referenceId))}
         ${first.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(first.assignedToNames)}</div>` : ''}
         <div class="item-meta" style="${apptText === 'Pending' ? 'color:#856404' : 'color:#28a745'};font-style:italic;">Appointment: ${escapeHtml(apptText)}${apptText !== 'Pending' ? gcalLinkHtml(first.displayText, apptText) : ''}</div>
         <div class="item-actions" style="flex-direction:column;align-items:flex-start;gap:8px;">
@@ -3757,6 +3850,7 @@
           groupOpenHtml.push( `<div class="item" id="item-${item.actionId}">
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
+            ${isExtend ? sbRiskSlot(item.callingRefId || item.referenceId) : ''}
             ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + escapeHtmlDisplay(item.notes) + '</div>' : ''}
             ${appointmentStatusHtml}
             <div class="item-actions">
@@ -8659,7 +8753,12 @@
         case 'saveSetting':
           showToast('Done — in the real dashboard this saves to the sheet. The demo scenario is not affected.', 'success');
           return { success: true, queued: true };
+        case 'sbAskWards':
+          s.sbRiskHandled = true;
+          showToast('In real life the 32nd Ward\u2019s high councilor gets the availability check now. (Demo: nothing sent.)', 'success');
+          break;
         case 'sbSetScheduled': {
+          if (String(params.timestamp) === 'demo-tanner') { s.sbRiskHandled = true; break; }
           // Remembered per calling, so the card shows it — the real scheduler would also use it
           // to place the calling on that Sunday's stake business.
           const k = String(params.timestamp || '').replace(/^demo-/, '');
