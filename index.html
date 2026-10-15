@@ -665,19 +665,20 @@
         }
         if (!data || data.success === false) return;
         if (!p2ViewingTarget()) saveDashboardCache(data);   // never store someone else's dashboard as ours
-        // Only re-render if counts changed (avoids jarring re-render while user is reading).
-        // A live check (someone ELSE changed something) compares the whole view: their change may
-        // not move a count — an appointment booked, a task reassigned — and should still show.
-        const changed = !currentData || (live
-          ? _liveSignature(currentData) !== _liveSignature(data)
-          : JSON.stringify(currentData.counts) !== JSON.stringify(data.counts));
-        if (changed && !document.querySelector('.modal-overlay.show') && !(live && _userIsMidEdit())) {
+        // Re-render when anything the person can see changed — not only the counts. Comparing counts
+        // alone hid every change that moves no count: a rescheduled appointment kept showing its old
+        // time until a reload (2026-10-15), and live updates then saw "nothing new" either.
+        // Never over an open popup or a half-filled field; and when a redraw is skipped, currentData
+        // is NOT replaced, so the next refresh still sees the difference and draws it.
+        const changed = !currentData || _liveSignature(currentData) !== _liveSignature(data);
+        if (!changed) {
+          currentData = data;
+        } else if (!document.querySelector('.modal-overlay.show') && !_userIsMidEdit()) {
           const scrollY = window.scrollY;
           onDataLoaded(data);
           requestAnimationFrame(() => window.scrollTo(0, scrollY));
-        } else {
-          // Update internal data without re-rendering
-          currentData = data;
+        } else if (!live) {
+          scheduleSilentRefresh(10000);   // busy now — try again shortly
         }
       } catch (e) { /* silent */ }
       finally { if (!live) setSyncing(false); }
