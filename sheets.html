@@ -588,6 +588,7 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
       : field === 'stake_business_date' ? 'checking the Sunday and updating Stake Business — this takes about 15 seconds.'
       : field === 'held' ? 'updating the hold and Stake Business — this takes about 15 seconds.'
       : 'this takes about 15 seconds.'));
+  const _editT0 = performance.now();
   // Phase 2 (2026-10-09): a plain column edit is queued in Postgres and the cell keeps the new
   // value at once; Apps Script writes it to the sheet ~10s later, with the same checks and undo
   // entry. Edits whose result the grid shows (or that must be checked first) stay direct.
@@ -596,6 +597,7 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
       value: cell.getValue() === null || cell.getValue() === undefined ? '' : cell.getValue() });
     if (queued) {
       markGridsStale();
+      sheetsPerf('edit.' + gridName + '.' + field + ' (queued)', performance.now() - _editT0);
       if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
       // Hold and Sched. Stake Bus. are the same sheet cell (col AM) — keep the two in step locally.
       if (gridName === 'callings' && field === 'held') {
@@ -617,6 +619,7 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
     const data = await res.json();
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
     markGridsStale();   // stored grids no longer reflect the sheet
+    sheetsPerf('edit.' + gridName + '.' + field + ' (direct)', performance.now() - _editT0);
     if (el) {
       el.style.outline = '2px solid #4caf50';
       setTimeout(() => { el.style.outline = ''; }, 900);
@@ -793,6 +796,53 @@ function edSB(col, editor, params) {
   });
 }
 
+// Assignments tab: a picker of the high council + presidency (titles, as the sheet stores them)
+// that still accepts free text — conducting also takes N/A and similar.
+function edA(col, kind) {
+  const ed = kind === 'hc'
+    ? { editor: 'list', editorParams: { values: () => [''].concat(APPROVERS.map(a => a.name).filter(Boolean)),
+                                        autocomplete: true, freetext: true, listOnEmpty: true, allowEmpty: true } }
+    : kind === 'textarea' ? { editor: 'textarea', editorParams: {} } : { editor: 'input', editorParams: {} };
+  return Object.assign({}, col, ed, { headerSort: false, cellEdited: saveAssignmentCell });
+}
+
+// Amber when the person is away that Sunday; italic when this week differs from the standing one.
+function sbaPerson(field) {
+  return c => {
+    const r = c.getRow().getData(), v = esc(c.getValue() || '');
+    const away = (field === 'wardHC' && r.wardHCAway) || (field === 'backupHC' && r.backupHCAway);
+    const shuffled = field === 'wardHC' && r.shuffled;
+    return away ? `<span title="Away that Sunday" style="color:#b26500;font-weight:600">${v} ✈︎</span>`
+      : shuffled ? `<span title="Differs from the standing Ward HC" style="font-style:italic">${v}</span>` : v;
+  };
+}
+
+async function saveAssignmentCell(cell) {
+  const row = cell.getRow().getData(), field = cell.getField(), before = cell.getOldValue();
+  const el = cell.getElement();
+  if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
+  const value = cell.getValue() == null ? '' : String(cell.getValue()).trim();
+  if (field === 'meeting' && value && !/^\d{1,2}:\d{2}\s*([ap]\.?m\.?)?$/i.test(value)) {
+    cell.setValue(before, true); toast('Meeting time should look like 5:30 PM', 'err'); return;
+  }
+  if (el) el.style.outline = '2px solid #f0b429';
+  const _t0 = performance.now();
+  try {
+    const params = { grid: 'assignments', rowKey: String(row.row), row: String(row.row), field: field, value: value };
+    if (!(await queueGridEdit(params, 'updateStakeBusinessAssignment'))) {
+      const d = await apiJson(API_URL + '?' + new URLSearchParams(Object.assign({ action: 'updateStakeBusinessAssignment', userId: USER_ID }, params)).toString());
+      if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    }
+    markGridsStale();
+    if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
+    sheetsPerf('assignments.' + field, performance.now() - _t0);
+  } catch (e) {
+    cell.setValue(before, true);
+    if (el) el.style.outline = '';
+    toast('Not saved: ' + (e.message || e), 'err');
+  }
+}
+
 // A date or Where change can move a row between groups. Reload rather than guess, but only
 // once per burst of edits.
 let _regroupTimer = null;
@@ -848,6 +898,43 @@ async function ensureP2Token() {
   } catch (e) { return null; }
 }
 
+// ── Timing (2026-10-14) ────────────────────────────────────────────────────────
+// Sheet Views had no timing at all. Same table as the dashboard (perf_log, via perf_log_add),
+// acts prefixed "sheets." / the tab name. Only with a token in hand; never mint one to log.
+// A sample taken while the page was hidden (phone asleep, other tab) is dropped — it measures
+// the sleep, not the app (two dashboard samples once read 25 minutes).
+let _sheetsHiddenAt = 0;
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _sheetsHiddenAt = Date.now(); });
+function sheetsPerf(act, ms) {
+  try {
+    ms = Math.round(ms);
+    if (_sheetsHiddenAt && Date.now() - _sheetsHiddenAt < ms + 1000) return;
+    const tok = p2Token();
+    if (!tok || !USER_ID || DEMO) return;
+    fetch(SUPABASE_URL + '/rest/v1/rpc/perf_log_add', {
+      method: 'POST', keepalive: true, headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_slack_id: USER_ID, p_token: tok, p_act: 'sheets.' + act, p_rt: ms, p_server: null,
+                             p_detail: null, p_device: (navigator.userAgent || '').slice(0, 80) })
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+/** The dashboard's sbAssignments panel (panels_for, computed live) — clerks/secretaries/presidency. */
+async function assignmentsFromPostgres() {
+  try {
+    const token = await ensureP2Token();
+    if (!token) return null;
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/ui_payload_live', {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_kind: 'panels', p_slack_id: USER_ID, p_token: token })
+    });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    const p = rows && rows[0] && rows[0].payload;
+    return (p && p.sbAssignments) || null;
+  } catch (e) { return null; }
+}
+
 /** One stored payload holding every tab. Cached for the session; refresh reloads it. */
 async function gridsFromPostgres() {
   if (_gridPayload && Date.now() - _gridPayloadAt < 60000) return _gridPayload;
@@ -897,6 +984,7 @@ async function storedTab(spec) {
   if (!p) return null;
   if (spec.api === 'sbQueue')  return p.sbQueue || null;
   if (spec.api === 'aiAdmin')  return p.aiAdmin || null;
+  if (spec.api === 'getStakeBusinessAssignments') return await assignmentsFromPostgres();
   if (spec.api === 'gridRows') return p['grid_' + spec.apiGrid] || null;
   return null;
 }
@@ -1173,6 +1261,29 @@ const TABS = {
     })(),
   },
 
+  // Stake Business Assignments (2026-10-14) — who conducts each ward's business, the ward and
+  // backup high councilors, and the standing assignments the Monday reset restores (cols K/L).
+  // Read from Postgres (the dashboard's sbAssignments panel); every edit is queued through
+  // updateStakeBusinessAssignment, which also closes availability tasks once conducting is settled.
+  assignments: {
+    label: '🗓️ SB Assignments', api: 'getStakeBusinessAssignments', key: 'row', grid: 'assignments',
+    cols: [
+      { title: 'Ward', field: 'ward', width: 110, frozen: true, headerSort: false },
+      edA({ title: 'Building', field: 'building', minWidth: 170 }),
+      edA({ title: 'Room', field: 'room', width: 120 }),
+      edA({ title: 'Sacrament meeting', field: 'meeting', width: 130, headerTooltip: 'A time, e.g. 5:30 PM' }),
+      edA({ title: 'Conducting', field: 'conducting', width: 150, formatter: sbaPerson('conducting') }, 'hc'),
+      edA({ title: 'Ward HC', field: 'wardHC', width: 140, formatter: sbaPerson('wardHC') }, 'hc'),
+      edA({ title: 'Backup HC', field: 'backupHC', width: 140, formatter: sbaPerson('backupHC') }, 'hc'),
+      { title: 'Availability check', field: 'availabilityCheck', width: 120, headerSort: false,
+        headerTooltip: 'When this Sunday’s availability check was sent (set by the system)' },
+      edA({ title: 'Notes', field: 'notes', minWidth: 220, formatter: 'textarea' }, 'textarea'),
+      edA({ title: 'Standing Ward HC', field: 'normalWardHC', width: 150,
+            headerTooltip: 'Restored every Monday (and by “Restore normal assignments”)' }, 'hc'),
+      edA({ title: 'Standing Backup HC', field: 'normalBackupHC', width: 150 }, 'hc'),
+    ],
+  },
+
   chart: {
     addRow: { label: '＋ Add calling', run: () => openRowForm('chart') },
     // Reads the sheet, not v_clerk_callings_chart: a calling added here has to appear on the
@@ -1423,6 +1534,11 @@ const TAB_HELP = {
   settings: { title: 'Settings', body:
     '<p>System settings and the links shown under <b>Stake Links</b> on the dashboard.</p>'
     + '<p>Change a setting only if you know what it controls — they take effect immediately for everyone.</p>' },
+  assignments: { title: 'Stake Business Assignments', body:
+    '<p>One row per ward — the <b>Stake Business Assignments</b> sheet: where and when it meets, who conducts its stake business, and its ward and backup high councilors.</p>'
+    + '<ul><li>Click a cell to edit; it saves at once. Setting <b>Conducting</b> to a person closes that ward’s open availability tasks.</li>'
+    + '<li><b>Standing</b> Ward / Backup HC are the usual assignments. Every Monday they are copied back into this week’s columns, so a one-week swap only needs this week’s column.</li>'
+    + '<li>A name in <span style="color:#b26500;font-weight:600">amber ✈︎</span> is away that Sunday; <i>italic</i> means this week differs from the standing assignment.</li></ul>' },
   tasks: { title: 'Action Items', body:
     '<p>Every task the system has created — extending, setting apart, recording, and so on. Search or filter to find one and see who it is assigned to.</p>' },
 };
@@ -1547,6 +1663,13 @@ function demoRows(which) {
     { calling:'High Councilor', title_name:'Bro. Demoson', name:'Aaron Demoson',
       slack_id:'D_HC0', email:'hc@example.org', phone:'801-555-0110', ward:W,
       supervisor:'Pres. Plothow', active:true },
+  ];
+  if (which === 'assignments') return [
+    { row: 2, ward: '16th Ward', building: 'Stake Center', room: 'West Chapel', meeting: '11:30 AM', conducting: 'Bro. Ainsworth',
+      wardHC: 'Bro. Ainsworth', backupHC: '', availabilityCheck: 'Oct 8', notes: '', normalWardHC: 'Bro. Ainsworth', normalBackupHC: '' },
+    { row: 3, ward: '6-7th Ward', building: 'Institute', room: 'South Chapel', meeting: '10:00 AM', conducting: 'Confirming',
+      wardHC: 'Bro. Bellview', backupHC: 'Bro. Corbridge', availabilityCheck: 'Oct 8', notes: 'Bro. Bellview away 10/18', normalWardHC: 'Bro. Duffin', normalBackupHC: 'Bro. Corbridge',
+      wardHCAway: false, shuffled: true },
   ];
   if (which === 'settings') return [
     { key:'poll_phases_separately', value:'false',
@@ -1838,7 +1961,7 @@ async function load() {
   }
   document.getElementById('colBtn').hidden = false;
 
-  if ((tab === 'callings' || tab === 'ordinations') && !APPROVERS.length) await loadApprovers();
+  if ((tab === 'callings' || tab === 'ordinations' || tab === 'assignments') && !APPROVERS.length) await loadApprovers();
   // The approver columns depend on the roster, which is fetched — splice them in
   // at the placeholder now that it is known.
   if (spec.cols.includes('@APPROVERS@')) {
@@ -1885,6 +2008,7 @@ async function load() {
     if (spec.decorate) spec.decorate(rows, today);
     if (spec.sort) rows.sort(spec.sort);
     const ms = Date.now() - t0;
+    sheetsPerf('load.' + tab, ms);
     box.innerHTML = '';
     const hidden = new Set(hiddenFor(tab));
     const savedWidths = (readLS(LS_WIDTHS)[tab]) || {};

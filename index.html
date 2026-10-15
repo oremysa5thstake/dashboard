@@ -1558,9 +1558,14 @@
     // redirect + cold start + network (the fixed Apps Script tax). Logs to the
     // console, a rolling localStorage buffer (Admin Tools → Performance Log), and
     // fire-and-forget to the server "Perf Log" sheet. Remove after diagnosis.
+    // A sample taken while the page was hidden measures the sleep, not the app (two `approve`
+    // samples read 25 minutes) — it is shown in the console but not stored (2026-10-14).
+    let _perfHiddenAt = 0;
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _perfHiddenAt = Date.now(); });
     function recordPerf(action, rtMs, data) {
       try {
         rtMs = Math.round(rtMs);
+        if (_perfHiddenAt && Date.now() - _perfHiddenAt < rtMs + 1000) { console.log('⏱️ ' + action + ': ' + rtMs + 'ms (page was hidden — not logged)'); return; }
         const sv = (data && typeof data._serverMs === 'number') ? data._serverMs : null;
         const gap = (sv != null) ? (rtMs - sv) : null;
         const t = (data && data._timing) || null;
