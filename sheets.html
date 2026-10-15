@@ -513,7 +513,23 @@ function wardEditor(cell, onRendered, success, cancel) {
 // or they must be validated before anyone relies on them.
 // Status / Priority / Sched. Stake Bus. / Hold were direct until 2026-10-11 (15-30s each); they are
 // queued now, and their Stake Business follow-up runs once after the edits go quiet.
-const GRID_DIRECT = { 'chart.calling': 1, 'roster.slack_id': 1 };
+// chart.calling stays direct: the calling name IS that row's key, and a queued rename would leave
+// the next edit on the row aiming at a key that no longer exists. roster.slack_id is queued since
+// 2026-10-14 — checked here first (gridValidate), because a queued refusal would be silent.
+const GRID_DIRECT = { 'chart.calling': 1 };
+
+/** Checks the server makes, made here first so a queued edit cannot be silently refused. */
+function gridValidate(gridName, field, value, row) {
+  const v = String(value == null ? '' : value).trim();
+  if (gridName === 'roster' && field === 'slack_id' && v) {
+    if (!/^U[A-Z0-9]{6,}$/.test(v)) return 'That does not look like a Slack ID (they start with U): ' + v;
+    const dup = grid && grid.getData().find(r => String(r._key) !== String(row._key) && String(r.slack_id || '').trim() === v
+      && String(r.name || '').trim().toLowerCase() !== String(row.name || '').trim().toLowerCase());
+    if (dup) return 'That Slack ID is already on the roster for ' + (dup.name || dup.calling);
+  }
+  if (gridName === 'roster' && field === 'ward' && v && !/\d/.test(v)) return 'A ward needs a number in it, e.g. "25th Ward": ' + v;
+  return '';
+}
 
 // A queued edit reaches the database ~10s later. Until then a reload would show the old value and
 // the edit would look lost, so each one is remembered here (30s) and laid over freshly loaded rows.
@@ -748,6 +764,10 @@ async function saveGridCell(cell, gridName) {
     toast('No user — reopen this window from the dashboard', 'err');
     return;
   }
+  const bad = gridValidate(gridName, field, cell.getValue(), row);
+  if (bad) { cell.setValue(before, true); toast(bad, 'err'); return; }
+  if (gridName === 'roster' && field === 'slack_id' && cell.getValue()) cell.setValue(String(cell.getValue()).trim().toUpperCase(), true);
+  const _editT0 = performance.now();
   if (el) el.style.outline = '2px solid #f0b429';
   try {
     const v = cell.getValue();
@@ -762,11 +782,13 @@ async function saveGridCell(cell, gridName) {
       if (qs.expect !== undefined) p.expect = qs.expect;     // still guards a shifted row on replay
       if (await queueGridEdit(p)) {
         markGridsStale();
+        sheetsPerf('edit.' + gridName + '.' + field + ' (queued)', performance.now() - _editT0);
         if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
         return;
       }
     }
     const data = await apiJson(API_URL + '?' + new URLSearchParams(qs).toString());
+    sheetsPerf('edit.' + gridName + '.' + field + ' (direct)', performance.now() - _editT0);
     if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
     markGridsStale();   // stored grids no longer reflect the sheet
     if (el) {
