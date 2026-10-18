@@ -1246,7 +1246,15 @@ const TABS = {
   business: {
     label: '📅 Stake Business', api: 'sbQueue', key: 'rowId', addRow: { label: '＋ Add row', run: addBusinessRow },
     groupBy: '_group',
-    groupHeader: (value, count) => esc(value) + ' <span style="opacity:.6">(' + count + ')</span>',
+    // Each group's header links that group's Stake Business documents, one per Sunday (2026-10-18).
+    groupHeader: (value, count, data) => {
+      const docs = {};
+      (data || []).forEach(r => { const u = String(r.docUrl || ''); if (/^https?:\/\//.test(u) && r.meeting_date && !docs[r.meeting_date]) docs[r.meeting_date] = u; });
+      const dates = Object.keys(docs).sort().reverse().slice(0, 6);
+      const links = dates.map(d => '<a href="' + esc(docs[d]) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#1a3a6b;margin-left:8px;font-weight:400">📄 '
+        + esc(new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + '</a>').join('');
+      return esc(value) + ' <span style="opacity:.6">(' + count + ')</span>' + links;
+    },
     // Newest first inside each group; the queue arrives in sheet order.
     sort: (a, b) => String(b.meeting_date || '').localeCompare(String(a.meeting_date || '')),
     decorate: (rows, today) => rows.forEach(r => {
@@ -1258,6 +1266,10 @@ const TABS = {
       const WARDS = ['16th Ward','19th Ward','24th Ward','25th Ward','27th Ward','32nd Ward','33rd Ward','49th Ward'];
       const base = [
         edSB({ title: 'Date', field: 'meeting_date', width: 118, frozen: true }, 'input'),
+        { title: 'Doc', field: 'docUrl', width: 58, hozAlign: 'center', headerSort: false,
+          headerTooltip: 'That Sunday’s Stake Business document',
+          formatter: c => { const u = String(c.getValue() || ''); return /^https?:\/\//.test(u)
+            ? '<a href="' + esc(u) + '" target="_blank" rel="noopener" title="Open the Stake Business document">📄</a>' : ''; } },
         edSB({ title: 'Member', field: 'member', minWidth: 165, headerFilter: 'input' }, 'input'),
         edSB({ title: 'Calling', field: 'calling', minWidth: 200, headerFilter: 'input' }, 'input'),
         edSB({ title: 'Ward', field: 'ward', width: 122, headerFilter: 'list',
