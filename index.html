@@ -537,6 +537,11 @@
           if (window.__linkCode && u.indexOf(API_URL) === 0 && !/[?&]lk=/.test(u)) {
             input = u + (u.indexOf('?') === -1 ? '?' : '&') + 'lk=' + encodeURIComponent(window.__linkCode);
           }
+          // Viewing another user's dashboard: the request acts as them; say who is really looking,
+          // so the server checks the VIEWER's link and permission (Core.js, 2026-10-18).
+          if (typeof stashedUserId !== 'undefined' && stashedUserId && String(input).indexOf(API_URL) === 0 && !/[?&]viewer=/.test(String(input))) {
+            input = String(input) + (String(input).indexOf('?') === -1 ? '?' : '&') + 'viewer=' + encodeURIComponent(stashedUserId);
+          }
         } catch (e) { /* never block a request over this */ }
         return _fetch(input, init);
       };
@@ -1234,6 +1239,9 @@
     async function writeToPostgres(fn, args) {
       const p2 = phase2Config();
       if (!p2) return null;
+      // Viewing another user's dashboard: a WRITE here would be made as the viewer (the session is
+      // theirs). Return null so the caller uses Apps Script, which acts as the person being viewed.
+      if (p2ViewingTarget() && /^act_/.test(fn)) return null;
       try {
         const token = await ensurePhase2Token();
         if (!token) return null;
@@ -1458,13 +1466,19 @@
     let _hcSb = null;
     async function loadHcSbStatus() {
       if (DEMO_MODE) { _hcSb = demoHcSbStatus(); fillHcSbStatus(); return; }
-      if (p2ViewingTarget()) { _hcSb = null; fillHcSbStatus(); return; }   // it would show the viewer's ward
-      const d = await writeToPostgres('hc_sb_status', {});
+      const viewing = p2ViewingTarget();   // another user's dashboard: THEIR ward (0136)
+      const d = viewing ? await writeToPostgres('hc_sb_status_view_as', { p_target: viewing })
+                        : await writeToPostgres('hc_sb_status', {});
       if (d && d.success) { _hcSb = d; fillHcSbStatus(); }
     }
 
+    // The dashboard can be drawn twice — your own, and another user's in the Admin Tools overlay —
+    // so panel slots are looked up inside whichever one is being drawn.
+    function _panelRoot() { return document.getElementById(renderTargetId) || document; }
+    function _panelEl(id) { const r = _panelRoot(); return (r.querySelector && r.querySelector('#' + id)) || document.getElementById(id); }
+
     function fillHcSbStatus() {
-      const box = document.getElementById('hcSbStatus');
+      const box = _panelEl('hcSbStatus');
       if (!box) return;
       const d = _hcSb;
       if (!d || !d.show) { box.innerHTML = ''; return; }
@@ -1518,8 +1532,9 @@
 
     async function loadSbRisk() {
       if (DEMO_MODE) { _sbRisk = demoSbRisk(); fillSbRisk(); return; }
-      if (p2ViewingTarget()) return;
-      const d = await writeToPostgres('sb_risk_items', {});
+      const viewing = p2ViewingTarget();   // another user's dashboard: what THEY would see (0136)
+      const d = viewing ? await writeToPostgres('sb_risk_items_view_as', { p_target: viewing })
+                        : await writeToPostgres('sb_risk_items', {});
       if (!d || !d.success) return;
       const byKey = {};
       (d.items || []).forEach(it => { byKey[_sbKey(it.ref)] = it; byKey[_sbKey(it.taskRef)] = it; });
@@ -1536,7 +1551,7 @@
     }
 
     function fillSbRisk() {
-      document.querySelectorAll('.sb-risk').forEach(el => {
+      _panelRoot().querySelectorAll('.sb-risk').forEach(el => {
         const it = String(el.dataset.ref || '').split(' ').map(k => _sbRisk.byKey[k]).find(Boolean);
         el.innerHTML = !it ? '' : `<div class="item-meta" style="margin-top:6px;padding:8px;border-radius:6px;background:#fff3cd;color:#664d03;">
           ⚠️ If this is ${it.action === 'Released' ? 'extended' : 'accepted'} ${it.appointment ? 'at the appointment' : 'now'}, it is read on <strong>${escapeHtmlDisplay(it.sundayLabel)}</strong> —
@@ -1544,7 +1559,7 @@
           Consider planning it for ${escapeHtmlDisplay(it.nextLabel)}.
           <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${sbRiskButtons(it, _sbRisk.admin)}</div></div>`;
       });
-      const box = document.getElementById('sbRiskList');
+      const box = _panelEl('sbRiskList');
       if (!box) return;
       if (!_sbRisk.admin || !_sbRisk.items.length) { box.innerHTML = ''; return; }
       box.innerHTML = `<div class="section"><div class="section-header expanded"><div class="section-title">⚠️ Stake Business at Risk</div><div class="section-meta"><span class="section-count">${_sbRisk.items.length}</span></div></div>
@@ -5841,6 +5856,9 @@
         if (data.error) throw new Error(data.error);
         // Render directly into the overlay
         renderDashboard(data);
+        // …and the panels that load after the dashboard, for THIS user (2026-10-18).
+        _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} };
+        loadHcSbStatus(); loadSbRisk();
       } catch (e) {
         document.getElementById('overlayContent').innerHTML =
           '<div class="empty-state"><div class="icon">⚠️</div><p>Failed to load dashboard</p>' +
@@ -5856,6 +5874,8 @@
       }
       stashedUserData = null;
       _panelCache = null;   // the overlay's panels were the other person's
+      _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} };   // were theirs too
+      window.__hcSbAt = 0; window.__sbRiskAt = 0;
       renderTargetId = 'content';
       document.getElementById('userOverlay').classList.remove('open');
       document.getElementById('overlayContent').innerHTML = '';
