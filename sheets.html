@@ -821,9 +821,17 @@ function edSB(col, editor, params) {
 // Assignments tab: a picker of the high council + presidency (titles, as the sheet stores them)
 // that still accepts free text — conducting also takes N/A and similar.
 function edA(col, kind) {
-  const ed = kind === 'hc'
-    ? { editor: 'list', editorParams: { values: () => [''].concat(APPROVERS.map(a => a.name).filter(Boolean)),
-                                        autocomplete: true, freetext: true, listOnEmpty: true, allowEmpty: true } }
+  // A plain dropdown (2026-10-18): Ward / Backup HC list the high council; Conducting also lists the
+  // presidency and the flow's own states. A value already on the sheet stays in the list.
+  const hcOnly = () => APPROVERS.filter(a => /High Councilor/.test(a.title || '') && a.name).map(a => a.name);
+  const ed = kind === 'hc' || kind === 'conducting'
+    ? { editor: 'list', editorParams: { values: (cell) => {
+          const base = kind === 'conducting'
+            ? ['', 'Stake Presidency'].concat(APPROVERS.filter(a => a.name && !/vacant/.test(a.title || '')).map(a => a.name), ['Confirming', 'Needs Replacement', 'N/A'])
+            : [''].concat(hcOnly());
+          const cur = cell && cell.getValue && cell.getValue();
+          return cur && base.indexOf(cur) === -1 ? base.concat([cur]) : base;
+        }, autocomplete: false, listOnEmpty: true, allowEmpty: true } }
     : kind === 'textarea' ? { editor: 'textarea', editorParams: {} } : { editor: 'input', editorParams: {} };
   return Object.assign({}, col, ed, { headerSort: false, cellEdited: saveAssignmentCell });
 }
@@ -1306,7 +1314,7 @@ const TABS = {
       edA({ title: 'Building', field: 'building', minWidth: 170 }),
       edA({ title: 'Room', field: 'room', width: 120 }),
       edA({ title: 'Sacrament meeting', field: 'meeting', width: 130, headerTooltip: 'A time, e.g. 5:30 PM' }),
-      edA({ title: 'Conducting', field: 'conducting', width: 150, formatter: sbaPerson('conducting') }, 'hc'),
+      edA({ title: 'Conducting', field: 'conducting', width: 150, formatter: sbaPerson('conducting') }, 'conducting'),
       edA({ title: 'Ward HC', field: 'wardHC', width: 140, formatter: sbaPerson('wardHC') }, 'hc'),
       edA({ title: 'Backup HC', field: 'backupHC', width: 140, formatter: sbaPerson('backupHC') }, 'hc'),
       { title: 'Availability check', field: 'availabilityCheck', width: 120, headerSort: false,

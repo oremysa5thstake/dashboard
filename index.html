@@ -1589,6 +1589,7 @@
         const d = (await writeToPostgres('sb_open_sundays_for', { p_ts: String(ts), p_weeks: 14 }))
                   || await performAction('sbOpenSundays', { timestamp: ts, weeks: 14 });
         if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+        box.dataset.waitCounselors = d.waitingOnCounselors ? '1' : '';   // an EQ president still waiting (0135)
 
         if (d.addedToAgenda) {
           box.innerHTML = '📅 Already on the '
@@ -1637,7 +1638,12 @@
       if (box) box.innerHTML = '📅 <em>Saving…</em>';
       try {
         const chosenLabel = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].textContent.replace(/ — .*$/, '').trim() : chosen;
-        const d = await performAction('sbSetScheduled', { timestamp: ts, date: chosen });
+        // A president still waiting for his counselors: picking a Sunday can mean "don't wait".
+        const params = { timestamp: ts, date: chosen };
+        if (box && box.dataset.waitCounselors === '1' && /^\d{4}-\d{2}-\d{2}$/.test(chosen)) {
+          if (confirm('He is still waiting for his counselors to be selected and approved.\n\nOK — add him to stake business on ' + chosenLabel + ' without waiting.\nCancel — keep waiting (he will be sustained with his counselors, on or after ' + chosenLabel + ').')) params.dontWait = 'true';
+        }
+        const d = await performAction('sbSetScheduled', params);
         if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
         if (d.queued) {
           // Queued: the list only offered Sundays the scheduler accepts, so show the choice now;
@@ -4377,9 +4383,9 @@
           + '<td><b>' + escapeHtmlDisplay(r.ward) + '</b><div class="item-meta" style="font-size:11px;">' + escapeHtmlDisplay(r.building) + (r.room ? ' · ' + escapeHtmlDisplay(r.room) : '') + '</div></td>'
           + '<td style="white-space:nowrap;">' + escapeHtmlDisplay(r.meeting) + '</td>'
           + '<td>' + conductingCell(r) + '</td>'
-          + '<td>' + assignCell(r.row, 'wardHC', r.wardHC) + (r.wardHCAway ? awayTag : '')
+          + '<td>' + assignHcSelect(r.row, 'wardHC', r.wardHC) + (r.wardHCAway ? awayTag : '')
             + (r.shuffled ? '<div class="item-meta" style="font-size:11px;">normally ' + escapeHtmlDisplay(r.normalWardHC) + '</div>' : '') + '</td>'
-          + '<td>' + assignCell(r.row, 'backupHC', r.backupHC) + (r.backupHCAway ? awayTag : '') + '</td>'
+          + '<td>' + assignHcSelect(r.row, 'backupHC', r.backupHC) + (r.backupHCAway ? awayTag : '') + '</td>'
           + '<td style="white-space:nowrap;font-size:12px;color:#888;">' + escapeHtmlDisplay(r.availabilityCheck || '—') + '</td>'
           + '<td>' + assignCell(r.row, 'notes', r.notes, true) + '</td>'
           + '</tr>';
@@ -4494,6 +4500,18 @@
       } finally { setSyncing(false); }
     }
 
+    // Ward HC / Backup HC: a dropdown of the high council (2026-10-18), names as the sheet stores
+    // them (titles). A value already on the sheet that is not in the list stays selectable.
+    function assignHcSelect(row, field, value) {
+      const hcs = ((_conductingCandidates && _conductingCandidates.people) || []).filter(p => p.group === 'High Council').map(p => p.name);
+      const names = [''].concat(hcs);
+      if (value && names.indexOf(value) === -1) names.push(value);
+      return '<select id="assign_' + row + '_' + field + '" class="form-input" style="font-size:13px;padding:5px 7px;min-width:130px;"'
+        + ' onchange="saveAssignment(' + row + ', \'' + field + '\', this)" data-was="' + escapeHtml(value || '') + '">'
+        + names.map(n => '<option value="' + escapeHtml(n) + '"' + (n === (value || '') ? ' selected' : '') + '>' + (n ? escapeHtml(n) : '— none —') + '</option>').join('')
+        + '</select>';
+    }
+
     function assignCell(row, field, value, wide) {
       const id = 'assign_' + row + '_' + field;
       return '<input id="' + id + '" class="form-input" style="font-size:13px;padding:5px 7px;min-width:' + (wide ? '160px' : '110px') + ';"'
@@ -4502,12 +4520,13 @@
     }
 
     async function saveAssignment(row, field, input) {
-      const original = input.defaultValue;
+      const isSel = input.tagName === 'SELECT';
+      const original = isSel ? (input.dataset.was || '') : input.defaultValue;
       input.disabled = true;
       setSyncing(true);
       try {
         const d = await performAction('updateStakeBusinessAssignment', { row: row, field: field, value: input.value });
-        input.defaultValue = input.value;
+        if (isSel) input.dataset.was = input.value; else input.defaultValue = input.value;
         const rr = (_assignmentsData && _assignmentsData.rows || []).find(x => x.row === row);
         if (rr) rr[field] = input.value;   // so a re-render before the database catches up keeps it
         showToast('Saved', 'success');
