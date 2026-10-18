@@ -1451,6 +1451,60 @@
       return keys.length ? `<div class="sb-risk" data-ref="${escapeHtml(keys.join(' '))}"></div>` : '';
     }
 
+    // ── Stake Business Status for a high councilor's ward (2026-10-18) ────────────
+    // hc_sb_status (0129–0131): for a high councilor with a ward on Stake Callings — who conducts on
+    // the coming Sunday and why, the confirmed agenda (his ward + stake-wide), and the callings /
+    // releases / ordinations still in the pipeline with what each is waiting on.
+    let _hcSb = null;
+    async function loadHcSbStatus() {
+      if (DEMO_MODE) { _hcSb = demoHcSbStatus(); fillHcSbStatus(); return; }
+      if (p2ViewingTarget()) { _hcSb = null; fillHcSbStatus(); return; }   // it would show the viewer's ward
+      const d = await writeToPostgres('hc_sb_status', {});
+      if (d && d.success) { _hcSb = d; fillHcSbStatus(); }
+    }
+
+    function fillHcSbStatus() {
+      const box = document.getElementById('hcSbStatus');
+      if (!box) return;
+      const d = _hcSb;
+      if (!d || !d.show) { box.innerHTML = ''; return; }
+      const esc = escapeHtmlDisplay;
+      const icon = k => k === 'release' ? '👋' : k === 'ordination' ? '🙏' : '📋';
+      const agenda = (d.agenda || []).map(a => `<li>${a.action === 'Release' ? '👋 Release' : '✋ ' + esc(a.action)} — <strong>${esc(a.member)}</strong>, ${esc(a.calling)}${a.where === 'Stake' ? ' <span style="color:#666">(stake-wide)</span>' : ''}</li>`).join('');
+      const pipe = (d.pipeline || []).map(p => `<li>${icon(p.kind)} <strong>${esc(p.member)}</strong> — ${esc(p.calling)}<div style="color:#555;font-size:12px;margin-left:22px;">${esc(p.waiting)}</div></li>`).join('');
+      const open = _hcSbOpen();
+      box.innerHTML = `<div class="section"><div class="section-header${open ? ' expanded' : ''}" onclick="toggleHcSb()"><div class="section-title">🗓️ Stake Business — ${esc(d.ward)}</div>
+          <div class="section-meta"><span style="font-size:12px;opacity:.8">${esc(d.sundayLabel)}</span><span class="chevron">▼</span></div></div>
+        <div class="section-content${open ? ' expanded' : ''}" id="section-hcSbStatus"><div class="section-inner">
+          <div class="item-meta" style="font-size:14px;margin-bottom:6px;">🎤 Conducting: <strong>${esc(d.conducting || 'not set yet')}</strong>${d.reason ? ' — ' + esc(d.reason) : ''}</div>
+          ${d.coveredBy ? `<div class="item-meta">This week’s Ward HC: <strong>${esc(d.coveredBy)}</strong></div>` : ''}
+          ${d.notes ? `<div class="item-meta" style="font-style:italic;">📝 ${esc(d.notes)}</div>` : ''}
+          <div style="font-weight:600;margin:10px 0 4px;">On the agenda for ${esc(d.sundayLabel)}</div>
+          ${agenda ? `<ul style="margin:0;padding-left:18px;line-height:1.7;">${agenda}</ul>` : '<div class="item-meta">Nothing yet.</div>'}
+          <div style="font-weight:600;margin:12px 0 4px;">In the pipeline</div>
+          ${pipe ? `<ul style="margin:0;padding-left:18px;line-height:1.6;list-style:none;">${pipe}</ul>` : '<div class="item-meta">Nothing else for your ward right now.</div>'}
+        </div></div></div>`;
+    }
+    function _hcSbOpen() { try { return localStorage.getItem('hcSbCollapsed') !== '1'; } catch (e) { return true; } }
+    function toggleHcSb() { try { localStorage.setItem('hcSbCollapsed', _hcSbOpen() ? '1' : '0'); } catch (e) {} fillHcSbStatus(); }
+
+    function demoHcSbStatus() {
+      if (DEMO_ROLE !== 'hc') return null;
+      const s = demoState || {};
+      const agenda = [];
+      if (s.sbConfirmed || (s.sus && Object.keys(s.sus).length)) {
+        agenda.push({ action: 'Release', member: DEMO_CAST.marcus, calling: 'Elders Quorum Second Counselor', where: 'Ward' });
+        agenda.push({ action: 'Sustain', member: DEMO_CAST.porter, calling: 'Elders Quorum Second Counselor', where: 'Ward' });
+      }
+      return { success: true, show: true, ward: DEMO_WARD, sundayLabel: 'this Sunday', conducting: 'Bro. Demoson',
+        reason: agenda.length ? 'You are conducting.' : 'No stake business is scheduled for your ward that Sunday.',
+        notes: '', coveredBy: '', agenda: agenda,
+        pipeline: [
+          { kind: 'ordination', member: DEMO_CAST.dallin, calling: 'Ordination to Elder', waiting: s.approved && s.approved.o1 ? 'Approved — goes on the next stake business' : 'Sustaining votes — waiting on you and 3 others' },
+          { kind: 'release', member: DEMO_CAST.desmond, calling: 'Ward Clerk', waiting: 'Being extended by Pres. Smith — appointment Sunday at 9:00am' }
+        ] };
+    }
+
     // Demo: Tanner's high-council calling, accepted on a Sunday his ward's high councilor was never
     // asked about — shown to the presidency, clerk and secretary roles once Tanner's call is approved.
     function demoSbRisk() {
@@ -1761,6 +1815,8 @@
       renderDashboard(data);
       restoreSectionState();
       fillSbRisk();                                                   // last known, at once
+      fillHcSbStatus();
+      if (!window.__hcSbAt || Date.now() - window.__hcSbAt > 15000) { window.__hcSbAt = Date.now(); loadHcSbStatus(); }
       if (!window.__sbRiskAt || Date.now() - window.__sbRiskAt > 15000) { window.__sbRiskAt = Date.now(); loadSbRisk(); }
       // Re-rendering resets scroll; put the reader back where they were. Only for a refresh
       // of an already-drawn dashboard, so the first load still starts at the top.
@@ -1794,6 +1850,7 @@
       if (data.dashboardMessage) {
         html += `<div class="dashboard-message">${escapeHtml(data.dashboardMessage)}</div>`;
       }
+      html += '<div id="hcSbStatus"></div>';   // filled by loadHcSbStatus (high councilors with a ward)
       html += '<div id="sbRiskList"></div>';   // filled by loadSbRisk (clerks / secretaries / presidency)
 
       // Stake links
