@@ -217,6 +217,48 @@
     .ms-canceled-header:hover{background:#f0f0f0}
     .ms-canceled-list{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}
     .ms-canceled-list.open{max-height:10000px;padding-top:10px}
+    /* Welcome + guided tour (2026-10-18) */
+    .tw-overlay{position:fixed;inset:0;background:rgba(20,22,40,.55);z-index:10050;display:flex;align-items:flex-start;justify-content:center;padding:max(24px,6vh) 16px 24px;overflow-y:auto}
+    .tw-card{position:relative;background:#fff;color:#222;border-radius:14px;max-width:560px;width:100%;padding:26px 24px 18px;box-shadow:0 18px 50px rgba(0,0,0,.3);line-height:1.5}
+    .tw-card h2{font-size:22px;margin:2px 0 8px;text-wrap:balance}
+    .tw-card h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#666;margin:16px 0 8px}
+    .tw-eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#5865F2}
+    .tw-lead{font-size:15px;color:#333;margin:0}
+    .tw-note{background:#fff7e0;border:1px solid #f1dfa6;border-radius:8px;padding:8px 10px;font-size:13px;margin:12px 0 0}
+    .tw-does{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:14px}
+    .tw-does li{display:flex;gap:10px;align-items:flex-start}
+    .tw-ic{width:22px;flex-shrink:0;text-align:center}
+    .tw-tips{margin-top:16px;padding:12px;background:#f4f5fe;border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:13px;color:#333}
+    .tw-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+    .tw-actions .btn{flex:1 1 auto}
+    .tw-later{display:block;margin:12px auto 0;background:none;border:none;color:#777;font-size:12px;cursor:pointer;text-decoration:underline;font-family:inherit}
+    .tw-x{position:absolute;top:8px;right:10px;background:none;border:none;font-size:24px;line-height:1;color:#999;cursor:pointer;width:30px;height:30px;font-family:inherit}
+    .tw-x:hover{color:#333}
+    .tour-shade{position:fixed;inset:0;z-index:10040;background:transparent}
+    .tour-ring{position:fixed;z-index:10041;border-radius:10px;box-shadow:0 0 0 3px #5865F2,0 0 0 9999px rgba(20,22,40,.55);pointer-events:none;transition:all .25s ease}
+    .tour-tip{position:fixed;z-index:10042;background:#fff;color:#222;border-radius:12px;padding:14px 16px 12px;box-shadow:0 12px 34px rgba(0,0,0,.3);font-size:14px;line-height:1.5;transition:top .25s ease,left .25s ease}
+    .tour-tip h4{font-size:15px;margin:2px 0 6px}
+    .tour-count{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.06em}
+    .tour-nav{display:flex;gap:6px;align-items:center;margin-top:12px}
+    .tour-skip{background:none;border:none;color:#777;font-size:12px;cursor:pointer;text-decoration:underline;padding:0;font-family:inherit}
+    @media (prefers-reduced-motion: reduce){.tour-ring,.tour-tip{transition:none}}
+    .tour-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 14px;margin:22px 0 8px;padding-top:14px;border-top:1px solid #e4e4e8}
+    .tour-link{background:none;border:none;color:#4752c4;font-size:13px;cursor:pointer;padding:4px 2px;font-family:inherit}
+    .tour-link:hover{text-decoration:underline}
+    .demo-guide{position:fixed;right:12px;z-index:9998;width:min(320px,calc(100vw - 24px));background:#fff;color:#222;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;line-height:1.45;max-height:55vh;overflow-y:auto}
+    .demo-guide .dg-head{display:flex;align-items:center;padding:10px 12px 4px;font-size:14px}
+    .demo-guide ol{list-style:none;margin:0;padding:4px 12px;display:flex;flex-direction:column;gap:8px}
+    .demo-guide li{display:flex;gap:8px;align-items:flex-start;color:#888}
+    .demo-guide li.next{color:#222}
+    .demo-guide li.done{color:#2e7d32}
+    .demo-guide li.done b{font-weight:500;text-decoration:line-through}
+    .dg-mark{width:20px;height:20px;flex-shrink:0;border-radius:50%;background:#eee;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+    .demo-guide li.next .dg-mark{background:#5865F2;color:#fff}
+    .demo-guide li.done .dg-mark{background:#e3f3e4;color:#2e7d32}
+    .demo-guide.dg-pill{width:auto;overflow:visible;border-radius:999px}
+    .dg-pill button{background:#5865F2;color:#fff;border:none;border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+    .dg-how{font-size:12px;color:#555;margin-top:2px}
+    .dg-foot{padding:6px 12px 12px;font-size:12px;color:#666;border-top:1px solid #eee;margin-top:8px;padding-top:8px}
   </style>
 </head>
 <body>
@@ -1843,6 +1885,9 @@
       // of an already-drawn dashboard, so the first load still starts at the top.
       if (_dashboardDrawnOnce && _scrollY > 0) window.scrollTo(0, _scrollY);
       _dashboardDrawnOnce = true;
+      maybeShowWelcome();
+      renderDemoGuide();
+      if (_tour) setTimeout(_tourPlace, 0);
       restoreModalDraft();   // reopen an in-progress modal if the tab was reloaded (runs once)
     }
 
@@ -2112,6 +2157,7 @@
         html += '<div class="empty-state"><div class="icon">✨</div><p>You\'re all caught up!</p><p style="font-size:12px;color:#999;margin-top:8px">No pending items at this time</p></div>';
       }
 
+      if (renderTargetId === 'content') html += renderTourFooter();
       document.getElementById(renderTargetId).innerHTML = html;
     }
 
@@ -5160,6 +5206,405 @@
       hideHelp();
     });
 
+    // ============================================================
+    // WELCOME + GUIDED TOUR (2026-10-18)
+    // A first-visit welcome card per kind of user, a spotlight tour over the sections they
+    // actually have, and — in the demos — a "your part" checklist that follows the scenario.
+    // Opens by itself once for someone new (my_profile.firstSeen, 0137) or once per demo role;
+    // ?welcome=1 (or ?tour=1 in a demo) forces it; the footer's "👋 Welcome & tour" reopens it.
+    // ============================================================
+
+    // Which welcome a person gets. Real users: from the payload flags, plus my_profile for the
+    // president-vs-counselor split and _hcSb for "high councilor with a ward".
+    let _myProfile = null;
+    function tourRoleKey() {
+      if (DEMO_MODE) return { sp: 'president', spc1: 'counselor', spc2: 'counselor', clerk: 'clerk', sec: 'secretary', hc: 'hcWard' }[DEMO_ROLE] || 'hcNoWard';
+      if (!userData) return 'hcNoWard';
+      if (userData.isClerk) return 'clerk';
+      if (userData.isExecSec) return 'secretary';
+      if (userData.isPresidency) {
+        const c = String((_myProfile && _myProfile.calling) || '');
+        return (/president/i.test(c) && !/counselor/i.test(c)) ? 'president' : 'counselor';
+      }
+      if ((_hcSb && _hcSb.show) || (_myProfile && _myProfile.ward)) return 'hcWard';
+      return 'hcNoWard';
+    }
+    const TOUR_DEMO_FOR = { president: 'sp', counselor: 'spc1', clerk: 'clerk', secretary: 'sec', hcWard: 'hc', hcNoWard: 'hc' };
+
+    // What each kind of user does in the pipeline, in the order they meet it.
+    const TOUR_ROLES = {
+      president: {
+        label: 'Stake President',
+        intro: 'Every calling, release and ordination in the stake passes through you. The dashboard puts each one in front of you at the moment it needs you, and tells you when it has moved on.',
+        does: [
+          ['🗳️', 'Vote', 'on calling recommendations, releases and ordinations as they come in.'],
+          ['🗂️', 'Decide who extends', 'stake callings — yourself, a counselor or a high councilor — in <b>Callings to Schedule/Assign</b>.'],
+          ['📞', 'Extend', 'the callings and releases assigned to you (the secretary books the appointment).'],
+          ['🙌', 'Set apart', 'the people you extended to, once they are sustained.'],
+          ['📎', 'Keep an eye on everything', 'through CC\'d items and the Approval / Sustaining Status.']
+        ]
+      },
+      counselor: {
+        label: 'Stake Presidency Counselor',
+        intro: 'You vote on everything that comes through, help decide who extends each stake calling, and extend and set apart the ones assigned to you.',
+        does: [
+          ['🗳️', 'Vote', 'on calling recommendations and ordinations as they come in.'],
+          ['🗂️', 'Decide who extends', 'stake callings in <b>Callings to Schedule/Assign</b>.'],
+          ['📞', 'Extend', 'the callings and releases assigned to you — e.g. a new high councilor.'],
+          ['🙌', 'Set apart', 'the people you extended to, once they are sustained.'],
+          ['📎', 'Follow along', 'with CC\'d items you are copied on; acknowledge them when you have seen them.']
+        ]
+      },
+      clerk: {
+        label: 'Stake Clerk',
+        intro: 'You keep the records honest. You clear recommendations that need a second look before voting starts, and you close out the paperwork after sustaining and ordination.',
+        does: [
+          ['📝', 'Clerk reviews', '— check flagged recommendations (e.g. temple recommend, comments) so polling can begin.'],
+          ['📊', 'Watch the pipeline', 'in <b>Approval / Sustaining Status</b>, and chase anything stuck.'],
+          ['⚠️', 'Stake business at risk', '— wards whose Sunday isn\'t covered yet.'],
+          ['🏷️', 'Records', '— name tags, the Stake Callings roster, ordination certificates (LCR → print → sign → deliver).'],
+          ['📋', 'Sheet Views', 'opens the underlying tables when you need to fix something by hand.']
+        ]
+      },
+      secretary: {
+        label: 'Stake Executive Secretary',
+        intro: 'You keep the calendar moving: you book the interviews and appointments that let the presidency interview, extend and ordain.',
+        does: [
+          ['📋', 'Schedule ordination interviews', 'with a member of the stake presidency.'],
+          ['📅', 'Book appointments', 'for callings the presidency extends, and assign who extends where that is yours to do.'],
+          ['📊', 'Watch the pipeline', 'in <b>Approval / Sustaining Status</b>.'],
+          ['⚠️', 'Stake business at risk', '— wards whose Sunday isn\'t covered yet.'],
+          ['📋', 'Sheet Views', 'opens the underlying tables when you need them.']
+        ]
+      },
+      hcWard: {
+        label: 'High Councilor',
+        intro: 'You vote on callings and ordinations across the stake, and you carry stake business for your assigned ward from the extending through to the setting apart.',
+        does: [
+          ['🗳️', 'Vote', 'on calling recommendations and ordinations as they come in.'],
+          ['📞', 'Extend', 'callings and releases in your ward that are assigned to you.'],
+          ['🗓️', 'Stake business', '— the panel at the top shows your ward\'s coming Sunday: who conducts, what\'s on the agenda, and what is still on its way.'],
+          ['🙋', 'Report the sustainings', 'on Sunday, so the setting aparts can be assigned.'],
+          ['🙌', 'Set apart and ordain', '— and coordinate ordinations in your ward.'],
+          ['🌴', 'Out of town?', 'Add the dates under <b>When I\'m Out of Town</b> so someone covers your ward.']
+        ]
+      },
+      hcNoWard: {
+        label: 'High Councilor',
+        intro: 'You vote on callings and ordinations across the stake, and extend and set apart the ones assigned to you. When a ward\'s high councilor is away you may be asked to cover its stake business.',
+        does: [
+          ['🗳️', 'Vote', 'on calling recommendations and ordinations as they come in.'],
+          ['📞', 'Extend', 'callings and releases assigned to you.'],
+          ['🙌', 'Set apart', 'the people you extended to, once they are sustained.'],
+          ['🗓️', 'Cover stake business', 'when you are asked to stand in for another high councilor.'],
+          ['🌴', 'Out of town?', 'Add the dates under <b>When I\'m Out of Town</b>.']
+        ]
+      }
+    };
+
+    function _tourSeenKey() { return (DEMO_MODE ? 'tourSeenDemo_v1:' + DEMO_ROLE : 'tourSeen_v1:' + (userData && userData.userId || userId)); }
+    function _tourSeen() { try { return localStorage.getItem(_tourSeenKey()) === '1'; } catch (e) { return false; } }
+    function _tourMarkSeen() { try { localStorage.setItem(_tourSeenKey(), '1'); } catch (e) {} }
+
+    // Called after every dashboard draw; does its work once per page load.
+    let _tourChecked = false;
+    async function maybeShowWelcome() {
+      if (_tourChecked || renderTargetId !== 'content' || p2ViewingTarget()) return;
+      _tourChecked = true;
+      const q = new URLSearchParams(location.search);
+      const forced = q.get('welcome') === '1' || q.get('tour') === '1';
+      if (DEMO_MODE) {
+        if (forced || !_tourSeen()) setTimeout(() => openWelcome(), 600);
+        else { let o = null; try { o = sessionStorage.getItem('demoGuideOpen'); } catch (e) {} if (o !== '0') openDemoGuide(); }
+        return;
+      }
+      try { const p = await writeToPostgres('my_profile', {}); if (p && p.success) _myProfile = p; } catch (e) {}
+      if (forced) { openWelcome(); return; }
+      if (_tourSeen()) return;
+      // New = first seen in the last 3 days (perf_log keeps 60 days, so anyone who uses the
+      // dashboard regularly has an older first row). No profile answer → stay quiet.
+      const first = _myProfile && _myProfile.firstSeen ? new Date(_myProfile.firstSeen) : null;
+      if (first && Date.now() - first.getTime() < 3 * 86400000) openWelcome();
+      else if (_myProfile) _tourMarkSeen();          // an existing user: never pop it on them later
+    }
+
+    function openWelcome() {
+      hideHelp();
+      closeWelcome();
+      const key = tourRoleKey(), r = TOUR_ROLES[key];
+      const first = DEMO_MODE ? DEMO_ROLE_INFO.who : String((userData && userData.name) || '').replace(/^🎓\s*/, '').split(' (')[0];
+      const demoRole = TOUR_DEMO_FOR[key];
+      const does = r.does.map(d => `<li><span class="tw-ic">${d[0]}</span><span><b>${d[1]}</b> ${d[2]}</span></li>`).join('');
+      const demoNote = DEMO_MODE
+        ? `<p class="tw-note">This is a <b>demo</b> with made-up people — nothing you do here touches real data. The checklist will show what to do next as the story moves along.</p>`
+        : '';
+      const ov = document.createElement('div');
+      ov.id = 'tourWelcome';
+      ov.className = 'tw-overlay';
+      ov.innerHTML = `<div class="tw-card" role="dialog" aria-modal="true" aria-labelledby="twTitle">
+          <button class="tw-x" onclick="dismissWelcome()" aria-label="Close">×</button>
+          <div class="tw-eyebrow">${DEMO_MODE ? 'Demo · ' : ''}${escapeHtmlDisplay(r.label)}</div>
+          <h2 id="twTitle">Welcome${first ? ', ' + escapeHtmlDisplay(first) : ''}</h2>
+          <p class="tw-lead">${r.intro}</p>
+          ${demoNote}
+          <h3>What you'll do here</h3>
+          <ul class="tw-does">${does}</ul>
+          <div class="tw-tips">
+            <div><span class="help-btn" style="display:inline-flex;cursor:default">?</span> Every section has a <b>?</b> — tap it for what the section is and what each button does.</div>
+            <div>🔔 You get a Slack message when something needs you; this dashboard is where you act on it.</div>
+            <div>↩️ Tapped the wrong thing? <b>Recent Actions</b> lets you undo it.</div>
+          </div>
+          <div class="tw-actions">
+            <button class="btn btn-primary" onclick="startTour()">🧭 Show me around</button>
+            ${DEMO_MODE ? `<button class="btn btn-secondary" onclick="dismissWelcome();openDemoGuide()">✅ Show my checklist</button>`
+                        : `<button class="btn btn-secondary" onclick="window.open(location.pathname + '?demo=${demoRole}&tour=1', '_blank')">🎓 Practise in the demo</button>`}
+            <button class="btn btn-secondary" onclick="window.open('pipeline.html', '_blank')">🗺️ How the pipeline works</button>
+          </div>
+          <button class="tw-later" onclick="dismissWelcome()">Not now — I can reopen this from the bottom of the page</button>
+        </div>`;
+      document.body.appendChild(ov);
+      ov.addEventListener('click', e => { if (e.target === ov) dismissWelcome(); });
+      setTimeout(() => { const b = ov.querySelector('.btn-primary'); if (b) b.focus(); }, 50);
+    }
+    function closeWelcome() { const w = document.getElementById('tourWelcome'); if (w) w.remove(); }
+    function dismissWelcome() {
+      closeWelcome(); _tourMarkSeen();
+      if (DEMO_MODE) openDemoGuide();
+    }
+
+    // ── The spotlight tour ─────────────────────────────────────
+    // Steps are built from what is actually on screen, so each person is shown their own sections.
+    // Per-section text: a short line of our own where we have one, else the first paragraph of the
+    // section's "?" help.
+    const TOUR_SECTION_LINES = {
+      approvals: 'New calling recommendations land here for your vote. Approve, or raise a concern — a concern goes to the clerks before anything else happens.',
+      ordinations: 'Ordinations wait here for your sustaining vote once the interview is done.',
+      extend: 'Callings and releases you have been asked to extend. Record the answer here once you have met with the member.',
+      appointments: 'Callings someone else extends that need an appointment booked.',
+      settingAparts: 'People ready to be set apart — after they have been sustained.',
+      stakeBusiness: 'What is coming up for stake business, and who is presenting it.',
+      sustainingReports: 'On Sunday, mark who was sustained so setting aparts can be assigned.',
+      ccOpen: 'Things you are copied on so you can follow along. Acknowledge them once you have seen them.',
+      away: 'Add the dates you will be away so your tasks and stake business are covered.',
+      undo: 'Everything you did recently — and an undo button if you got it wrong.',
+      admin: 'Tools for the presidency, clerks and secretaries: demos, scripts and viewing another user\'s dashboard.',
+      approvalStatus: 'Every recommendation still moving through the pipeline, and what it is waiting on.',
+      clerkReviews: 'Recommendations flagged for a second look. Polling starts once you clear them.'
+    };
+    function _tourPlain(html) {
+      const d = document.createElement('div'); d.innerHTML = html || '';
+      const p = d.querySelector('p'); let t = (p ? p.textContent : d.textContent) || '';
+      t = t.replace(/\s+/g, ' ').trim();
+      if (t.length > 230) t = t.slice(0, 227).replace(/\s\S*$/, '') + '…';
+      return t;
+    }
+    function buildTourSteps() {
+      const root = document.getElementById('content');
+      const steps = [];
+      // Each step keeps a way to FIND its element, not the element: the dashboard redraws itself
+      // (live refresh, the demo's stake-links reload) and would leave a stored node detached.
+      const vis = el => el && el.offsetParent !== null;
+      const add = (find, title, body) => { if (vis(find())) steps.push({ find, title, body }); };
+      add(() => document.querySelector('#content #hcSbStatus .section'),
+        '🗓️ Your ward\'s stake business', 'Your ward\'s coming Sunday at a glance: who conducts and why, what will be presented, and what is still on its way (and what it is waiting on). Tap the header to open or close it.');
+      add(() => document.querySelector('#content #sbRiskList .section'), '⚠️ Stake business at risk',
+        'Wards whose coming Sunday is not covered yet. The high councilor has already been asked automatically — this is so you can follow up if needed.');
+      let firstHelp = true;
+      root.querySelectorAll('.section-header').forEach(h => {
+        if (h.closest('#hcSbStatus') || h.closest('#sbRiskList')) return;
+        const hb = h.querySelector('.help-btn');
+        const m = hb && /showHelp\(event,'([A-Za-z]+)'\)/.exec(hb.getAttribute('onclick') || '');
+        const key = m ? m[1] : null;
+        const t = h.querySelector('.section-title');
+        const title = t ? t.textContent.trim() : (key && SECTION_HELP[key] ? SECTION_HELP[key].title : 'Section');
+        let body = (key && TOUR_SECTION_LINES[key]) || (key && SECTION_HELP[key] ? _tourPlain(SECTION_HELP[key].body) : 'Tap the header to open or close this section.');
+        if (hb && firstHelp) { body += ' <br><br><b>Tip:</b> the round <span class="help-btn" style="display:inline-flex;cursor:default">?</span> on each section explains it in more detail.'; firstHelp = false; }
+        const find = key ? () => { const b = root.querySelector(`.section-header .help-btn[onclick="showHelp(event,'${key}')"]`); return b && b.closest('.section-header'); }
+                         : () => [...root.querySelectorAll('.section-header .section-title')].filter(x => x.textContent.trim() === title).map(x => x.closest('.section-header'))[0];
+        add(find, title, body);
+      });
+      add(() => root.querySelector('.stake-links-header'), '🔗 Stake Links', 'Handy stake documents and sheets, one tap away.');
+      add(() => document.querySelector('header button[onclick="openNewTaskModal()"]'), '➕ New Task',
+        'Make a task for yourself or someone else — anything that isn\'t a calling or ordination.');
+      add(() => document.querySelector('header button[onclick="toggleSettings()"]'), '⚙️ Settings',
+        'Choose how and when you are notified (Slack, email, text), and other preferences.');
+      add(() => document.getElementById('refreshBtn'), '🔄 Refresh',
+        'The dashboard updates by itself every few seconds; this forces it now.');
+      add(() => document.getElementById('tourFooter'), '👋 Help is always here',
+        'Reopen this welcome and tour, practise in the demo for your role, or read how the whole pipeline works.');
+      if (!steps.length) steps.push({ find: () => null, title: 'All caught up', body: 'Nothing is waiting for you yet. Sections appear here as soon as something needs you.' });
+      return steps;
+    }
+
+    let _tour = null;
+    function startTour() {
+      closeWelcome(); _tourMarkSeen();
+      // Open collapsed sections? No — the tour points at the headers, which are always visible.
+      const steps = buildTourSteps();
+      _tour = { steps, i: 0 };
+      const shade = document.createElement('div'); shade.id = 'tourShade'; shade.className = 'tour-shade';
+      const ring = document.createElement('div'); ring.id = 'tourRing'; ring.className = 'tour-ring';
+      const tip = document.createElement('div'); tip.id = 'tourTip'; tip.className = 'tour-tip'; tip.setAttribute('role', 'dialog');
+      shade.addEventListener('click', endTour);
+      document.body.append(shade, ring, tip);
+      document.addEventListener('keydown', _tourKey);
+      window.addEventListener('resize', _tourPlace);
+      window.addEventListener('scroll', _tourPlace, { passive: true });
+      _tourShow();
+    }
+    function _tourKey(e) {
+      if (!_tour) return;
+      if (e.key === 'Escape') endTour();
+      else if (e.key === 'ArrowRight') tourNext(1);
+      else if (e.key === 'ArrowLeft') tourNext(-1);
+    }
+    function tourNext(d) {
+      if (!_tour) return;
+      const j = _tour.i + d;
+      if (j >= _tour.steps.length) { endTour(); return; }
+      if (j < 0) return;
+      _tour.i = j; _tourShow();
+    }
+    function _tourShow() {
+      const s = _tour.steps[_tour.i], n = _tour.steps.length;
+      const tip = document.getElementById('tourTip');
+      tip.innerHTML = `<div class="tour-count">${_tour.i + 1} of ${n}</div><h4>${s.title}</h4><div class="tour-body">${s.body}</div>
+        <div class="tour-nav"><button class="tour-skip" onclick="endTour()">End tour</button><span style="flex:1"></span>
+        ${_tour.i > 0 ? '<button class="btn btn-secondary btn-sm" onclick="tourNext(-1)">Back</button>' : ''}
+        <button class="btn btn-primary btn-sm" onclick="tourNext(1)">${_tour.i === n - 1 ? 'Done' : 'Next'}</button></div>`;
+      const el0 = s.find();
+      if (el0) {
+        const r = el0.getBoundingClientRect();
+        if (r.top < 70 || r.bottom > window.innerHeight - 200) {
+          const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          window.scrollTo({ top: window.scrollY + r.top - Math.max(80, window.innerHeight * 0.25), behavior: reduce ? 'auto' : 'smooth' });
+        }
+      }
+      _tourPlace(); setTimeout(_tourPlace, 350);
+      const b = tip.querySelector('.btn-primary'); if (b) b.focus({ preventScroll: true });
+    }
+    function _tourPlace() {
+      if (!_tour) return;
+      const s = _tour.steps[_tour.i];
+      const ring = document.getElementById('tourRing'), tip = document.getElementById('tourTip');
+      if (!ring || !tip) return;
+      const vw = window.innerWidth, vh = window.innerHeight, tw = Math.min(340, vw - 24);
+      tip.style.width = tw + 'px';
+      const el = s.find();
+      if (!el || el.offsetParent === null) {
+        ring.style.display = 'none';
+        tip.style.left = ((vw - tw) / 2) + 'px'; tip.style.top = (vh / 3) + 'px';
+        return;
+      }
+      const r = el.getBoundingClientRect(), pad = 6;
+      ring.style.display = 'block';
+      ring.style.left = (r.left - pad) + 'px'; ring.style.top = (r.top - pad) + 'px';
+      ring.style.width = (r.width + pad * 2) + 'px'; ring.style.height = (Math.min(r.height, vh * 0.6) + pad * 2) + 'px';
+      const th = tip.offsetHeight;
+      let top = r.top + Math.min(r.height, vh * 0.6) + pad + 12;
+      if (top + th > vh - 10) top = r.top - pad - th - 12;
+      if (top < 10) top = Math.min(vh - th - 10, Math.max(10, r.top + 40));
+      let left = Math.min(Math.max(12, r.left), vw - tw - 12);
+      tip.style.left = left + 'px'; tip.style.top = top + 'px';
+    }
+    function endTour() {
+      _tour = null;
+      ['tourShade', 'tourRing', 'tourTip'].forEach(id => { const e = document.getElementById(id); if (e) e.remove(); });
+      document.removeEventListener('keydown', _tourKey);
+      window.removeEventListener('resize', _tourPlace);
+      window.removeEventListener('scroll', _tourPlace);
+      if (DEMO_MODE) openDemoGuide();
+    }
+
+    // The strip at the bottom of every dashboard: reopen the welcome, practise, read the guide.
+    // (Demos and the guide used to be reachable only from Admin Tools, which high councilors don't have.)
+    function renderTourFooter() {
+      const demoRole = TOUR_DEMO_FOR[tourRoleKey()] || 'hc';
+      return `<div class="tour-footer" id="tourFooter">
+        <button class="tour-link" onclick="openWelcome()">👋 Welcome &amp; tour</button>
+        ${DEMO_MODE ? '<button class="tour-link" onclick="openDemoGuide()">✅ Demo checklist</button>'
+                    : `<button class="tour-link" onclick="window.open(location.pathname + '?demo=${demoRole}&tour=1', '_blank')">🎓 Practise in the demo</button>`}
+        <button class="tour-link" onclick="window.open('pipeline.html', '_blank')">🗺️ How the pipeline works</button>
+      </div>`;
+    }
+
+    // ── Demo checklist ──────────────────────────────────────────
+    // Each role's share of the one shared scenario, ticked off from demoState as it happens.
+    // "next" is the first unticked step; a step that isn't on the dashboard yet is waiting on
+    // someone earlier in the pipeline (in a solo demo the other roles act on their own).
+    function demoGuideSteps() {
+      const s = demoState || {};
+      const voted = () => { try { return demoIVotedAll(); } catch (e) { return false; } };
+      const sustained = () => { try { return demoAllSustained(); } catch (e) { return false; } };
+      const L = {
+        hc: [
+          ['Vote on the new callings and the ordination', 'Calling Approvals and Priesthood Ordinations. Approve each one (or try ⚠️ Concerns to see what happens).', voted()],
+          ['Extend Porter\'s calling and Marcus\'s release', 'Callings & Releases to Extend — record that Porter accepted and that Marcus was released.', s.porterAccepted && s.marcusExtended],
+          ['Confirm you\'re conducting stake business', 'Your ward\'s Sunday now has business on it. Confirm in the Stake Business section.', s.sbConfirmed],
+          ['Report the sustainings on Sunday', 'Ordination Sustaining / sustaining report: mark each item as sustained.', sustained()],
+          ['Set apart Porter (and record the out-of-unit setting apart)', 'Setting Aparts — mark each one done.', s.saPorter && s.oouDone],
+          ['Report Dallin\'s ordination', 'Ordination Sustaining, then the ordination report once he is ordained.', s.ordSustainReported && s.ordReported]
+        ],
+        sp: [
+          ['Vote on the callings, the release and the ordination', 'Calling Approvals and Priesthood Ordinations.', voted() && s.spVote && s.spVote.r1],
+          ['Decide who extends Sadie\'s stake calling', 'Callings to Schedule/Assign — pick a counselor, a high councilor, or yourself.', !!s.assignedTo],
+          ['Extend Desmond\'s calling and release', 'Callings & Releases to Extend — one conversation, so his two items share a card.', s.emmettAccepted && s.desmondExtended],
+          ['Set Desmond apart', 'Setting Aparts — once he has been sustained.', s.saEmmett]
+        ],
+        spc1: [
+          ['Vote on the callings and the ordination', 'Calling Approvals and Priesthood Ordinations.', voted()],
+          ['Decide who extends Sadie\'s stake calling', 'Callings to Schedule/Assign — choose yourself to extend it in this demo.', !!s.assignedTo],
+          ['Extend Sadie\'s calling', 'Callings & Releases to Extend (if you assigned it to yourself).', s.sadieAccepted],
+          ['Set Sadie apart', 'Setting Aparts — once she has been sustained.', s.saSadie]
+        ],
+        spc2: [
+          ['Vote on the callings and the ordination', 'Calling Approvals and Priesthood Ordinations.', voted()],
+          ['Extend Tanner\'s high council calling', 'Callings & Releases to Extend — record his answer.', s.tannerAccepted],
+          ['Watch the rest go by', 'Your CC\'d Items follow the other callings through sustaining and setting apart.', s.saSadie]
+        ],
+        clerk: [
+          ['Clear the two flagged recommendations', 'Clerk Reviews — polling can\'t start until you do.', s.clerkCtrReviewed && s.clerkCommentReviewed],
+          ['Order Sadie\'s name tag', 'Name Tags to Order.', s.nameTagOrdered],
+          ['Follow up on unconfirmed sustainings', 'Appears after Sunday if any sustaining hasn\'t been reported.', sustained()],
+          ['Update the Stake Callings roster', 'The roster task appears once a stake calling is sustained.', s.rosterDone],
+          ['Close out Dallin\'s certificate', 'Record in LCR → print → sign → deliver.', s.certDelivered]
+        ],
+        sec: [
+          ['Schedule Dallin\'s ordination interview', 'Ordination Interviews to Schedule.', !!s.ordInterview],
+          ['Decide who extends Sadie\'s stake calling', 'Callings to Schedule/Assign (the presidency can do this too).', !!s.assignedTo],
+          ['Book the president\'s appointment with Desmond', 'Appointments to Schedule.', !!(s.emmettAppt || s.emmettAccepted)],
+          ['Watch the pipeline', 'Approval / Sustaining Status shows every item and what it is waiting on.', s.saEmmett || s.saSadie]
+        ]
+      };
+      return L[DEMO_ROLE] || L.hc;
+    }
+    let _demoGuideOpen = false;
+    function openDemoGuide() { _demoGuideOpen = true; try { sessionStorage.setItem('demoGuideOpen', '1'); } catch (e) {} renderDemoGuide(); }
+    function closeDemoGuide() { _demoGuideOpen = false; try { sessionStorage.setItem('demoGuideOpen', '0'); } catch (e) {} renderDemoGuide(); }
+    function renderDemoGuide() {
+      if (!DEMO_MODE) return;
+      let g = document.getElementById('demoGuide');
+      if (!g) { g = document.createElement('div'); g.id = 'demoGuide'; document.body.appendChild(g); }
+      const steps = demoGuideSteps();
+      const next = steps.findIndex(x => !x[2]);
+      if (!_demoGuideOpen) {   // folded away to a small pill that still shows progress
+        g.className = 'demo-guide dg-pill';
+        g.innerHTML = `<button onclick="openDemoGuide()" aria-label="Show your checklist">✅ Your part · ${next === -1 ? steps.length : next}/${steps.length}</button>`;
+        demoSyncGuidePos(); return;
+      }
+      g.className = 'demo-guide';
+      const items = steps.map((x, i) => `<li class="${x[2] ? 'done' : i === next ? 'next' : ''}"><span class="dg-mark">${x[2] ? '✓' : i === next ? '▶' : i + 1}</span><div><b>${x[0]}</b>${i === next ? `<div class="dg-how">${x[1]}</div>` : ''}</div></li>`).join('');
+      const all = next === -1;
+      g.innerHTML = `<div class="dg-head"><b>✅ Your part</b><span style="flex:1"></span><button class="tw-x" style="position:static" onclick="closeDemoGuide()" aria-label="Fold the checklist away" title="Fold away">–</button></div>
+        <ol>${items}</ol>
+        <div class="dg-foot">${all ? '🎉 That\'s your part done. Try another role from the bottom of the page, or ↺ Restart.' : 'Not on your dashboard yet? It\'s waiting on someone earlier in the pipeline — in a solo demo they act by themselves; give it a moment.'}</div>`;
+      demoSyncGuidePos();
+    }
+    function demoSyncGuidePos() {
+      const g = document.getElementById('demoGuide'), bar = document.getElementById('demoBar');
+      if (g) g.style.bottom = ((bar ? bar.offsetHeight : 0) + 12) + 'px';
+    }
+
     // Helper Functions
     function escapeHtml(text) {
       if (!text) return '';
@@ -7708,6 +8153,7 @@
       const bar = document.getElementById('demoBar');
       if (!bar) return;
       document.body.style.paddingBottom = (bar.offsetHeight + 16) + 'px';
+      demoSyncGuidePos();
     }
 
     function demoPromptJoin() {
