@@ -245,7 +245,7 @@
     .tour-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 14px;margin:22px 0 8px;padding-top:14px;border-top:1px solid #e4e4e8}
     .tour-link{background:none;border:none;color:#4752c4;font-size:13px;cursor:pointer;padding:4px 2px;font-family:inherit}
     .tour-link:hover{text-decoration:underline}
-    .demo-guide{position:fixed;right:12px;z-index:9998;width:min(320px,calc(100vw - 24px));background:#fff;color:#222;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;line-height:1.45;max-height:55vh;overflow-y:auto}
+    .demo-guide{position:fixed;right:12px;z-index:990;width:min(320px,calc(100vw - 24px));background:#fff;color:#222;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;line-height:1.45;max-height:55vh;overflow-y:auto}
     .demo-guide .dg-head{display:flex;align-items:center;padding:10px 12px 4px;font-size:14px}
     .demo-guide ol{list-style:none;margin:0;padding:4px 12px;display:flex;flex-direction:column;gap:8px}
     .demo-guide li{display:flex;gap:8px;align-items:flex-start;color:#888}
@@ -504,6 +504,18 @@
         <button class="btn btn-secondary" onclick="closeOutOfUnitModal()">Cancel</button>
         <button class="btn btn-primary" onclick="submitOutOfUnitRecord()">Submit to Stake Clerks</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Out-of-unit record → ward clerk (oou-send tasks, OutOfUnit.js) -->
+  <div class="modal-overlay" id="oouSendModal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <span class="modal-title">🏠 Send to a Ward Clerk</span>
+        <button class="modal-close" onclick="closeModal('oouSendModal')">×</button>
+      </div>
+      <div class="modal-body" id="oouSendBody"><div class="ms-empty">Loading…</div></div>
+      <div class="modal-footer" id="oouSendFooter" style="flex-wrap:wrap;gap:8px;"></div>
     </div>
   </div>
 
@@ -1215,7 +1227,7 @@
       'markNameTagOrdered', 'setCallingPriority', 'setMemberStatusField', 'saveSetting',
       'addAwayPeriod', 'removeAwayPeriod', 'reassign', 'createTask',
       // Stake Callings roster task (2026-10-14) — the form validates first; see saveRosterEntry()
-      'saveRosterEntry', 'clearRosterRow'
+      'saveRosterEntry', 'clearRosterRow', 'oouSendDone'
     ]);
 
     /**
@@ -2669,7 +2681,7 @@
     function groupSettingAparts(items, keyExtra) {
       const by = {}, out = [];
       (items || []).forEach(it => {
-        if (it.actionType === 'oou-record' || it.actionType === 'roster-update') { out.push({ single: it }); return; }
+        if (it.actionType === 'oou-record' || it.actionType === 'roster-update' || it.actionType === 'oou-send') { out.push({ single: it }); return; }
         const k = saMemberOf(it).trim().toLowerCase() + '|' + (keyExtra ? keyExtra(it) : '');
         if (by[k]) { const e = by[k]; if (e.single) { e.group = { name: saMemberOf(e.single).trim(), items: [e.single] }; delete e.single; } e.group.items.push(it); return; }
         const e = { single: it }; out.push(e); by[k] = e;
@@ -2761,6 +2773,16 @@
               : '<strong>New on the Stake Callings sheet.</strong> Collect their details and pick their slot. You can save before they have a Slack ID — invite them to Slack with their email, then come back and add it.'}</div>
             ${rStatus ? `<div class="item-meta" style="color:#856404;font-weight:600;">⏳ ${escapeHtmlDisplay(rStatus)}</div>` : ''}
             <div class="item-actions">${rosterTaskButton(item)}</div>
+          </div>`;
+          return;
+        }
+
+        if (item.actionType === 'oou-send') {
+          html += `<div class="item" id="item-${item.actionId}">
+            <div class="item-header"><div class="item-title">${escapeHtmlDisplay(item.displayText || 'N/A')}</div></div>
+            ${assignedInfo}
+            <div class="item-meta" style="color:#1e3a5f;background:#e8f0fb;padding:8px;border-radius:4px;margin-top:6px;">🏠 <strong>Out-of-unit record submitted.</strong> Choose the ward clerk who should add them, then email or text the details.</div>
+            <div class="item-actions">${oouSendButtons(item)}</div>
           </div>`;
           return;
         }
@@ -3734,6 +3756,8 @@
         }
         case 'roster-update':
           return rosterTaskButton(item);
+        case 'oou-send':
+          return oouSendButtons(item);
         case 'ordination-record-lcr':
           return `<button class="btn btn-primary" onclick="handleAction('${a}', 'markOrdinationLcrRecorded', this)">✓ Mark Recorded on LCR</button>`;
         case 'ordination-print-certificate':
@@ -3782,7 +3806,7 @@
       { key: 'assign',   label: '🗂️ To Schedule / Assign',             types: ['extend-assign', 'setting-apart-assign'] },
       { key: 'appt',     label: '📅 Appointments',                     types: ['appointment-scheduling'] },
       { key: 'business', label: '⛪ Stake Business',                    types: ['stake-business-confirm', 'sustaining-report'] },
-      { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record', 'roster-update'] },
+      { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record', 'roster-update', 'oou-send'] },
       { key: 'ord',      label: '🙏 Ordinations',                      types: ['coordinate-ordination', 'ordination-notification', 'ordination-report', 'ordination-interview', 'ordination-interview-schedule', 'ordination-record-lcr', 'ordination-print-certificate', 'ordination-sign-certificate', 'ordination-deliver-certificate'] },
       { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
       { key: 'tasks',    label: '📋 Tasks &amp; Mentions',              types: ['task', 'task-primary', 'mention'] },
@@ -5568,6 +5592,7 @@
           ['Clear the two flagged recommendations', 'Clerk Reviews — polling can\'t start until you do.', s.clerkCtrReviewed && s.clerkCommentReviewed],
           ['Order Sadie\'s name tag', 'Name Tags to Order.', s.nameTagOrdered],
           ['Follow up on unconfirmed sustainings', 'Appears after Sunday if any sustaining hasn\'t been reported.', sustained()],
+          ['Send Porter\'s out-of-unit record to a ward clerk', 'Setting Aparts — Send to Ward Clerk: pick the clerk, then Send Email or Text.', s.oouSent],
           ['Update the Stake Callings roster', 'The roster task appears once a stake calling is sustained.', s.rosterDone],
           ['Close out Dallin\'s certificate', 'Record in LCR → print → sign → deliver.', s.certDelivered]
         ],
@@ -7725,6 +7750,139 @@
     }
 
     // ============================================================
+    // OUT-OF-UNIT RECORD → WARD CLERK (oou-send tasks — OutOfUnit.js, 2026-10-18)
+    // A stake clerk picks the ward clerk, then "Send email" (the system emails them, card-style) or
+    // "Text" (opens the phone's messages app with the details filled in — to the clerk's number if
+    // Stake Callings has one, else no recipient — then the task is marked done).
+    // ============================================================
+    let _oouSend = null;   // { itemId, info }
+    function oouSendButtons(item) {
+      return `<button class="btn btn-primary" onclick="openOouSendModal('${item.actionId}')">📨 Send to Ward Clerk</button>`;
+    }
+    async function openOouSendModal(itemId) {
+      _oouSend = { itemId: itemId, info: null };
+      document.getElementById('oouSendBody').innerHTML = '<div class="ms-empty">Loading…</div>';
+      document.getElementById('oouSendFooter').innerHTML = '<button class="btn btn-secondary" onclick="closeModal(\'oouSendModal\')">Cancel</button>';
+      document.getElementById('oouSendModal').classList.add('show');
+      try {
+        // Postgres first (oou_send_info, 0138); Apps Script if it is not available.
+        let info = DEMO_MODE ? null : await writeToPostgres('oou_send_info', { p_item: itemId });
+        if (info && info.success === false) throw new Error(info.error || 'refused');
+        if (!info) info = await performAction('getOouSendInfo', { itemId: itemId });
+        if (!info || info.success === false) throw new Error((info && info.error) || 'Could not load');
+        _oouSend.info = info;
+        renderOouSendForm();
+      } catch (e) {
+        document.getElementById('oouSendBody').innerHTML = '<div class="ms-empty">⚠️ Could not load: ' + escapeHtmlDisplay(e.message || 'error') + '</div>';
+      }
+    }
+    function _oouDob(dob) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || ''));
+      return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : String(dob || '');
+    }
+    function renderOouSendForm() {
+      const esc = escapeHtmlDisplay, info = _oouSend.info, m = info.member || {};
+      const clerks = info.clerks || [];
+      const opts = clerks.map((c, i) => `<option value="${i}">${esc(c.name || '(no name)')} — ${esc(c.ward || 'no ward')}${c.email ? '' : ' (no email)'}</option>`).join('');
+      const row = (k, v) => `<div style="display:flex;gap:10px;padding:3px 0;"><span style="width:84px;flex-shrink:0;color:#666;font-size:13px;">${k}</span><span style="font-weight:600;">${v ? esc(v) : '<span style="color:#aaa;font-weight:400">—</span>'}</span></div>`;
+      document.getElementById('oouSendBody').innerHTML = `
+        ${info.open === false ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;">This task is already closed — sending again is fine if it is needed.</div>' : ''}
+        <div style="background:#f6f7fb;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
+          ${row('Name', m.memberName)}${row('Birth date', _oouDob(m.dob))}${row('Phone', m.phone)}${row('Email', m.email)}${row('Address', m.address)}
+          ${m.calling || m.ward ? row('Calling', [m.calling, m.ward].filter(Boolean).join(' · ')) : ''}
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="oouClerkSel">Ward clerk</label>
+          <select class="form-select" id="oouClerkSel" onchange="oouSendSync()"><option value="">Choose a ward clerk…</option>${opts}</select>
+          <div class="item-meta" id="oouClerkNote" style="margin-top:6px;"></div>
+        </div>`;
+      document.getElementById('oouSendFooter').innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal('oouSendModal')">Cancel</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-secondary" id="oouTextBtn" onclick="oouSendText()" disabled>💬 Text</button>
+        <button class="btn btn-primary" id="oouEmailBtn" onclick="oouSendEmail()" disabled>📧 Send Email</button>`;
+      oouSendSync();
+    }
+    function _oouClerk() {
+      const sel = document.getElementById('oouClerkSel');
+      return sel && sel.value !== '' ? (_oouSend.info.clerks || [])[+sel.value] : null;
+    }
+    function oouSendSync() {
+      const c = _oouClerk();
+      const eb = document.getElementById('oouEmailBtn'), tb = document.getElementById('oouTextBtn'), note = document.getElementById('oouClerkNote');
+      if (!eb) return;
+      eb.disabled = !(c && c.email);
+      tb.disabled = !c;
+      note.innerHTML = !c ? '' : [
+        c.email ? '📧 ' + escapeHtmlDisplay(c.email) : '📧 No email on the Stake Callings sheet — text instead.',
+        c.phone ? '💬 ' + escapeHtmlDisplay(c.phone) : '💬 No phone number saved — the text opens with no recipient.'
+      ].join('<br>');
+    }
+    // The text message: short, with the LCR steps in one line (OOU_LCR_STEPS in OutOfUnit.js says it in full).
+    function _oouTextBody(c) {
+      const m = (_oouSend.info || {}).member || {};
+      const me = String((userData && userData.name) || '').replace(/^🎓\s*/, '').split(' (')[0];
+      const first = c && c.name ? c.name.replace(/^(bro|brother|sister|sis|pres|president|bishop)\.?\s+/i, '').split(' ')[0] : '';
+      return [
+        `Hi${first ? ' ' + first : ''}, could you please add ${m.memberName || 'this member'} to the ${c && c.ward ? c.ward : 'ward'} as an out-of-unit member? Their official record stays in their home ward.`,
+        '',
+        'LCR: Membership › Manage Out-of-Unit Members › enter name + birth date › Lookup › Continue (no change to head of household) › add phone, email and address (they are not copied from the main record).',
+        '',
+        'Name: ' + (m.memberName || ''),
+        'Birth date: ' + _oouDob(m.dob),
+        'Phone: ' + (m.phone || ''),
+        'Email: ' + (m.email || ''),
+        'Address: ' + (m.address || ''),
+        '',
+        'Thanks!' + (me ? ' — ' + me : '')
+      ].join('\n');
+    }
+    async function oouSendEmail() {
+      const c = _oouClerk(); if (!c || !c.email) return;
+      const btn = document.getElementById('oouEmailBtn'); btn.disabled = true; btn.textContent = 'Sending…';
+      setSyncing(true);
+      try {
+        const r = await performAction('oouSendEmail', { itemId: _oouSend.itemId, email: c.email });
+        if (r && r.success === false) throw new Error(r.error || 'not sent');
+        showToast('Emailed to ' + c.name + (c.ward ? ' (' + c.ward + ')' : ''), 'success');
+        _oouSendDoneUi();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = '📧 Send Email';
+      } finally { setSyncing(false); }
+    }
+    function oouSendText() {
+      const c = _oouClerk(); if (!c) return;
+      const phone = String(c.phone || '').replace(/[^\d+]/g, '');
+      // "?&body=" is read by both iOS and Android; an empty number opens a new message with no recipient.
+      location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(_oouTextBody(c));
+      document.getElementById('oouSendFooter').innerHTML = `
+        <div style="flex-basis:100%;font-size:13px;color:#555;">Sent the text? Mark this done for the other stake clerks.</div>
+        <button class="btn btn-secondary" onclick="oouSendText()">💬 Open the text again</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-success" onclick="oouMarkTexted(this)">✓ I Sent It</button>`;
+    }
+    async function oouMarkTexted(btn) {
+      const c = _oouClerk();
+      btn.disabled = true; btn.textContent = '…';
+      setSyncing(true);
+      try {
+        await performAction('oouSendDone', { itemId: _oouSend.itemId, how: 'texted to ' + (c ? c.name + (c.ward ? ' (' + c.ward + ')' : '') : 'a ward clerk') });
+        showToast('Marked as sent', 'success');
+        _oouSendDoneUi();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = '✓ I Sent It';
+      } finally { setSyncing(false); }
+    }
+    function _oouSendDoneUi() {
+      const id = _oouSend && _oouSend.itemId;
+      closeModal('oouSendModal');
+      if (id) document.querySelectorAll('#item-' + CSS.escape(id)).forEach(el => el.remove());
+      scheduleSilentRefresh(800);
+    }
+
+    // ============================================================
     // STAKE CALLINGS ROSTER (roster-update tasks — Roster.js)
     // ============================================================
     // A new person sustained to a calling with a Stake Callings row: the clerk picks the slot and
@@ -7782,6 +7940,10 @@
       })).join('');
       const presOpts = ['<option value="">— none —</option>'].concat((info.presidency || []).map(p =>
         `<option ${String(v.presidency || '') === p ? 'selected' : ''}>${esc(p)}</option>`)).join('');
+      // Bishops and ward clerks never get a Slack ID; only high councilors have responsibilities and a
+      // presidency (2026-10-18). Same rules as Roster.js (_rosterNoSlack / _rosterHcFields).
+      const noSlack = /^(bishop|ward clerk)\b/i.test(String(info.calling || '').trim());
+      const hcFields = /high councilor/i.test(String(info.calling || ''));
       const field = (id, label, val, attrs) => `<div class="form-group"><label class="form-label">${label}</label>
         <input class="form-input" id="${id}" value="${esc(val == null ? '' : String(val))}" ${attrs || ''}></div>`;
       document.getElementById('rosterBody').innerHTML = `
@@ -7795,13 +7957,13 @@
           <div id="rosterSlotWarn" class="item-meta" style="color:#b45309;margin-top:4px;"></div></div>
         ${field('rosterTitle', 'Title Name * <span style="color:#888;font-weight:400;">(e.g. Bro. Smith)</span>', v.title || info.titleGuess)}
         ${field('rosterName', 'Full Name *', v.name || info.member)}
-        ${field('rosterEmail', 'Email * <span style="color:#888;font-weight:400;">(used to invite them to Slack)</span>', v.email, 'type="email" placeholder="name@example.com"')}
+        ${field('rosterEmail', 'Email * <span style="color:#888;font-weight:400;">(' + (noSlack ? 'ward-clerk emails go here' : 'used to invite them to Slack') + ')</span>', v.email, 'type="email" placeholder="name@example.com"')}
         ${field('rosterPhone', 'Phone', v.phone, 'type="tel" placeholder="e.g. 801-555-1234"')}
         ${info.wardScoped ? '' : `<div class="form-group"><label class="form-label">Ward Assignment</label><select class="form-input" id="rosterWard">${wardOpts}</select></div>`}
-        ${field('rosterResp1', 'First Responsibility', v.resp1)}
+        ${hcFields ? `${field('rosterResp1', 'First Responsibility', v.resp1)}
         ${field('rosterResp2', 'Second Responsibility', v.resp2)}
-        <div class="form-group"><label class="form-label">Presidency</label><select class="form-input" id="rosterPresidency">${presOpts}</select></div>
-        ${field('rosterSlack', 'Slack ID <span style="color:#888;font-weight:400;">(once they have joined Slack — leave blank for now if not)</span>', v.slackId, 'placeholder="U0…" autocapitalize="characters"')}`;
+        <div class="form-group"><label class="form-label">Presidency</label><select class="form-input" id="rosterPresidency">${presOpts}</select></div>` : ''}
+        ${noSlack ? '' : field('rosterSlack', 'Slack ID <span style="color:#888;font-weight:400;">(once they have joined Slack — leave blank for now if not)</span>', v.slackId, 'placeholder="U0…" autocapitalize="characters"')}`;
       document.getElementById('rosterSaveBtn').disabled = !(info.slots || []).length;
       rosterSlotChanged();
     }
@@ -7843,7 +8005,8 @@
         if (res && res.queued) {
           // Queued (applied to the sheet within seconds): describe it from what the form knows.
           const sl = ((currentRosterInfo && currentRosterInfo.slots) || []).find(x => String(x.row) === String(params.row)) || {};
-          res = { complete: !!params.slackId, slot: sl.calling || '',
+          const noSlackSave = /^(bishop|ward clerk)\b/i.test(String((currentRosterInfo && currentRosterInfo.calling) || '').trim());
+          res = { complete: !!params.slackId || noSlackSave, noSlack: noSlackSave, slot: sl.calling || '',
                   replaced: sl.name && nk(sl.name) !== nk(params.name) ? sl.name : '',
                   wardAssignments: !!params.ward, queued: true };
         }
@@ -7851,7 +8014,9 @@
         const lines = ['✓ Saved to <strong>' + esc(res.slot || 'Stake Callings') + '</strong>' + (res.replaced ? ' (replacing ' + esc(res.replaced) + ')' : '') + '.'];
         if (res.voteColumns || res.queued) lines.push('✓ Their approval / sustaining vote columns follow the roster.');
         if (res.wardAssignments) lines.push('✓ Stake Business Assignments ' + (res.queued ? 'will be updated' : 'updated') + '.');
-        if (res.complete) {
+        if (res.noSlack) {
+          lines.push('✓ Task complete — ' + (/^bishop/i.test(String((currentRosterInfo && currentRosterInfo.calling) || '')) ? 'bishops' : 'ward clerks') + ' don\'t need a Slack ID.');
+        } else if (res.complete) {
           lines.push('✓ Enrolled on the dashboard — task complete.');
           if (res.dashboardUrl) lines.push(`Their dashboard link:<br><input class="form-input" readonly value="${esc(res.dashboardUrl)}" onclick="this.select()" style="margin-top:4px;">`);
           else if (res.queued) { lines.push('<span id="rosterLinkBox" style="color:#666;">Their dashboard link will appear here in a moment…</span>'); fetchRosterLinkSoon(params.slackId); }
@@ -8962,6 +9127,13 @@
         notes: 'Member: ' + DEMO_CAST.tanner + '\nCalling: High Councilor\nWard: 32nd Ward\nRoster: add'
              + (s.rosterSaved ? '\nStatus: saved — Slack ID still needed' : '')
       });
+      // Porter's out-of-unit record → a ward clerk. In a session it waits for the high councilor's
+      // form; solo, it appears once Porter is sustained (the form is taken as filled in).
+      if ((demoSession.code ? demoPre(s.oouSubmitted, 'hc') : s.sus[1] === true) && !s.oouSent) data.settingAparts.push({
+        actionId: 'DEMO_OOUSEND_PORTER', actionType: 'oou-send',
+        displayText: 'Send out-of-unit record to a ward clerk: ' + DEMO_CAST.porter,
+        notes: 'Member: ' + DEMO_CAST.porter + '\nCalling: Elders Quorum Second Counselor\nWard: ' + DEMO_WARD
+      });
 
       // Presidency / clerks / secretaries only — a high councilor has no such section.
       if (DEMO_ROLE !== 'hc') data.approvalStatus = demoApprovalStatus();
@@ -9022,7 +9194,7 @@
     // Demo replacement for the backend API. Mutates state, saves, and lets the
     // normal scheduleSilentRefresh path re-render from the new state.
     // Actions that only read — never logged, never undoable.
-    const DEMO_READ_ONLY = { getRosterTaskInfo: 1, getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1,
+    const DEMO_READ_ONLY = { getRosterTaskInfo: 1, getOouSendInfo: 1, getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1,
       sbOpenSundays: 1, getHcsWithPendingApprovals: 1, getStakeBusinessAssignments: 1, conductingCandidates: 1,
       sbBlockouts: 1, blockedReleases: 1, getUsers: 1, getTaskAssignments: 1, runScript: 1, syncSheets: 1 };
 
@@ -9042,7 +9214,7 @@
         extended: 'Marked a release extended', sbConfirm: 'Confirmed conducting stake business',
         sustainingReportMark: 'Marked a sustaining', sustainingReportAll: 'Marked all remaining sustained',
         setApart: 'Marked someone set apart', submitOutOfUnitRecord: 'Submitted an out-of-unit record',
-        saveRosterEntry: 'Updated the Stake Callings sheet', dismissOouRecord: 'Closed an out-of-unit record task (already has one)', clearRosterRow: 'Cleared a Stake Callings row',
+        saveRosterEntry: 'Updated the Stake Callings sheet', dismissOouRecord: 'Closed an out-of-unit record task (already has one)', oouSendEmail: 'Emailed an out-of-unit record to a ward clerk', oouSendDone: 'Texted an out-of-unit record to a ward clerk', clearRosterRow: 'Cleared a Stake Callings row',
         saveOrdinationDate: 'Saved an ordination date', reportSustaining: 'Reported an ordination sustaining',
         submitOrdinationReport: 'Reported an ordination',
         markOrdinationLcrRecorded: 'Recorded an ordinance on LCR',
@@ -9167,8 +9339,22 @@
           if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
           showToast('In real life this closes the task for everyone on it — no email is sent.', 'success');
           break;
+        case 'getOouSendInfo':
+          return { success: true, open: !s.oouSent,
+            member: { memberName: DEMO_CAST.porter, dob: '2003-05-14', phone: '(801) 555-0142', email: 'porter.gladwell@example.com',
+                      address: '1220 N 400 E, Orem, UT 84097', calling: 'Elders Quorum Second Counselor', ward: DEMO_WARD, submittedBy: DEMO_CAST.hcYou.replace(' (you)', '') },
+            clerks: [['Bro. Abernathy', '6-7th Ward', 'clerk67@example.com', '(801) 555-0167'], ['Bro. Okafor', '16th Ward', 'clerk16@example.com', ''],
+                     ['Bro. Lindgren', '24th Ward', '', '(801) 555-0124'], ['Bro. Tuilagi', '32nd Ward', 'clerk32@example.com', '(801) 555-0132']]
+              .map(c => ({ name: c[0], ward: c[1], email: c[2], phone: c[3] })) };
+        case 'oouSendEmail':
+          s.oouSent = true;
+          showToast('In real life this emails the ward clerk the member\'s details and the LCR steps, and closes the task for every stake clerk. (Demo: no email sent.)', 'success');
+          break;
+        case 'oouSendDone':
+          s.oouSent = true;
+          break;
         case 'submitOutOfUnitRecord':
-          if (id.indexOf('DEMO_OOU_PORTER') === 0) s.oouDone = true;
+          if (id.indexOf('DEMO_OOU_PORTER') === 0) { s.oouDone = true; s.oouSubmitted = true; }
           showToast('In real life this emails the member\'s details + ward-clerk instructions to the stake clerk and membership clerk. (Demo: no email sent.)', 'success');
           break;
         case 'saveOrdinationDate': {
