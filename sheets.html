@@ -310,7 +310,7 @@ function toast(msg, kind) {
 // Reads one of the two views Sheet Views uses, through clerk_view_rows (0110): session-checked and
 // limited to the Sheet Views audience. The views themselves are closed to the public key — reading
 // them directly exposed the roster and every request to anyone with the (public) key.
-async function sbSelect(view, query) {
+async function sbSelect(view, query, retried) {
   const token = await ensureP2Token();
   if (!token) throw new Error('No database session — reopen this window from the dashboard');
   const order = (/(?:^|&)order=([a-z_]+\.(?:asc|desc))/.exec(query || '') || [])[1] || null;
@@ -318,7 +318,16 @@ async function sbSelect(view, query) {
     method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ p_slack_id: USER_ID, p_token: token, p_view: view, p_order: order })
   });
-  if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + (await res.text()).slice(0, 160));
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 160);
+    // A stored session the database no longer accepts (expired early, revoked, someone else's):
+    // drop it, mint a fresh one and try once more before showing an error.
+    if (!retried && /28000|not authori[sz]ed/i.test(body)) {
+      try { localStorage.removeItem(P2_TOKEN_KEY); } catch (e) {}
+      return sbSelect(view, query, true);
+    }
+    throw new Error('Supabase ' + res.status + ': ' + body);
+  }
   return res.json();
 }
 
@@ -897,6 +906,9 @@ function p2Token() {
     const t = JSON.parse(localStorage.getItem(P2_TOKEN_KEY) || 'null');
     if (!t || !t.token || !t.expiresAt) return null;
     if (new Date(t.expiresAt).getTime() - Date.now() < 5 * 60 * 1000) return null;
+    // Shared with the dashboard, which may have stored one for someone else (a dashboard link
+    // opened for another user in this browser). Using it was refused: "not authorised" (2026-10-18).
+    if (t.userId && t.userId !== USER_ID) return null;
     return t.token;
   } catch (e) { return null; }
 }

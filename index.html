@@ -717,6 +717,7 @@
         // time until a reload (2026-10-15), and live updates then saw "nothing new" either.
         // Never over an open popup or a half-filled field; and when a redraw is skipped, currentData
         // is NOT replaced, so the next refresh still sees the difference and draws it.
+        _srApplyPending(data);
         const changed = !currentData || _liveSignature(currentData) !== _liveSignature(data);
         if (!changed) {
           currentData = data;
@@ -1859,6 +1860,7 @@
     let _dashboardDrawnOnce = false;
 
     function onDataLoaded(data) {
+      _srApplyPending(data);   // sustaining marks the sheet hasn't caught up with yet
       currentData = data;
       userData = {
         name: data.userName || userId,
@@ -7279,20 +7281,57 @@
     // already, but the user couldn't tell the first click had registered.
     const _sustainingMarkInFlight = new Set();
 
+    // Marks shown before the sheet has them (2026-10-18). The tap is queued in ~0.3s, but the row
+    // used to sit dimmed until the drain had written the sheet and synced it back — and a refresh
+    // in between drew it unmarked again. Each mark is kept here and laid over every payload until
+    // the server's copy agrees (or 10 minutes pass), so the row flips at once and stays flipped.
+    const _srPendingMarks = {};   // 'actionId|row' -> { s: bool, at: ms }
+    function _srApplyPending(data) {
+      if (!data) return;
+      const now = Date.now();
+      Object.keys(_srPendingMarks).forEach(k => { if (now - _srPendingMarks[k].at > 10 * 60 * 1000) delete _srPendingMarks[k]; });
+      if (!Object.keys(_srPendingMarks).length) return;
+      Object.keys(data).forEach(key => {
+        const arr = data[key];
+        if (!Array.isArray(arr)) return;
+        arr.forEach(item => {
+          if (!item || !Array.isArray(item.sustainingReportItems)) return;
+          item.sustainingReportItems.forEach(it => {
+            const k = item.actionId + '|' + it.i, pm = _srPendingMarks[k];
+            if (!pm) return;
+            if (typeof it.s !== 'undefined') delete _srPendingMarks[k];   // the server has it now
+            else it.s = pm.s;
+          });
+        });
+      });
+    }
+    /** Redraw one sustaining-report card in place (every copy of it — primary and CC'd). */
+    function _srRedrawCard(actionId) {
+      _srApplyPending(currentData);
+      let found = null, isCC = false;
+      Object.keys(currentData || {}).forEach(key => {
+        const arr = currentData[key];
+        if (found || !Array.isArray(arr)) return;
+        const hit = arr.find(x => x && x.actionId === actionId && Array.isArray(x.sustainingReportItems));
+        if (hit) { found = hit; isCC = key !== 'sustainingReports'; }
+      });
+      if (!found) return;
+      document.querySelectorAll('#item-' + CSS.escape(actionId)).forEach(el => {
+        const left = found.sustainingReportItems.filter(it => typeof it.s === 'undefined').length;
+        if (!left) { el.remove(); return; }   // all reported: the task completes server-side
+        const tmp = document.createElement('div');
+        tmp.innerHTML = renderSustainingReportItem(found, { isCC: isCC, canReassign: !!(userData && userData.canReassign) });
+        el.replaceWith(tmp.firstElementChild);
+      });
+    }
+
     async function handleSustainingMark(actionId, sbRow, sustained, btn) {
       const key = 'mark|' + actionId + '|' + sbRow;
       if (_sustainingMarkInFlight.has(key)) return;
       _sustainingMarkInFlight.add(key);
-
-      // Disable both buttons in this item's button row + dim the whole item row,
-      // so the user sees instant feedback (the silent refresh paints the real
-      // state seconds later).
-      const buttonRow = btn ? btn.parentElement : null;
-      const sibButtons = buttonRow ? Array.from(buttonRow.querySelectorAll('button')) : [];
-      sibButtons.forEach(b => { b.disabled = true; });
-      const itemRow = btn ? btn.closest('div[style*="border-top"]') : null;
-      if (itemRow) { itemRow.style.opacity = '0.5'; itemRow.style.transition = 'opacity 0.2s'; }
-      if (btn) btn.textContent = '…';
+      // Shown as marked straight away; undone below if the request fails.
+      _srPendingMarks[actionId + '|' + sbRow] = { s: !!sustained, at: Date.now() };
+      _srRedrawCard(actionId);
       setSyncing(true);
       try {
         await performAction('sustainingReportMark', { itemId: actionId, sbRow: sbRow, sustained: sustained ? 'true' : 'false' });
@@ -7300,9 +7339,8 @@
         scheduleSilentRefresh(500);
       } catch (error) {
         showToast('Error: ' + error.message, 'error');
-        sibButtons.forEach(b => { b.disabled = false; });
-        if (itemRow) itemRow.style.opacity = '1';
-        if (btn) btn.textContent = sustained ? '✓ ' + (String(arguments[1])||'') : '✗ Not';
+        delete _srPendingMarks[actionId + '|' + sbRow];
+        scheduleSilentRefresh(0);
       } finally {
         _sustainingMarkInFlight.delete(key);
         setSyncing(false);
@@ -7325,6 +7363,11 @@
       try {
         await performAction('sustainingReportAll', { itemId: actionId });
         showToast('All items marked ' + verb.toLowerCase(), 'success');
+        // Hold the marks over refreshes, as for a single mark, so the card can't reappear meanwhile.
+        Object.keys(currentData || {}).forEach(k => (Array.isArray(currentData[k]) ? currentData[k] : []).forEach(x => {
+          if (x && x.actionId === actionId && Array.isArray(x.sustainingReportItems))
+            x.sustainingReportItems.forEach(it => { if (typeof it.s === 'undefined') _srPendingMarks[actionId + '|' + it.i] = { s: true, at: Date.now() }; });
+        }));
         if (itemEl) itemEl.remove(); // optimistic: task completes server-side too
         scheduleSilentRefresh(500);
       } catch (error) {
