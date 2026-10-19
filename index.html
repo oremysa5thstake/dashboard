@@ -741,7 +741,7 @@
         // time until a reload (2026-10-15), and live updates then saw "nothing new" either.
         // Never over an open popup or a half-filled field; and when a redraw is skipped, currentData
         // is NOT replaced, so the next refresh still sees the difference and draws it.
-        _srApplyPending(data);
+        _applyPendingOverlays(data);
         const changed = !currentData || _liveSignature(currentData) !== _liveSignature(data);
         if (!changed) {
           currentData = data;
@@ -1884,7 +1884,7 @@
     let _dashboardDrawnOnce = false;
 
     function onDataLoaded(data) {
-      _srApplyPending(data);   // sustaining marks the sheet hasn't caught up with yet
+      _applyPendingOverlays(data);   // queued actions the sheet hasn't caught up with yet
       currentData = data;
       userData = {
         name: data.userName || userId,
@@ -3077,6 +3077,8 @@
         let msg = mode === 'request' ? 'Asked ' + who + ' to confirm' : who + ' recorded as conducting';
         if (d.closedTasks) msg += ' · closed ' + d.closedTasks + ' open item' + (d.closedTasks === 1 ? '' : 's');
         showToast(msg, 'success');
+        // The card is answered — take it away now rather than when the sheet syncs back.
+        document.querySelectorAll('#item-' + CSS.escape(actionId)).forEach(el => el.remove());
         scheduleSilentRefresh(800);
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
@@ -4165,9 +4167,9 @@
             });
             waitingBlock += `<div style="margin-top:6px;">
               <div onclick="toggleRecordBlock('${rid}')" style="cursor:pointer;color:#5865F2;font-size:13px;font-weight:600;user-select:none;">
-                <span id="record-chevron-${rid}">▸</span> ✎ Record a verbal ${recordVerb}
+                <span id="record-chevron-${rid}">${_recordOpen[rid] ? '▾' : '▸'}</span> ✎ Record a verbal ${recordVerb}
               </div>
-              <div id="record-body-${rid}" style="display:none;margin-top:4px;">${rows}</div>
+              <div id="record-body-${rid}" style="display:${_recordOpen[rid] ? '' : 'none'};margin-top:4px;">${rows}</div>
             </div>`;
           }
         }
@@ -4196,11 +4198,13 @@
     }
 
     // Expand/collapse an item's per-approver "Record" buttons (collapsed by default).
+    const _recordOpen = {};   // expanders left open stay open when the dashboard redraws
     function toggleRecordBlock(id) {
       const body = document.getElementById('record-body-' + id);
       const chev = document.getElementById('record-chevron-' + id);
       if (!body) return;
       const opening = body.style.display === 'none';
+      if (opening) _recordOpen[id] = 1; else delete _recordOpen[id];
       body.style.display = opening ? '' : 'none';
       if (chev) chev.textContent = opening ? '▾' : '▸';
     }
@@ -4208,6 +4212,40 @@
     // Clerk/secretary records an approval/sustaining they received verbally from a
     // specific SP member or high councilor, straight from the status section.
     // ref + approverId let the backend verify the row and the approver column before writing.
+    // Votes recorded on someone's behalf, shown before the sheet has them (2026-10-18). A vote that
+    // completes the stake presidency moves the item to phase 2 — which took ~25s to appear (the
+    // queued vote applies, notifies the council, then syncs back). The overlay moves the approver
+    // to "Approved" at once, shows phase 2 when the presidency is complete, and is dropped as soon
+    // as the server's payload agrees (or after 10 minutes).
+    const _pendingVotes = {};   // 'type|timestamp|column' -> { at, name }
+    function _voteApplyPending(data) {
+      const now = Date.now();
+      Object.keys(_pendingVotes).forEach(k => { if (now - _pendingVotes[k].at > 10 * 60 * 1000) delete _pendingVotes[k]; });
+      if (!data || !Object.keys(_pendingVotes).length) return;
+      (data.approvalStatus || []).forEach(item => {
+        const base = item.type + '|' + String(item.timestamp || '') + '|';
+        const waiting = item.waitingOn || [];
+        Object.keys(_pendingVotes).forEach(k => {
+          if (k.indexOf(base) !== 0) return;
+          const col = Number(k.slice(base.length));
+          if (!waiting.some(a => Number(a.column) === col)) delete _pendingVotes[k];   // the server has it
+        });
+        let moved = false;
+        item.waitingOn = waiting.filter(a => {
+          if (!_pendingVotes[base + a.column]) return true;
+          (item.approvedBy = item.approvedBy || []).push({ name: a.name, column: a.column });
+          moved = true;
+          return false;
+        });
+        const sp = item.type === 'ordination' ? [11, 13] : [19, 21];
+        if (moved && /^Phase 1/i.test(String(item.phase || '')) &&
+            !item.waitingOn.some(a => Number(a.column) >= sp[0] && Number(a.column) <= sp[1])) {
+          item.phase = 'Phase 2 (HC) — high council being notified';
+        }
+      });
+    }
+    function _applyPendingOverlays(data) { _srApplyPending(data); _voteApplyPending(data); }
+
     async function recordVoteFor(rowIndex, column, type, name, verb, btn, ref, approverId) {
       if (!confirm('Record ' + verb + ' from ' + name + '?\n\nOnly do this if they have actually given it.')) return;
       const origText = btn ? btn.textContent : '';
@@ -4217,9 +4255,13 @@
         const res = await performAction('recordVote', { rowIndex: rowIndex, column: column, type: type, ref: ref || '', approverId: approverId || '' });
         showToast(res && res.message ? res.message : (name + ' — ' + verb + ' recorded'), 'success');
         if (res && res.queued) {
-          // Queued: the database catches up in ~10s (performAction schedules that re-read). Re-reading
-          // sooner would put the button back, so mark it done in place instead.
-          if (btn) { btn.disabled = true; btn.textContent = '✓ ' + verb + ' recorded'; }
+          // Queued: shown at once through the overlay, which every later refresh re-applies until
+          // the database agrees — so the card moves now instead of ~25s from now.
+          const it = ((currentData && currentData.approvalStatus) || []).find(x => x.type === type && Number(x.rowIndex) === Number(rowIndex));
+          if (it) {
+            _pendingVotes[type + '|' + String(it.timestamp || '') + '|' + column] = { at: Date.now(), name: name };
+            onDataLoaded(currentData);
+          } else if (btn) { btn.disabled = true; btn.textContent = '✓ ' + verb + ' recorded'; }
         } else {
           scheduleSilentRefresh(500);
         }
