@@ -499,6 +499,18 @@
           <label class="form-label">Address *</label>
           <textarea class="form-input" id="oouAddress" rows="2" placeholder="Street, City, State ZIP"></textarea>
         </div>
+        <div id="oouSpouseMatch"></div>
+        <button type="button" class="btn btn-secondary btn-sm" id="oouAddSpouseBtn" onclick="oouShowSpouse(true)">➕ Add spouse</button>
+        <div id="oouSpouseFields" style="display:none;border-top:1px solid #eee;margin-top:6px;padding-top:12px;">
+          <div style="display:flex;align-items:center;margin-bottom:8px;">
+            <strong style="font-size:14px;">Spouse</strong><span style="font-size:12px;color:#777;margin-left:8px;">same address as above</span>
+            <span style="flex:1"></span><button type="button" class="tour-link" onclick="oouShowSpouse(false)">Remove</button>
+          </div>
+          <div class="form-group"><label class="form-label">Spouse's Full Name *</label><input type="text" class="form-input" id="oouSpName"></div>
+          <div class="form-group"><label class="form-label">Spouse's Date of Birth *</label><input type="date" class="form-input" id="oouSpDob"></div>
+          <div class="form-group"><label class="form-label">Spouse's Phone</label><input type="tel" class="form-input" id="oouSpPhone" placeholder="e.g. 801-555-1234"></div>
+          <div class="form-group"><label class="form-label">Spouse's Email</label><input type="email" class="form-input" id="oouSpEmail" placeholder="name@example.com"></div>
+        </div>
       </div>
       <div class="modal-footer" style="flex-wrap:wrap;gap:8px;">
         <button class="btn btn-secondary" onclick="closeOutOfUnitModal()">Cancel</button>
@@ -7683,7 +7695,53 @@
       document.getElementById('oouPhone').value = '';
       document.getElementById('oouEmail').value = '';
       document.getElementById('oouAddress').value = '';
+      oouShowSpouse(false);
       document.getElementById('outOfUnitModal').classList.add('show');
+      oouFindSpouseMatch(actionId, memberName);
+    }
+
+    // ── Spouse (2026-10-18) ── "Add spouse" collects their name, birth date, phone and email; the
+    // address is the member's. If another open out-of-unit task is for someone with the same last
+    // name, the form asks whether that is the spouse — yes fills the name in, and submitting closes
+    // their task too (it is covered by this record).
+    let currentOOUSpouseItemId = null;
+    function oouShowSpouse(on, name) {
+      const f = document.getElementById('oouSpouseFields'), b = document.getElementById('oouAddSpouseBtn');
+      f.style.display = on ? '' : 'none'; b.style.display = on ? 'none' : '';   // not [hidden]: .btn sets display
+      if (!on) {
+        ['oouSpName', 'oouSpDob', 'oouSpPhone', 'oouSpEmail'].forEach(id => { document.getElementById(id).value = ''; });
+        currentOOUSpouseItemId = null;
+        const m = document.getElementById('oouSpouseMatch'); if (m && m.dataset.declined !== '1') m.style.display = '';
+      } else if (name) document.getElementById('oouSpName').value = name;
+    }
+    const _oouLast = n => String(n || '').replace(/\s*\([^)]*\)/g, '').trim().split(/\s+/).pop().toLowerCase();
+    const _oouBase = id => String(id || '').split('_SOURCEROW_')[0].replace(/_[PC]\d*$/, '');
+    async function oouFindSpouseMatch(actionId, memberName) {
+      const box = document.getElementById('oouSpouseMatch');
+      box.innerHTML = ''; box.dataset.declined = ''; box.style.display = '';
+      let recs = null;
+      if (!DEMO_MODE) { try { const r = await writeToPostgres('oou_open_records', {}); if (r && r.success) recs = r.records; } catch (e) {} }
+      if (!recs) {   // the records this dashboard can see
+        const seen = {};
+        recs = [].concat(currentData.settingAparts || [], currentData.ccItems || []).filter(it => it.actionType === 'oou-record')
+          .map(it => ({ itemId: it.actionId, member: it.callingMember || String((String(it.notes || '').match(/^Member:\s*(.*)$/m) || [])[1] || String(it.displayText || '').replace(/^Out-of-Unit record needed:\s*/, '').split(' (')[0]).trim(),
+                        ward: it.callingWard || '' }))
+          .filter(r => { const k = _oouBase(r.itemId); if (seen[k]) return false; seen[k] = 1; return true; });
+      }
+      if (currentOOUItemId !== actionId) return;   // the form was closed or reopened meanwhile
+      const last = _oouLast(memberName), me = _oouBase(actionId);
+      const m = (recs || []).find(r => _oouBase(r.itemId) !== me && last && _oouLast(r.member) === last && r.member.toLowerCase() !== String(memberName || '').toLowerCase());
+      if (!m) return;
+      box.innerHTML = `<div style="background:#eef6ff;border:1px solid #cfe2fb;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;line-height:1.5;">
+          💍 <strong>${escapeHtmlDisplay(m.member)}</strong> also needs an out-of-unit record${m.ward ? ' (' + escapeHtmlDisplay(m.ward) + ')' : ''}. Are they ${escapeHtmlDisplay(String(memberName || '').split(' ')[0] || 'this member')}'s spouse?
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary btn-sm" id="oouSpYes">Yes — add as spouse</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="oouSpNo">No</button>
+          </div>
+          <div style="font-size:12px;color:#666;margin-top:6px;">Yes adds them to this record and closes their separate out-of-unit task.</div>
+        </div>`;
+      document.getElementById('oouSpYes').onclick = () => { oouShowSpouse(true, m.member); currentOOUSpouseItemId = m.itemId; box.style.display = 'none'; };
+      document.getElementById('oouSpNo').onclick = () => { box.dataset.declined = '1'; box.style.display = 'none'; };
     }
 
     function closeOutOfUnitModal() {
@@ -7722,6 +7780,12 @@
         showToast('Please fill in every field — the ward clerk needs all of it for the out-of-unit record', 'error');
         return;
       }
+      const spOn = document.getElementById('oouSpouseFields').style.display !== 'none';
+      const sp = spOn ? { spouseName: document.getElementById('oouSpName').value.trim(), spouseDob: document.getElementById('oouSpDob').value,
+                          spousePhone: document.getElementById('oouSpPhone').value.trim(), spouseEmail: document.getElementById('oouSpEmail').value.trim() } : {};
+      if (spOn && (!sp.spouseName || !sp.spouseDob)) { showToast('Add the spouse\'s name and date of birth, or remove the spouse', 'error'); return; }
+      if (spOn && currentOOUSpouseItemId) sp.spouseItemId = currentOOUSpouseItemId;
+      const spouseTaskId = sp.spouseItemId || null;
       // closeOutOfUnitModal() clears currentOOUItemId, so keep a copy for the card cleanup.
       const submittedId = currentOOUItemId;
       setSyncing(true);
@@ -7729,8 +7793,9 @@
         await performAction('submitOutOfUnitRecord', {
           itemId: submittedId,
           memberName: name, dob: dob, phone: phone, email: email, address: address,
-          ward: currentOOUWard
+          ward: currentOOUWard, ...sp
         });
+        if (spouseTaskId) document.querySelectorAll('[id^="item-' + CSS.escape(_oouBase(spouseTaskId)) + '"]').forEach(el => el.remove());
         showToast('Out-of-unit record sent to the stake clerks', 'success');
         // Clear the card straight away. The submit happens in a modal, so unlike every other
         // action there was no button on the card to disable — it just sat there looking
@@ -7790,6 +7855,8 @@
         <div style="background:#f6f7fb;border-radius:8px;padding:10px 12px;margin-bottom:14px;">
           ${row('Name', m.memberName)}${row('Birth date', _oouDob(m.dob))}${row('Phone', m.phone)}${row('Email', m.email)}${row('Address', m.address)}
           ${m.calling || m.ward ? row('Calling', [m.calling, m.ward].filter(Boolean).join(' · ')) : ''}
+          ${m.spouse ? `<div style="border-top:1px solid #e3e5ee;margin:8px 0 4px;"></div><div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">Spouse</div>
+            ${row('Name', m.spouse.name)}${row('Birth date', _oouDob(m.spouse.dob))}${row('Phone', m.spouse.phone)}${row('Email', m.spouse.email)}${row('Address', 'Same as above')}` : ''}
         </div>
         <div class="form-group">
           <label class="form-label" for="oouClerkSel">Ward clerk</label>
@@ -7824,7 +7891,7 @@
       const me = String((userData && userData.name) || '').replace(/^🎓\s*/, '').split(' (')[0];
       const first = c && c.name ? c.name.replace(/^(bro|brother|sister|sis|pres|president|bishop)\.?\s+/i, '').split(' ')[0] : '';
       return [
-        `Hi${first ? ' ' + first : ''}, could you please add ${m.memberName || 'this member'} to the ${c && c.ward ? c.ward : 'ward'} as an out-of-unit member? Their official record stays in their home ward.`,
+        `Hi${first ? ' ' + first : ''}, could you please add ${m.memberName || 'this member'}${m.spouse ? ' and their spouse ' + m.spouse.name : ''} to the ${c && c.ward ? c.ward : 'ward'} as out-of-unit member${m.spouse ? 's' : ''}? Their official record${m.spouse ? 's stay' : ' stays'} in their home ward.`,
         '',
         'LCR: Membership › Manage Out-of-Unit Members › enter name + birth date › Lookup › Continue (no change to head of household) › add phone, email and address (they are not copied from the main record).',
         '',
@@ -7833,6 +7900,7 @@
         'Phone: ' + (m.phone || ''),
         'Email: ' + (m.email || ''),
         'Address: ' + (m.address || ''),
+        ...(m.spouse ? ['', 'Spouse: ' + m.spouse.name, 'Birth date: ' + _oouDob(m.spouse.dob), 'Phone: ' + (m.spouse.phone || ''), 'Email: ' + (m.spouse.email || ''), 'Address: same as above'] : []),
         '',
         'Thanks!' + (me ? ' — ' + me : '')
       ].join('\n');
@@ -9342,7 +9410,8 @@
         case 'getOouSendInfo':
           return { success: true, open: !s.oouSent,
             member: { memberName: DEMO_CAST.porter, dob: '2003-05-14', phone: '(801) 555-0142', email: 'porter.gladwell@example.com',
-                      address: '1220 N 400 E, Orem, UT 84097', calling: 'Elders Quorum Second Counselor', ward: DEMO_WARD, submittedBy: DEMO_CAST.hcYou.replace(' (you)', '') },
+                      address: '1220 N 400 E, Orem, UT 84097', calling: 'Elders Quorum Second Counselor', ward: DEMO_WARD, submittedBy: DEMO_CAST.hcYou.replace(' (you)', ''),
+                      spouse: s.oouSpouse || null },
             clerks: [['Bro. Abernathy', '6-7th Ward', 'clerk67@example.com', '(801) 555-0167'], ['Bro. Okafor', '16th Ward', 'clerk16@example.com', ''],
                      ['Bro. Lindgren', '24th Ward', '', '(801) 555-0124'], ['Bro. Tuilagi', '32nd Ward', 'clerk32@example.com', '(801) 555-0132']]
               .map(c => ({ name: c[0], ward: c[1], email: c[2], phone: c[3] })) };
@@ -9354,7 +9423,10 @@
           s.oouSent = true;
           break;
         case 'submitOutOfUnitRecord':
-          if (id.indexOf('DEMO_OOU_PORTER') === 0) { s.oouDone = true; s.oouSubmitted = true; }
+          if (id.indexOf('DEMO_OOU_PORTER') === 0) {
+            s.oouDone = true; s.oouSubmitted = true;
+            s.oouSpouse = params.spouseName ? { name: params.spouseName, dob: params.spouseDob || '', phone: params.spousePhone || '', email: params.spouseEmail || '' } : null;
+          }
           showToast('In real life this emails the member\'s details + ward-clerk instructions to the stake clerk and membership clerk. (Demo: no email sent.)', 'success');
           break;
         case 'saveOrdinationDate': {
