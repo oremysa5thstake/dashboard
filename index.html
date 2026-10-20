@@ -1496,6 +1496,31 @@
     //
     // Loaded on demand rather than with the dashboard: most cards are never scheduled by hand,
     // and one request per card on every load would be wasteful.
+    // ── A new Elders Quorum presidency is sustained together (2026-10-19) ──
+    // eq_presidency_waits (0141): rows waiting for their presidency (the president until both
+    // counselors have accepted; the counselors — and outgoing counselors — until he is ready). Their
+    // picker says so instead of predicting "next available". Fetched after render, like sbRisk.
+    let _eqWaits = {};   // second-resolution timestamp -> note
+    function _eqKey(ts) { const t = Date.parse(String(ts || '')); return isNaN(t) ? String(ts || '') : String(Math.floor(t / 1000)); }
+    function _sbPickLabel(ts, shown) {
+      const n = _eqWaits[_eqKey(ts)];
+      if (n) return `👥 Stake business: <em>${escapeHtmlDisplay(n.charAt(0).toUpperCase() + n.slice(1))}</em> `;
+      return shown ? `📅 Stake business: <strong>${escapeHtmlDisplay(shown)}</strong> ` : '📅 Stake business: <em>next available</em> ';
+    }
+    function fillEqWaits() {
+      document.querySelectorAll('.sbpick-label').forEach(el => { el.innerHTML = _sbPickLabel(el.dataset.ts, el.dataset.shown); });
+    }
+    async function loadEqWaits() {
+      if (DEMO_MODE || p2ViewingTarget()) return;
+      const d = await writeToPostgres('eq_presidency_waits', {});
+      if (!d || !d.success) return;
+      const m = {};
+      (d.rows || []).forEach(r => { m[_eqKey(r.ts)] = r.note; });
+      const changed = JSON.stringify(m) !== JSON.stringify(_eqWaits);
+      _eqWaits = m;
+      if (changed) fillEqWaits();
+    }
+
     function schedulePickerHtml(ts, current, moreRefs) {
       if (!ts) return '';
       const id = 'sbpick_' + String(ts).replace(/[^A-Za-z0-9]/g, '');
@@ -1505,9 +1530,7 @@
             : current)
         : '';
       return `<div class="item-meta" id="${id}" style="margin-top:6px">`
-        + (shown
-            ? `📅 Stake business: <strong>${escapeHtmlDisplay(shown)}</strong> `
-            : '📅 Stake business: <em>next available</em> ')
+        + `<span class="sbpick-label" data-ts="${escapeHtmlDisplay(String(ts))}" data-shown="${escapeHtmlDisplay(shown)}">${_sbPickLabel(ts, shown)}</span>`
         + `<button class="btn btn-secondary btn-sm" style="margin-left:4px"
              onclick="loadSundayPicker('${escapeHtml(String(ts))}','${id}')">Change…</button></div>`
         + sbRiskSlot(ts, moreRefs);
@@ -1693,7 +1716,10 @@
             </select>
             <button class="btn btn-success btn-sm" onclick="saveSunday('${escapeHtml(String(ts))}','${boxId}')">Set</button>
             <button class="btn btn-secondary btn-sm" onclick="cancelSundayPicker('${escapeHtml(String(ts))}','${boxId}','${escapeHtml(String(d.scheduled || ''))}')">Cancel</button>
-          </div>`;
+          </div>`
+          + (d.eqWait ? `<div style="font-size:12px;color:#555;margin-top:6px;">👥 ${escapeHtmlDisplay(d.eqWait.charAt(0).toUpperCase() + d.eqWait.slice(1))}.`
+              + (d.waitingOnCounselors ? ' Picking a Sunday will ask whether to add him without waiting.'
+                                       : ' The presidency goes on stake business together, on the president\'s Sunday.') + `</div>` : '');
       } catch (e) {
         box.innerHTML = '📅 <span style="color:#b3261e">Could not load Sundays: '
           + escapeHtmlDisplay(e.message || String(e)) + '</span>';
@@ -1723,7 +1749,7 @@
         // A president still waiting for his counselors: picking a Sunday can mean "don't wait".
         const params = { timestamp: ts, date: chosen };
         if (box && box.dataset.waitCounselors === '1' && /^\d{4}-\d{2}-\d{2}$/.test(chosen)) {
-          if (confirm('He is still waiting for his counselors to be selected and approved.\n\nOK — add him to stake business on ' + chosenLabel + ' without waiting.\nCancel — keep waiting (he will be sustained with his counselors, on or after ' + chosenLabel + ').')) params.dontWait = 'true';
+          if (confirm('The Elders Quorum presidency is sustained together, and his counselors are not ready yet.\n\nOK — add him to stake business on ' + chosenLabel + ' without waiting for them (once he has accepted).\nCancel — keep waiting (he will be sustained with his counselors, on or after ' + chosenLabel + ').')) params.dontWait = 'true';
         }
         const d = await performAction('sbSetScheduled', params);
         if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
@@ -1907,6 +1933,7 @@
       fillHcSbStatus();
       if (!window.__hcSbAt || Date.now() - window.__hcSbAt > 15000) { window.__hcSbAt = Date.now(); loadHcSbStatus(); }
       if (!window.__sbRiskAt || Date.now() - window.__sbRiskAt > 15000) { window.__sbRiskAt = Date.now(); loadSbRisk(); }
+      if (!window.__eqWaitAt || Date.now() - window.__eqWaitAt > 15000) { window.__eqWaitAt = Date.now(); loadEqWaits(); }
       // Re-rendering resets scroll; put the reader back where they were. Only for a refresh
       // of an already-drawn dashboard, so the first load still starts at the top.
       if (_dashboardDrawnOnce && _scrollY > 0) window.scrollTo(0, _scrollY);
