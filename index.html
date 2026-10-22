@@ -217,6 +217,22 @@
     .ms-canceled-header:hover{background:#f0f0f0}
     .ms-canceled-list{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}
     .ms-canceled-list.open{max-height:10000px;padding-top:10px}
+    /* Member Status track (2026-10-22) */
+    .mt-phase{margin:6px 0;border-left:3px solid #d9dbe8;padding:2px 0 2px 10px}
+    .mt-phase.mt-done{border-left-color:#9fd4ae}
+    .mt-phase.mt-current{border-left-color:#5865F2;background:#f7f8ff;border-radius:0 6px 6px 0}
+    .mt-phase.mt-future{opacity:.7}
+    .mt-phase-head{cursor:pointer;font-weight:600;font-size:13px;padding:4px 0;user-select:none}
+    .mt-sum{font-weight:400;color:#666}
+    .mt-chev{float:right;color:#999;font-weight:400}
+    .mt-step{display:flex;gap:8px;padding:4px 0;font-size:13px;line-height:1.4}
+    .mt-ico{width:14px;flex-shrink:0;text-align:center;color:#999}
+    .mt-s-done .mt-ico{color:#28a745}.mt-s-declined .mt-ico,.mt-s-opposed .mt-ico{color:#dc3545}.mt-s-waiting .mt-ico{color:#b26500}
+    .mt-body{flex:1;min-width:0}
+    .mt-line{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px}
+    .mt-meta{color:#555;font-variant-numeric:tabular-nums}
+    .mt-sub{color:#666;font-size:12px}
+    .mt-act{margin:4px 0 2px;padding:0;border:none;background:none;box-shadow:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
     /* Member Status history (2026-10-21) */
     .ms-history{margin:8px 0 12px}
     .msh-list{list-style:none;margin:6px 0 0;padding:0 0 0 10px;border-left:2px solid #e2e4f3}
@@ -1782,6 +1798,7 @@
     async function performAction(action, params = {}) {
       // 🎓 Demo mode: route every action to the local simulator.
       if (DEMO_MODE) return demoPerformAction(action, params);
+      if (!/^get|^sb(OpenSundays|Queue)/.test(action)) setTimeout(mtReloadSoon, 0);   // Member Status re-reads its cards
 
       // Phase 2: queue it in Postgres and return, instead of waiting ~2.5s for Apps Script to
       // finish the whole cascade. Only for actions with a replay handler; everything else falls
@@ -6518,6 +6535,7 @@
         const canceled = members.filter(m => _msIsCanceled(m));
         renderMemberStatusList(active, canceled);
       }
+      mtLoadVisible();   // fill the open card's track (cached ones draw at once)
     }
 
     let _msOpenKey = null; // name|ward of the currently-expanded card (survives re-renders)
@@ -6756,12 +6774,7 @@
                 (c.status && c.status.toLowerCase() !== 'standard' && c.status !== ''
                   ? ' — <span class="status-badge ' + escapeHtmlDisplay(c.status.toLowerCase()) + '">' + escapeHtmlDisplay(c.status) + '</span>' : '') +
                 '</div>';
-        if (c.submittedDate) html += '<div class="ms-card-sub">Submitted ' + escapeHtmlDisplay(c.submittedDate) + '</div>';
-        const nextLine = msNextStepLine(c, 'CA');
-        if (nextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + nextLine + '</div>';
-        html += msProgressLines(c.progress);
-        html += renderTrack(c, 'CA', c.timestamp);
-        html += msHistoryToggle('CA', c.timestamp);
+        html += mtSlot('CA', c.timestamp);
       });
 
       ordinations.forEach(o => {
@@ -6774,14 +6787,153 @@
           else meta.push('SP interview: scheduled');
         }
         if (meta.length) html += '<div class="ms-card-sub">' + meta.join(' · ') + '</div>';
-        const oNextLine = msNextStepLine(o, 'PO');
-        if (oNextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + oNextLine + '</div>';
-        html += renderTrack(o, 'PO', o.timestamp);
-        html += msHistoryToggle('PO', o.timestamp);
+        html += mtSlot('PO', o.timestamp);
       });
 
       if (callings.length === 0 && ordinations.length === 0) html += '<div class="ms-empty">No calling or ordination on file.</div>';
       return html;
+    }
+
+    // ══ Member Status track (2026-10-22) ══ member_track (0147): the item's pipeline as phases and
+    // steps. Done steps say who did them and when; open steps carry the buttons this person has for
+    // them (their own task as primary or CC'd, their vote, recording a verbal vote, assigning, the
+    // appointment, the Sunday picker, marking a record done). Loaded when a card is opened, cached for
+    // the session, re-read after an action. Falls back to the older column view (demo / no database).
+    const _mtCache = {};   // 'CA|ts' -> track | { error }
+    const _mtOpen = {};    // 'CA|ts|phaseKey' -> bool (user toggled)
+    function _mtId(sheet, ts) { return 'mt_' + (sheet + '|' + String(ts || '')).replace(/[^A-Za-z0-9]/g, ''); }
+    function mtSlot(sheet, ts) {
+      if (!ts) return '';
+      const k = sheet + '|' + String(ts), t = _mtCache[k];
+      return `<div class="mt-track" id="${_mtId(sheet, ts)}" data-sheet="${sheet}" data-ts="${escapeHtmlDisplay(String(ts))}">`
+        + (t && !t.error ? mtRender(t) : '<div class="ms-card-sub">Loading…</div>') + '</div>';
+    }
+    function _mtFindTrack(sheet, ts) {
+      for (const m of ((memberStatusData && memberStatusData.members) || [])) {
+        const list = sheet === 'PO' ? (m.ordinations || []) : (m.callings || []);
+        const t = list.find(x => String(x.timestamp) === String(ts));
+        if (t) return t;
+      }
+      return null;
+    }
+    function _mtFallback(sheet, ts) {
+      const tr = _mtFindTrack(sheet, ts);
+      if (!tr) return '<div class="ms-card-sub">Could not load this item.</div>';
+      const nl = msNextStepLine(tr, sheet);
+      return (nl ? '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + nl + '</div>' : '')
+        + (sheet === 'CA' ? msProgressLines(tr.progress) : '') + renderTrack(tr, sheet, ts) + msHistoryToggle(sheet, ts);
+    }
+    async function mtLoadVisible(force) {
+      const els = Array.from(document.querySelectorAll('#msResults .ms-card-body.open .mt-track'));
+      for (const el of els) {
+        const sheet = el.dataset.sheet, ts = el.dataset.ts, k = sheet + '|' + ts;
+        if (!force && _mtCache[k] && !_mtCache[k].error) { el.innerHTML = mtRender(_mtCache[k]); continue; }
+        if (DEMO_MODE) { el.innerHTML = _mtFallback(sheet, ts); continue; }
+        const d = await writeToPostgres('member_track', { p_sheet: sheet, p_ts: ts });
+        const el2 = document.getElementById(_mtId(sheet, ts));
+        if (d && d.success) { _mtCache[k] = d; if (el2) el2.innerHTML = mtRender(d); }
+        else if (el2 && !(_mtCache[k] && !_mtCache[k].error)) el2.innerHTML = _mtFallback(sheet, ts);
+      }
+    }
+    // After any action while Member Status is open: the queue applies it in ~10-20s — re-read then.
+    let _mtReloadTimers = [];
+    function mtReloadSoon() {
+      const ov = document.getElementById('memberStatusOverlay');
+      if (!ov || !ov.classList.contains('open')) return;
+      _mtReloadTimers.forEach(clearTimeout);
+      _mtReloadTimers = [12000, 30000].map(ms => setTimeout(() => mtLoadVisible(true), ms));
+    }
+    function _mtWhen(at) {
+      if (!at) return '';
+      const d = new Date(at);
+      return isNaN(d) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+    function mtToggle(k, phaseKey, el) {
+      const key = k + '|' + phaseKey;
+      const body = el.parentNode.querySelector('.mt-steps');
+      const opening = body.style.display === 'none';
+      _mtOpen[key] = opening;
+      body.style.display = opening ? '' : 'none';
+    }
+    function mtRender(t) {
+      const esc = escapeHtmlDisplay, k = t.sheet + '|' + String(t.ts);
+      const cur = (t.phases || []).find(p => p.state === 'current');
+      let next = '';
+      if (cur) {
+        const s0 = cur.steps.find(x => !['done', 'skipped', 'declined'].includes(x.state));
+        const why = (s0 && s0.note) || (cur.steps.find(x => x.note) || {}).note;   // the phase's reason, if the step has none
+        if (s0) next = '👉 Next: <strong>' + esc(s0.label) + '</strong>'
+          + (s0.task && s0.task.assignees && s0.task.assignees.length ? ' — ' + esc(s0.task.assignees.join(', ')) : '')
+          + (why ? ' <span style="color:#856404">— ' + esc(why) + '</span>' : '');
+      } else next = '<span style="color:#28a745;">✅ All steps complete</span>';
+      const closed = /^(canceled|declined)$/i.test(t.status || '');
+      let html = `<div class="ms-card-sub" style="margin:4px 0 6px;font-size:14px;">${closed ? '⛔ ' + esc(t.status) : next}</div>`;
+      (t.phases || []).forEach(p => {
+        const open = _mtOpen[k + '|' + p.key] != null ? _mtOpen[k + '|' + p.key] : p.state === 'current';
+        const icon = p.state === 'done' ? '✅' : p.state === 'current' ? '🔵' : '⚪';
+        const last = p.state === 'done' ? [...p.steps].reverse().find(x => x.state === 'done' && (x.who || x.at)) : null;
+        const summary = last ? ' <span class="mt-sum">— ' + esc([last.who, _mtWhen(last.at)].filter(Boolean).join(' · ')) + '</span>' : '';
+        html += `<div class="mt-phase mt-${p.state}">
+          <div class="mt-phase-head" onclick="mtToggle('${escapeHtml(k)}','${p.key}',this)">${icon} ${esc(p.title)}${summary} <span class="mt-chev">▾</span></div>
+          <div class="mt-steps" style="display:${open ? '' : 'none'}">${p.steps.map(st => mtStep(t, st, p, closed)).join('')}</div>
+        </div>`;
+      });
+      return html;
+    }
+    function mtStep(t, st, p, closed) {
+      const esc = escapeHtmlDisplay;
+      const icon = { done: '✓', declined: '✗', skipped: '–', opposed: '⚠', pending: '○', waiting: '⏳' }[st.state] || '○';
+      const meta = st.state === 'done' || st.state === 'declined' || st.state === 'opposed'
+        ? [st.who, _mtWhen(st.at)].filter(Boolean).join(' · ') : '';
+      const pendingWho = st.task && st.task.assignees && st.task.assignees.length && st.state === 'pending'
+        ? 'assigned to ' + st.task.assignees.join(', ') : '';
+      let html = `<div class="mt-step mt-s-${st.state}"><span class="mt-ico">${icon}</span><div class="mt-body">
+        <div class="mt-line"><span class="mt-lbl">${esc(st.label)}</span>${meta ? '<span class="mt-meta">' + esc(meta) + '</span>' : ''}</div>`;
+      const sub = [st.detail, pendingWho, st.note].filter(Boolean);
+      if (st.reports && st.reports.length > 1) sub.push('Reported: ' + st.reports.filter(r => r.s).map(r => (r.who || '?') + ' (' + r.ward + ')').join(', '));
+      if (sub.length) html += '<div class="mt-sub">' + sub.map(esc).join(' · ') + '</div>';
+      if (!closed && st.state !== 'done' && st.state !== 'skipped' && st.state !== 'declined') html += mtActions(t, st, p);
+      return html + '</div></div>';
+    }
+    function mtActions(t, st, p) {
+      const out = [], ts = String(t.ts), canAll = !!t.canReassign;
+      if (st.vote && st.state === 'pending') {
+        const v = st.vote, verb = v.type === 'ordination' ? 'sustaining' : 'approval';
+        const iid = (v.type === 'ordination' ? 'ordination_' : 'calling_') + v.rowIndex;
+        if (v.mine) out.push(`<button class="btn btn-success btn-sm" onclick="handleAction('${iid}','approve',this,{ref:'${escapeHtml(ts)}'})">✓ ${v.type === 'ordination' ? 'Sustain' : 'Approve'}</button>
+          <button class="btn btn-warning btn-sm" style="color:#333" onclick="handleAction('${iid}','concern',this,{ref:'${escapeHtml(ts)}'})">⚠️ Concerns</button>`);
+        else if (t.canRecord) out.push(`<button class="btn btn-secondary btn-sm" onclick="recordVoteFor(${v.rowIndex}, ${v.column}, '${v.type}', '${escapeHtml(st.label)}', '${verb}', this, '${escapeHtml(ts)}', '${escapeHtml(v.userId || '')}')">✓ Record ${verb}</button>`);
+      }
+      const task = st.task, can = task && (task.mine || canAll);
+      if (task && can) {
+        if (st.assign) out.push(msAssignControls(st.assign.kind, task.actionId, st.assign.allowHC));
+        else if (task.type === 'extend-calling') out.push(`<button class="btn btn-success btn-sm" onclick="handleAction('${task.actionId}','accepted',this)">✓ Accepted</button>
+            <button class="btn btn-danger btn-sm" onclick="handleAction('${task.actionId}','declined',this)">✗ Declined</button>`);
+        else if (task.type === 'extend-release') out.push(`<button class="btn btn-success btn-sm" onclick="handleAction('${task.actionId}','extended',this)">✓ Release Extended</button>`);
+        else out.push(renderPrimaryActionForCCItem({ actionId: task.actionId, actionType: task.type, type: task.type, displayText: task.display,
+          notes: task.notes, callingMember: t.member, callingWard: t.ward }));
+        if (!task.mine) out.push('<div class="mt-sub">You are not on this task — acting records it as done by you.</div>');
+      }
+      const af = st.appointmentFor;
+      if (af && st.state === 'pending' && (af.mine || canAll)) {
+        const id = af.actionId;
+        out.push(`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input type="date" id="apptDate_${id}" class="form-input" style="width:auto;font-size:12px;">
+          <input type="time" id="apptTime_${id}" class="form-input" style="width:auto;font-size:12px;">
+          <button class="btn btn-primary btn-sm" onclick="scheduleAppointment('${id}', this)">📅 Appointment Scheduled</button></div>`);
+      }
+      if (st.picker && canAll) out.push(schedulePickerHtml(ts, st.value && /^\d{4}-/.test(st.value) ? st.value : ''));
+      // A manual tick is offered when the step is next up — not while it waits on something else
+      // (except "Counselors approved", where ticking IS the "don't wait" choice).
+      if (st.edit && canAll && !st.task && (st.state === 'pending' || st.key === 'counselors')) {
+        if (st.edit === 'bool') out.push(`<button class="btn btn-secondary btn-sm" onclick="saveMemberStatusField('${t.sheet}','${escapeHtml(ts)}',${st.col},'bool',true,this)">✓ Mark done</button>`);
+        else if (st.edit === 'date') {
+          const id = 'mtd_' + t.sheet + st.col + Math.random().toString(36).slice(2, 6);
+          out.push(`<input type="date" id="${id}" class="form-input" style="width:auto;font-size:12px;">
+            <button class="btn btn-secondary btn-sm" onclick="saveMemberStatusField('${t.sheet}','${escapeHtml(ts)}',${st.col},'date',(document.getElementById('${id}')||{}).value,this)">Save</button>`);
+        }
+      }
+      return out.length ? '<div class="item mt-act">' + out.join(' ') + '</div>' : '';
     }
 
     // ── History (2026-10-21) ── every step with its date and who did it (member_history, 0146):
