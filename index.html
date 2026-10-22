@@ -217,6 +217,14 @@
     .ms-canceled-header:hover{background:#f0f0f0}
     .ms-canceled-list{max-height:0;overflow:hidden;transition:max-height .3s ease-in-out}
     .ms-canceled-list.open{max-height:10000px;padding-top:10px}
+    /* Member Status history (2026-10-21) */
+    .ms-history{margin:8px 0 12px}
+    .msh-list{list-style:none;margin:6px 0 0;padding:0 0 0 10px;border-left:2px solid #e2e4f3}
+    .msh-list li{display:flex;gap:10px;padding:4px 0;font-size:13px;line-height:1.4}
+    .msh-when{flex:0 0 132px;color:#777;font-variant-numeric:tabular-nums}
+    .msh-what{flex:1;min-width:0}
+    .msh-detail{color:#666;font-size:12px}
+    @media (max-width:480px){.msh-list li{flex-direction:column;gap:0}.msh-when{flex:none}}
     /* Welcome + guided tour (2026-10-18) */
     .tw-overlay{position:fixed;inset:0;background:rgba(20,22,40,.55);z-index:10050;display:flex;align-items:flex-start;justify-content:center;padding:max(24px,6vh) 16px 24px;overflow-y:auto}
     .tw-card{position:relative;background:#fff;color:#222;border-radius:14px;max-width:560px;width:100%;padding:26px 24px 18px;box-shadow:0 18px 50px rgba(0,0,0,.3);line-height:1.5}
@@ -6753,6 +6761,7 @@
         if (nextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + nextLine + '</div>';
         html += msProgressLines(c.progress);
         html += renderTrack(c, 'CA', c.timestamp);
+        html += msHistoryToggle('CA', c.timestamp);
       });
 
       ordinations.forEach(o => {
@@ -6768,10 +6777,86 @@
         const oNextLine = msNextStepLine(o, 'PO');
         if (oNextLine) html += '<div class="ms-card-sub" style="margin-top:4px;font-size:14px;">' + oNextLine + '</div>';
         html += renderTrack(o, 'PO', o.timestamp);
+        html += msHistoryToggle('PO', o.timestamp);
       });
 
       if (callings.length === 0 && ordinations.length === 0) html += '<div class="ms-empty">No calling or ordination on file.</div>';
       return html;
+    }
+
+    // ── History (2026-10-21) ── every step with its date and who did it (member_history, 0146):
+    // the row's own dates, each task created/closed, Sunday reports, dashboard + Sheet Views edits,
+    // votes (incl. verbal ones recorded on someone's behalf). Loaded when opened; kept per session.
+    const _msHistory = {};      // 'CA|ts' -> { events } | { error }
+    const _msHistoryOpen = {};  // 'CA|ts' -> true while open (survives re-renders)
+    function _msHistKey(sheet, ts) { return sheet + '|' + String(ts || ''); }
+    function msHistoryToggle(sheet, ts) {
+      if (!ts) return '';
+      const k = _msHistKey(sheet, ts), id = 'msh_' + k.replace(/[^A-Za-z0-9]/g, '');
+      const open = !!_msHistoryOpen[k];
+      return `<div class="ms-history">
+        <div class="ms-phase-label" style="cursor:pointer;color:#5865F2;" onclick="toggleMsHistory('${sheet}','${escapeHtml(String(ts))}','${id}')">📜 History — who did what, and when ${open ? '▾' : '▸'}</div>
+        <div id="${id}" style="display:${open ? '' : 'none'}">${open ? msHistoryBody(k) : ''}</div>
+      </div>`;
+    }
+    async function toggleMsHistory(sheet, ts, id) {
+      const k = _msHistKey(sheet, ts), box = document.getElementById(id);
+      if (!box) return;
+      _msHistoryOpen[k] = !_msHistoryOpen[k];
+      const lbl = box.previousElementSibling;
+      if (lbl) lbl.innerHTML = lbl.innerHTML.replace(/[▸▾]$/, _msHistoryOpen[k] ? '▾' : '▸');
+      box.style.display = _msHistoryOpen[k] ? '' : 'none';
+      if (!_msHistoryOpen[k]) return;
+      if (!_msHistory[k]) {
+        box.innerHTML = '<div class="ms-card-sub">Loading…</div>';
+        if (DEMO_MODE) _msHistory[k] = { events: demoMemberHistory(sheet, ts) };
+        else {
+          const d = await writeToPostgres('member_history', { p_sheet: sheet, p_ts: String(ts) });
+          _msHistory[k] = d && d.success ? d : { error: (d && d.error) || 'History needs the database connection — refresh and try again.' };
+        }
+      }
+      const b2 = document.getElementById(id);
+      if (b2) b2.innerHTML = msHistoryBody(k);
+    }
+    // Demo: build the history from the demo track's completed steps (the demo keeps no dates or names).
+    function demoMemberHistory(sheet, ts) {
+      const all = (memberStatusData && memberStatusData.members) || [];
+      for (const m of all) {
+        const tracks = sheet === 'PO' ? (m.ordinations || []) : (m.callings || []);
+        const t = tracks.find(x => String(x.timestamp) === String(ts));
+        if (!t) continue;
+        const ev = [{ at: null, what: sheet === 'PO' ? 'Ordination recommendation submitted' : 'Recommendation submitted', who: 'the bishop' }];
+        (t.phases || []).forEach(ph => (ph.steps || []).forEach(st => {
+          if (st.applicable === false || !st.done) return;
+          ev.push({ at: null, what: (st.isApprover ? 'Approved (vote)' : st.label.replace(/\?$/, '')), who: st.isApprover ? st.label : (st.assignee || '') });
+        }));
+        ev.push({ at: null, what: 'In the real dashboard every line shows the date and who did it', who: '' });
+        return ev;
+      }
+      return [];
+    }
+    function msHistoryBody(k) {
+      const h = _msHistory[k];
+      if (!h) return '<div class="ms-card-sub">Loading…</div>';
+      if (h.error) return '<div class="ms-card-sub">⚠️ ' + escapeHtmlDisplay(h.error) + '</div>';
+      const esc = escapeHtmlDisplay, out = [];
+      let prev = null;
+      (h.events || []).forEach(e => {
+        // A double tap logs the same vote twice — show it once.
+        const t = e.at ? Date.parse(e.at) : null;
+        if (prev && prev.what === e.what && prev.who === e.who && t && prev.t && Math.abs(t - prev.t) < 15 * 60 * 1000) return;
+        prev = { what: e.what, who: e.who, t: t };
+        const when = e.at
+          ? new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+          : '';
+        out.push(`<li${e.undone ? ' style="text-decoration:line-through;opacity:.6"' : ''}>
+          <span class="msh-when">${esc(when)}</span>
+          <span class="msh-what"><strong>${esc(e.what)}</strong>${e.who ? ' — ' + esc(e.who) : ''}${e.detail ? '<div class="msh-detail">' + esc(e.detail) + '</div>' : ''}${e.undone ? ' (undone)' : ''}</span>
+        </li>`);
+      });
+      if (!out.length) return '<div class="ms-card-sub">Nothing recorded yet.</div>';
+      return '<ol class="msh-list">' + out.join('') + '</ol>'
+        + '<div class="ms-card-sub" style="margin-top:4px;">Steps taken outside the dashboard (a Slack button, typing in the sheet) show no name. Closed tasks are cleared out after a while, so older items show less.</div>';
     }
 
     // Accordion: current phase open, completed phases collapsed (tap to view),
@@ -9832,7 +9917,7 @@
         { phase: 3, title: 'Extend the Release', steps: [
           stp('Release Extended?', s.marcusExtended, { req: true, ph: 3, col: 37, date: today, assignee: hcName })
         ]},
-        { phase: 4, title: 'Stake Business / Sustaining', steps: [
+        { phase: 4, title: 'Stake Business / Releasing', steps: [
           stp('Released in Stake Business', s.sus[2] === true, { req: true, ph: 4, col: 40, date: sunday, assignee: hcName })
         ]}
       ]);
