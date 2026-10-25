@@ -2137,7 +2137,6 @@
       }
       html += '<div id="hcSbStatus"></div>';   // filled by loadHcSbStatus (high councilors with a ward)
       html += '<div id="sbRiskList"></div>';   // filled by loadSbRisk (clerks / secretaries / presidency)
-      html += '<div id="bishopPlans"></div>';  // filled by loadBishopPlans (clerks / secretaries / presidency)
 
       // Stake links
       // TEMPORARY: the boundary planner link is shown to the stake presidency (and
@@ -2353,6 +2352,9 @@
       // Recent Actions (Undo) — everyone gets it, above Admin Tools. In demo mode it
       // replays the scenario's own action log, so undo is demonstrable without a backend.
       html += renderUndoSection();
+      // New Bishops — rare (a handful a year), so it sits down here with the reference sections,
+      // collapsed unless a planned bishopric is behind (2026-10-25). Filled by loadBishopPlans.
+      html += '<div id="bishopPlans"></div>';
 
       // Admin Tools section — admins and the Stake Presidency. The presidency sees the
       // scripts + demos; "View Another User's Dashboard" stays admin-only.
