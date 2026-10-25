@@ -543,6 +543,21 @@
     </div>
   </div>
 
+  <!-- Plan a new bishop (bishop_plans / planNewBishop) -->
+  <div class="modal-overlay" id="bishopPlanModal">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <span class="modal-title">🧑‍⚖️ Plan a New Bishop</span>
+        <button class="modal-close" onclick="closeModal('bishopPlanModal')">×</button>
+      </div>
+      <div class="modal-body" id="bishopPlanBody"></div>
+      <div class="modal-footer" style="gap:8px;">
+        <button class="btn btn-secondary" onclick="closeModal('bishopPlanModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveBishopPlan(this)">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Out-of-unit record → ward clerk (oou-send tasks, OutOfUnit.js) -->
   <div class="modal-overlay" id="oouSendModal">
     <div class="modal" style="max-width:520px;">
@@ -1644,6 +1659,130 @@
       return { items: [it], admin: true, byKey: { 'demo-tanner': it } };
     }
 
+    // ══ New bishops (2026-10-25) ══ bishop_plans (0149) / planNewBishop · cancelNewBishop (StakeBusiness.js).
+    // A bishop is called outside the app; planning him puts his lines on that Sunday's stake business
+    // and pins his counselors (and the outgoing counselors' releases) to it. The panel shows where
+    // each counselor stands and, if they won't be ready, offers to move the whole bishopric.
+    let _bp = null;
+    async function loadBishopPlans() {
+      if (p2ViewingTarget()) return;
+      if (DEMO_MODE) { if (_bp) { fillBishopPlans(); return; } _bp = { show: !!(userData && userData.canReassign), plans: [], wards: ['6-7th Ward', '16th Ward', '24th Ward', '32nd Ward'], bishops: { '6-7th Ward': 'Daniel Demoson' } }; fillBishopPlans(); return; }
+      const d = await writeToPostgres('bishop_plans', {});
+      if (d && d.success) { _bp = d; fillBishopPlans(); }
+    }
+    function fillBishopPlans() {
+      const box = _panelEl('bishopPlans');
+      if (!box) return;
+      if (!_bp || !_bp.show) { box.innerHTML = ''; return; }
+      const esc = escapeHtmlDisplay, plans = _bp.plans || [];
+      const risky = plans.filter(p => p.atRisk).length;
+      const open = sectionExpanded['bishopPlans'] === true || risky > 0;
+      const cards = plans.map(p => {
+        const cs = (p.counselors || []).map(c => `<li>${c.ready ? '✅' : '⏳'} <strong>${esc(c.calling.replace('Bishopric ', ''))}</strong>${c.member ? ': ' + esc(c.member) : ''} — <span style="color:#555">${esc(c.stage)}</span></li>`).join('');
+        const rs = (p.releases || []).map(c => `<li>${c.ready ? '✅' : '⏳'} Releasing ${esc(c.member)} (${esc(c.calling.replace('Bishopric ', ''))}) — <span style="color:#555">${esc(c.stage)}</span></li>`).join('');
+        const chip = p.ready ? '<span class="badge badge-success">Ready</span>'
+          : p.atRisk ? '<span class="badge badge-danger">Not on track</span>' : '<span class="badge badge-warning" style="color:#333">In progress</span>';
+        const w = escapeHtml(p.ward);
+        const move = p.atRisk ? `<div class="item-meta" style="margin-top:8px;padding:8px;border-radius:6px;background:#fff3cd;color:#664d03;">
+            ⚠️ The counselors may not be approved and accepted by ${esc(p.sundayLabel)}. The bishopric is sustained together —
+            <button class="btn btn-warning btn-sm" style="color:#333" onclick="moveBishopric('${w}','${p.nextOpen}',this)">Move the whole bishopric to ${esc(p.nextOpenLabel)}</button></div>` : '';
+        return `<div class="item">
+          <div class="item-header"><div class="item-title">${esc(p.ward)} — ${esc(p.sundayLabel)}</div><div class="item-badges">${chip}</div></div>
+          <div class="item-meta">Bishop: <strong>${p.name ? esc(p.name) : '______ (new bishop, named on the day)'}</strong>${p.outgoing ? ' · releasing Bishop ' + esc(p.outgoing) : ''} · ${p.daysLeft === 0 ? 'today' : 'in ' + p.daysLeft + ' day' + (p.daysLeft === 1 ? '' : 's')}</div>
+          <ul style="margin:6px 0 0 18px;font-size:13px;line-height:1.6">${cs}${rs}</ul>
+          ${move}
+          <div class="item-actions" style="margin-top:6px">
+            <button class="btn btn-secondary btn-sm" onclick="openBishopPlan('${w}')">Change…</button>
+            <button class="btn btn-secondary btn-sm" onclick="cancelBishopPlan('${w}',this)">Remove plan</button>
+          </div></div>`;
+      }).join('');
+      box.innerHTML = `<div class="section"><div class="section-header${open ? ' expanded' : ''}" onclick="toggleSection('bishopPlans')">
+          <div class="section-title">🧑‍⚖️ New Bishops</div><div class="section-meta">${risky ? '<span class="section-count" style="background:#dc3545">' + risky + '</span>' : (plans.length ? '<span class="section-count">' + plans.length + '</span>' : '')}<span class="chevron">▼</span></div></div>
+        <div class="section-content${open ? ' expanded' : ''}" id="section-bishopPlans"><div class="section-inner">
+          <div class="item-meta" style="margin-bottom:8px">A bishop is called outside this app. Plan him here to put him on that Sunday's stake business; his counselors (and the outgoing counselors' releases) are then read with him.</div>
+          ${cards}
+          <button class="btn btn-primary btn-sm" onclick="openBishopPlan('')">📅 Plan a new bishop</button>
+        </div></div></div>`;
+    }
+    async function openBishopPlan(ward) {
+      const p = ward ? (_bp.plans || []).find(x => x.ward === ward) : null;
+      const esc = escapeHtmlDisplay;
+      const wards = (_bp && _bp.wards) || [];
+      document.getElementById('bishopPlanBody').innerHTML = `
+        <div class="form-group"><label class="form-label">Ward *</label>
+          <select class="form-input" id="bpWard" onchange="bishopPlanWardChanged()" ${p ? 'disabled' : ''}>
+            <option value="">Choose a ward…</option>${wards.map(w => `<option ${w === ward ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Sunday he is sustained *</label>
+          <select class="form-input" id="bpSunday"><option value="">Choose the ward first</option></select></div>
+        <div class="form-group"><label class="form-label">Outgoing bishop <span style="color:#888;font-weight:400">(released that Sunday — leave blank if none)</span></label>
+          <input class="form-input" id="bpOutgoing" value="${esc(p ? (p.outgoing || '') : '')}"></div>
+        <div class="form-group"><label class="form-label">New bishop's name <span style="color:#888;font-weight:400">(optional — left blank, the agenda shows a line to fill in)</span></label>
+          <input class="form-input" id="bpName" value="${esc(p ? (p.name || '') : '')}"></div>
+        <div class="item-meta">His counselors (Bishopric First and Second Counselor for this ward) are read with him that Sunday once they are approved and have accepted — submit them through the Callings form as usual. The release of an outgoing counselor is read that Sunday too.</div>`;
+      document.getElementById('bishopPlanModal').classList.add('show');
+      if (ward) bishopPlanWardChanged(p && p.sunday);
+    }
+    async function bishopPlanWardChanged(current) {
+      const ward = (document.getElementById('bpWard') || {}).value;
+      const sel = document.getElementById('bpSunday');
+      if (!ward) { sel.innerHTML = '<option value="">Choose the ward first</option>'; return; }
+      const out = document.getElementById('bpOutgoing');
+      if (out && !out.value && _bp.bishops && _bp.bishops[ward]) out.value = _bp.bishops[ward];
+      sel.innerHTML = '<option value="">Loading…</option>';
+      let d = null;
+      if (!DEMO_MODE) {
+        const p2 = phase2Config();
+        try {
+          const r = await fetch(p2.url + '/rest/v1/rpc/sb_open_sundays_public', { method: 'POST', headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_kind: 'ward', p_ward: ward, p_weeks: 16 }) });
+          if (r.ok) d = await r.json();
+        } catch (e) {}
+      }
+      const sundays = (d && d.sundays) || Array.from({ length: 12 }, (_, i) => {
+        const x = new Date(); x.setDate(x.getDate() + ((7 - x.getDay()) % 7) + 7 * i);
+        const ymd = x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+        return { ymd: ymd, label: x.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }), available: true };
+      });
+      sel.innerHTML = '<option value="">Choose a Sunday…</option>' + sundays.map(x =>
+        `<option value="${x.ymd}" ${x.available ? '' : 'disabled'} ${x.ymd === current ? 'selected' : ''}>${escapeHtmlDisplay(x.label)}${x.available ? '' : ' — ' + escapeHtmlDisplay(x.note || 'not available')}</option>`).join('');
+    }
+    async function saveBishopPlan(btn) {
+      const g = id => ((document.getElementById(id) || {}).value || '').trim();
+      const params = { ward: g('bpWard'), sunday: g('bpSunday'), outgoing: g('bpOutgoing'), name: g('bpName') };
+      if (!params.ward || !params.sunday) { showToast('Choose the ward and the Sunday', 'error'); return; }
+      btn.disabled = true; btn.textContent = 'Saving…'; setSyncing(true);
+      try {
+        const d = await performAction('planNewBishop', params);
+        if (!d || d.success === false) throw new Error((d && d.error) || 'not saved');
+        showToast('New bishop planned for the ' + params.ward + (d.moved ? ' · ' + d.moved + ' counselor row' + (d.moved === 1 ? '' : 's') + ' moved to that Sunday' : ''), 'success');
+        closeModal('bishopPlanModal');
+        window.__bpAt = 0; setTimeout(loadBishopPlans, 1500);
+      } catch (e) { showToast('Error: ' + e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Save'; setSyncing(false); }
+    }
+    async function moveBishopric(ward, sunday, btn) {
+      if (!confirm('Move the ' + ward + ' bishop, his counselors and the outgoing counselors\' releases to ' + sunday + '?')) return;
+      btn.disabled = true; btn.textContent = '…'; setSyncing(true);
+      try {
+        const d = await performAction('planNewBishop', { ward: ward, sunday: sunday });
+        if (!d || d.success === false) throw new Error((d && d.error) || 'not moved');
+        showToast('Bishopric moved to ' + sunday, 'success');
+        window.__bpAt = 0; setTimeout(loadBishopPlans, 1500);
+      } catch (e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; }
+      finally { setSyncing(false); }
+    }
+    async function cancelBishopPlan(ward, btn) {
+      if (!confirm('Remove the planned new bishop for the ' + ward + '? His lines come off the stake business agenda; the counselors keep their Sundays.')) return;
+      btn.disabled = true; setSyncing(true);
+      try {
+        const d = await performAction('cancelNewBishop', { ward: ward });
+        if (!d || d.success === false) throw new Error((d && d.error) || 'not removed');
+        showToast('Plan removed', 'success');
+        window.__bpAt = 0; setTimeout(loadBishopPlans, 1500);
+      } catch (e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; }
+      finally { setSyncing(false); }
+    }
+
     async function loadSbRisk() {
       if (DEMO_MODE) { _sbRisk = demoSbRisk(); fillSbRisk(); return; }
       const viewing = p2ViewingTarget();   // another user's dashboard: what THEY would see (0136)
@@ -1959,6 +2098,8 @@
       if (!window.__hcSbAt || Date.now() - window.__hcSbAt > 15000) { window.__hcSbAt = Date.now(); loadHcSbStatus(); }
       if (!window.__sbRiskAt || Date.now() - window.__sbRiskAt > 15000) { window.__sbRiskAt = Date.now(); loadSbRisk(); }
       if (!window.__eqWaitAt || Date.now() - window.__eqWaitAt > 15000) { window.__eqWaitAt = Date.now(); loadEqWaits(); }
+      fillBishopPlans();
+      if (!window.__bpAt || Date.now() - window.__bpAt > 15000) { window.__bpAt = Date.now(); loadBishopPlans(); }
       // Re-rendering resets scroll; put the reader back where they were. Only for a refresh
       // of an already-drawn dashboard, so the first load still starts at the top.
       if (_dashboardDrawnOnce && _scrollY > 0) window.scrollTo(0, _scrollY);
@@ -1996,6 +2137,7 @@
       }
       html += '<div id="hcSbStatus"></div>';   // filled by loadHcSbStatus (high councilors with a ward)
       html += '<div id="sbRiskList"></div>';   // filled by loadSbRisk (clerks / secretaries / presidency)
+      html += '<div id="bishopPlans"></div>';  // filled by loadBishopPlans (clerks / secretaries / presidency)
 
       // Stake links
       // TEMPORARY: the boundary planner link is shown to the stake presidency (and
@@ -9728,6 +9870,22 @@
         case 'oouSendDone':
           s.oouSent = true;
           break;
+        case 'planNewBishop': {
+          // Demo: show the plan in the panel; nothing is written.
+          const sd = params.sunday || '';
+          const d0 = sd ? new Date(sd + 'T12:00:00') : new Date();
+          const plan = { ward: params.ward, sunday: sd, sundayLabel: d0.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
+            daysLeft: Math.max(0, Math.round((d0 - new Date()) / 864e5)), name: params.name || '', outgoing: params.outgoing || '',
+            counselors: [{ calling: 'Bishopric First Counselor', member: '', stage: 'Not submitted yet', ready: false },
+                         { calling: 'Bishopric Second Counselor', member: '', stage: 'Not submitted yet', ready: false }],
+            releases: [], ready: false, atRisk: false };
+          if (_bp) _bp.plans = (_bp.plans || []).filter(x => x.ward !== params.ward).concat([plan]);
+          showToast('In real life this puts the bishop on that Sunday\'s stake business and pins his counselors to it. (Demo: nothing written.)', 'success');
+          return { success: true, moved: 0 };
+        }
+        case 'cancelNewBishop':
+          if (_bp) _bp.plans = (_bp.plans || []).filter(x => x.ward !== params.ward);
+          return { success: true };
         case 'submitOutOfUnitRecord':
           if (id.indexOf('DEMO_OOU_PORTER') === 0) {
             s.oouDone = true; s.oouSubmitted = true;
