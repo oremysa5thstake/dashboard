@@ -7014,7 +7014,7 @@
       let html = `<div class="ms-card-sub" style="margin:4px 0 6px;font-size:14px;">${closed ? '⛔ ' + esc(t.status) : next}</div>`;
       (t.phases || []).forEach(p => {
         const open = _mtOpen[k + '|' + p.key] != null ? _mtOpen[k + '|' + p.key] : p.state === 'current';
-        const icon = p.state === 'done' ? '✅' : p.state === 'current' ? '🔵' : '⚪';
+        const icon = p.log ? '🗒️' : p.state === 'done' ? '✅' : p.state === 'current' ? '🔵' : '⚪';
         const last = p.state === 'done' ? [...p.steps].reverse().find(x => x.state === 'done' && (x.who || x.at)) : null;
         const summary = last ? ' <span class="mt-sum">— ' + esc([last.who, _mtWhen(last.at)].filter(Boolean).join(' · ')) + '</span>' : '';
         html += `<div class="mt-phase mt-${p.state}">
@@ -7022,18 +7022,26 @@
           <div class="mt-steps" style="display:${open ? '' : 'none'}">${p.steps.map(st => mtStep(t, st, p, closed)).join('')}</div>
         </div>`;
       });
+      const anyApprox = (t.phases || []).some(p => p.steps.some(x => x.approx && x.at));
+      html += '<div class="mt-sub" style="margin-top:6px">Every step shows who did it and when, as recorded by the dashboard'
+        + (anyApprox ? '. ≈ marks the time the system recorded a step whose exact moment was not logged (usually within a minute; up to an hour for a direct sheet edit)' : '')
+        + '. A step with no name was done before this record began, or outside the dashboard.</div>';
       return html;
     }
     function mtStep(t, st, p, closed) {
       const esc = escapeHtmlDisplay;
       const icon = { done: '✓', declined: '✗', skipped: '–', opposed: '⚠', pending: '○', waiting: '⏳' }[st.state] || '○';
+      // "≈": the time the system recorded it (the exact moment was not logged) — see the note below the card.
+      const when = st.at ? (st.approx ? '≈ ' : '') + _mtWhen(st.at) : '';
       const meta = st.state === 'done' || st.state === 'declined' || st.state === 'opposed'
-        ? [st.who, _mtWhen(st.at)].filter(Boolean).join(' · ') : '';
-      const pendingWho = st.task && st.task.assignees && st.task.assignees.length && st.state === 'pending'
-        ? 'assigned to ' + st.task.assignees.join(', ') : '';
+        ? [st.who, when].filter(Boolean).join(' · ') : '';
+      const assigned = (st.assignedTo && st.assignedTo.length) || (st.task && st.task.assignees && st.task.assignees.length)
+        ? 'assigned to ' + (st.assignedTo && st.assignedTo.length ? st.assignedTo : st.task.assignees).join(', ')
+          + (st.assignedAt ? ' · ' + _mtWhen(st.assignedAt) : '') : '';
+      const pendingWho = assigned;
       let html = `<div class="mt-step mt-s-${st.state}"><span class="mt-ico">${icon}</span><div class="mt-body">
         <div class="mt-line"><span class="mt-lbl">${esc(st.label)}</span>${meta ? '<span class="mt-meta">' + esc(meta) + '</span>' : ''}</div>`;
-      const sub = [st.detail, pendingWho, st.note].filter(Boolean);
+      const sub = [st.onBehalfOf ? 'on behalf of ' + st.onBehalfOf : '', st.detail, pendingWho, st.note].filter(Boolean);
       if (st.reports && st.reports.length > 1) sub.push('Reported: ' + st.reports.filter(r => r.s).map(r => (r.who || '?') + ' (' + r.ward + ')').join(', '));
       if (sub.length) html += '<div class="mt-sub">' + sub.map(esc).join(' · ') + '</div>';
       if (!closed && st.state !== 'done' && st.state !== 'skipped' && st.state !== 'declined') html += mtActions(t, st, p);
