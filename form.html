@@ -1082,7 +1082,20 @@
       var callings = getCallingsForRoleLocal(role);
       var s = document.getElementById('callingSelection');
       s.innerHTML = '<option value="">Select calling...</option>';
-      callings.forEach(function(c) { s.add(new Option(c.calling, c.calling)); });
+      // A bishop is called outside this system and is not named until he is sustained, so "Bishop"
+      // (on the Callings Chart so the agenda can read a bishopric) is not offered here. The stake
+      // clerks and presidency plan a new bishop from the dashboard; his counselors come through
+      // this form as usual (2026-11-01).
+      var hadBishop = false;
+      callings.forEach(function(c) {
+        if (String(c.calling || '').trim().toLowerCase() === 'bishop') { hadBishop = true; return; }
+        s.add(new Option(c.calling, c.calling));
+      });
+      if (hadBishop) {
+        var hint = new Option('Bishop — not submitted here (planned on the dashboard; counselors come through this form)', '');
+        hint.disabled = true;
+        s.add(hint);
+      }
     }
 
     // ── Additional callings for the same member (2026-10-11) ─────────────────────────────
