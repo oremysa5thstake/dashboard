@@ -1269,7 +1269,7 @@
       'assignExtendCall', 'assignExtendCallGroup', 'assignSettingApart', 'assignSettingApartGroup', 'assignOrdinationInterview',
       'sendExtendToBin', 'sendSettingApartToBin', 'recordExtendAssignResponse',
       // appointments
-      'scheduleAppointment', 'rescheduleAppointment', 'dismissAppointment',
+      'scheduleAppointment', 'rescheduleAppointment', 'rescheduleInterview', 'dismissAppointment',
       // ordinations
       'submitOrdinationReport', 'transferOrdinationNotification', 'submitOutOfUnitRecord', 'dismissOouRecord',
       'saveOrdinationDate', 'markOrdinationLcrRecorded', 'markCertificatePrinted',
@@ -3684,6 +3684,7 @@
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ordinationInterviewPassed', this)">Interview Passed</button>
             <button class="btn btn-danger" onclick="handleAction('${item.actionId}', 'ordinationInterviewReturnToBishop', this)">Did Not Pass</button>
+            ${interviewRescheduleHtml(item.actionId)}
           </div>
         </div>`;
       });
@@ -3989,7 +3990,8 @@
           return `<button class="btn btn-primary" onclick="openOrdinationReportModal('${a}')">📝 Report Ordination</button>`;
         case 'ordination-interview':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'ordinationInterviewPassed', this)">Interview Passed</button>
-                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewReturnToBishop', this)">Did Not Pass</button>`;
+                  <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewReturnToBishop', this)">Did Not Pass</button>
+                  ${interviewRescheduleHtml(a)}`;
         case 'ordination-interview-schedule':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'ordinationInterviewSchedulePassed', this)">Interview Passed</button>
                   <button class="btn btn-danger" onclick="handleAction('${a}', 'ordinationInterviewScheduleReturnToBishop', this)">Did Not Pass</button>`;
@@ -4406,6 +4408,36 @@
       }
       html += '</div></div></div>';
       return html;
+    }
+
+    // ── Reschedule a stake interview (2026-11-01) ── on the presidency member's card and every CC'd copy.
+    function interviewRescheduleHtml(actionId) {
+      const id = String(actionId).replace(/[^A-Za-z0-9_]/g, '');
+      return `<details class="iv-resched" style="display:inline-block;margin-left:4px;"><summary class="btn btn-secondary btn-sm" style="list-style:none;cursor:pointer;">📅 Reschedule</summary>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+          <input type="date" id="ivDate_${id}" class="form-input" style="width:auto;font-size:12px;">
+          <input type="time" id="ivTime_${id}" class="form-input" style="width:auto;font-size:12px;">
+          <button class="btn btn-primary btn-sm" onclick="rescheduleInterview('${escapeHtml(String(actionId))}', '${id}', this)">Save</button>
+        </div></details>`;
+    }
+    async function rescheduleInterview(actionId, id, btn) {
+      const d = (document.getElementById('ivDate_' + id) || {}).value, t = (document.getElementById('ivTime_' + id) || {}).value;
+      if (!d || !t) { showToast('Choose the new date and time', 'error'); return; }
+      btn.disabled = true; btn.textContent = '…'; setSyncing(true);
+      try {
+        const res = await performAction('rescheduleInterview', { itemId: actionId, appointmentDate: d, appointmentTime: t });
+        if (res && res.success === false) throw new Error(res.error || 'not saved');
+        showToast('Interview moved to ' + (res.appointment || (d + ' ' + t)), 'success');
+        // Show the new time on every copy of this task now; the refresh confirms it.
+        const label = res.appointment || new Date(d + 'T' + t).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        document.querySelectorAll('.item').forEach(el => {
+          if (!el.innerHTML.includes("'" + actionId.replace(/_[PC]\d*$/, ''))) return;
+          el.querySelectorAll('.item-meta').forEach(m => { if (/Appointment:/.test(m.textContent)) m.innerHTML = 'Appointment: ' + escapeHtmlDisplay(label); });
+        });
+        const det = btn.closest('details'); if (det) det.open = false;
+        scheduleSilentRefresh(1500);
+      } catch (e) { showToast('Error: ' + e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Save'; setSyncing(false); }
     }
 
     // ── Proceed with a high council majority (2026-11-01) ──
@@ -7141,6 +7173,7 @@
           notes: task.notes, callingMember: t.member, callingWard: t.ward }));
         if (!task.mine) out.push('<div class="mt-sub">You are not on this task — acting records it as done by you.</div>');
       }
+      if (st.reschedule && st.task && (st.task.mine || canAll)) out.push(interviewRescheduleHtml(st.task.actionId));
       const af = st.appointmentFor;
       if (af && st.state === 'pending' && (af.mine || canAll)) {
         const id = af.actionId;
