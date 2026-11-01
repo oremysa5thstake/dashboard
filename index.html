@@ -8167,6 +8167,30 @@
       document.getElementById('sendTextsModal').classList.remove('show');
     }
 
+    // Who has been texted today (2026-11-01): kept across openings and reloads so a clerk can text a
+    // few, come back, and finish. Once every high councilor a nudge task waits on has been texted,
+    // that task is completed by itself.
+    const _textedKey = () => 'hcTexted_' + new Date().toISOString().slice(0, 10);
+    function _textedSet() { try { return new Set(JSON.parse(sessionStorage.getItem(_textedKey()) || '[]')); } catch (e) { return new Set(); } }
+    function _textedAdd(id) { const s = _textedSet(); s.add(id); try { sessionStorage.setItem(_textedKey(), JSON.stringify([...s])); } catch (e) {} return s; }
+    function _recId(rec) { return (String(rec.dashboardUrl || '').match(/userId=([A-Z0-9]+)/) || [])[1] || rec.id || rec.name; }
+    async function _completeNudgesCoveredBy(texted) {
+      const items = ((currentData && currentData.clerkReviews) || []).filter(it => it.actionType === 'hc-nudge');
+      for (const it of items) {
+        const ids = (String(it.notes || '').match(/^Waiting ids:\s*(.*)$/m) || [])[1];
+        if (!ids) continue;
+        const need = ids.split(',').map(x => x.trim()).filter(Boolean);
+        if (!need.length || !need.every(id => texted.has(id))) continue;
+        try {
+          await performAction('complete', { itemId: it.actionId });
+          document.querySelectorAll('#item-' + CSS.escape(it.actionId)).forEach(el => el.remove());
+          showToast('Everyone on that task has been texted — task completed', 'success');
+          currentData.clerkReviews = currentData.clerkReviews.filter(x => x !== it);
+        } catch (e) { console.log('nudge auto-complete failed: ' + (e.message || e)); }
+      }
+      if (items.length) scheduleSilentRefresh(1500);
+    }
+
     function renderSendTextsList(recipients, skipped) {
       const box = document.getElementById('sendTextsList');
       if (recipients.length === 0 && skipped.length === 0) {
@@ -8176,10 +8200,11 @@
       let html = '';
       if (recipients.length) {
         html += '<div class="item-meta" style="margin-bottom:6px;">High councilors with pending items (' + recipients.length + '):</div>';
+        const done = _textedSet();
         html += recipients.map((rec, i) => `
           <div class="item" id="sendtext-${i}" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
             <div style="min-width:0;"><strong>${escapeHtmlDisplay(rec.name)}</strong></div>
-            <button class="btn btn-primary btn-sm" id="sendtext-btn-${i}" onclick="sendTextToHc(${i})">📱 Text</button>
+            <button class="btn ${done.has(_recId(rec)) ? 'btn-success' : 'btn-primary'} btn-sm" id="sendtext-btn-${i}" onclick="sendTextToHc(${i})">${done.has(_recId(rec)) ? '✓ Texted today' : '📱 Text'}</button>
           </div>`).join('');
       }
       if (skipped.length) {
@@ -8204,7 +8229,9 @@
       // Mark as sent (they still confirm on-device).
       const btn = document.getElementById('sendtext-btn-' + i);
       if (btn) { btn.textContent = '✓ Opened'; btn.className = 'btn btn-success btn-sm'; }
-      window.location.href = url;
+      const texted = _textedAdd(_recId(rec));
+      try { window.location.href = url; } catch (e) {}
+      _completeNudgesCoveredBy(texted);
     }
 
     // ============================================================
