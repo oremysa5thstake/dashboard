@@ -1262,7 +1262,7 @@
       'sbMarkAlreadyConfirmed', 'sbDismissReplacement', 'reportSustaining',
       'sustainingReportAll', 'sustainingReportMark', 'updateStakeBusinessAssignment',
       'restoreNormalAssignments', 'releaseHold', 'setConducting', 'sbAddBlockout', 'sbRemoveBlockout',
-      'recordVote', 'ctrReview', 'priesthoodReview', 'sbSetScheduled', 'sbAskWards',
+      'recordVote', 'approveByMajority', 'ctrReview', 'priesthoodReview', 'sbSetScheduled', 'sbAskWards',
       'ordinationInterviewPassed', 'ordinationInterviewReturnToBishop',
       'ordinationInterviewSchedulePassed', 'ordinationInterviewScheduleReturnToBishop',
       // the schedule/assign bins
@@ -4352,6 +4352,7 @@
         const waiting = item.waitingOn || [];
         if (waiting.length) {
           waitingBlock = `<div class="item-meta" style="color:#856404;">⏳ Waiting on: ${waitingNames}</div>`;
+          waitingBlock += majorityButtonHtml(item);
           if (canRecordVotes) {
             const rid = item.type + '-' + item.rowIndex;
             let rows = '';
@@ -4393,6 +4394,44 @@
       return html;
     }
 
+    // ── Proceed with a high council majority (2026-11-01) ──
+    // A calling in phase 2: once more than half of the seated high councilors have approved and
+    // none has objected, clerks, secretaries and the presidency can proceed. The empty seats are
+    // recorded "N/A" and the extend fires exactly as a unanimous approval would. Not in the demo:
+    // its high council is one vote.
+    function majorityCounts(item) {
+      if (DEMO_MODE || !item || item.type !== 'calling') return null;
+      const hc = a => Number(a.column) >= 22 && Number(a.column) <= 33;
+      const approved = (item.approvedBy || []).filter(hc).length, waiting = (item.waitingOn || []).filter(hc).length,
+            opposed = (item.opposed || []).filter(hc).length, seats = approved + waiting + opposed;
+      const spWaiting = (item.waitingOn || []).some(a => Number(a.column) >= 19 && Number(a.column) <= 21);
+      return { approved, waiting, opposed, seats, ok: !spWaiting && waiting > 0 && opposed === 0 && approved * 2 > seats };
+    }
+    function majorityButtonHtml(item) {
+      if (!actorCanReassign()) return '';
+      const m = majorityCounts(item);
+      if (!m || !m.ok) return '';
+      return `<div style="margin-top:6px;"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(item.timestamp || ''))}', ${m.approved}, ${m.seats}, this)">✓ Proceed with majority (${m.approved} of ${m.seats})</button>
+        <div class="item-meta" style="font-size:12px;">The ${m.waiting} who haven't voted are recorded N/A and the calling moves on to be extended.</div></div>`;
+    }
+    const _pendingMajority = {};   // timestamp -> at (shown as done until the server agrees)
+    async function proceedByMajority(ts, approved, seats, btn) {
+      if (!confirm('Proceed with ' + approved + ' of ' + seats + ' high councilors?\n\nThe others are recorded N/A (not voted) and the calling moves on to be extended.')) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('approveByMajority', { ref: ts });
+        if (res && res.success === false) throw new Error(res.error || 'refused');
+        showToast(res && res.message ? res.message : 'Proceeding on a majority', 'success');
+        _pendingMajority[String(ts)] = Date.now();
+        if (currentData) onDataLoaded(currentData);
+        scheduleSilentRefresh(1500);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Proceed with majority (' + approved + ' of ' + seats + ')'; }
+      } finally { setSyncing(false); }
+    }
+
     // Expand/collapse an item's per-approver "Record" buttons (collapsed by default).
     const _recordOpen = {};   // expanders left open stay open when the dashboard redraws
     function toggleRecordBlock(id) {
@@ -4417,6 +4456,18 @@
     function _voteApplyPending(data) {
       const now = Date.now();
       Object.keys(_pendingVotes).forEach(k => { if (now - _pendingVotes[k].at > 10 * 60 * 1000) delete _pendingVotes[k]; });
+      Object.keys(_pendingMajority).forEach(k => { if (now - _pendingMajority[k] > 10 * 60 * 1000) delete _pendingMajority[k]; });
+      if (data && Object.keys(_pendingMajority).length) {
+        // A majority proceed: until the server has it, show the high council as complete and the
+        // phase as moving on. Once the extend flag is set the item leaves the status list by itself.
+        (data.approvalStatus || []).forEach(item => {
+          const k = String(item.timestamp || '');
+          if (!_pendingMajority[k]) return;
+          if (!(item.waitingOn || []).some(a => Number(a.column) >= 22)) { delete _pendingMajority[k]; return; }   // the server has it
+          item.waitingOn = (item.waitingOn || []).filter(a => Number(a.column) < 22);
+          item.phase = 'Phase 2 complete (majority) — being assigned to extend';
+        });
+      }
       if (!data || !Object.keys(_pendingVotes).length) return;
       (data.approvalStatus || []).forEach(item => {
         const base = item.type + '|' + String(item.timestamp || '') + '|';
@@ -7017,9 +7068,13 @@
         const icon = p.log ? '🗒️' : p.state === 'done' ? '✅' : p.state === 'current' ? '🔵' : '⚪';
         const last = p.state === 'done' ? [...p.steps].reverse().find(x => x.state === 'done' && (x.who || x.at)) : null;
         const summary = last ? ' <span class="mt-sum">— ' + esc([last.who, _mtWhen(last.at)].filter(Boolean).join(' · ')) + '</span>' : '';
+        const mj = p.majority;
+        const mjBtn = (mj && t.canReassign && !closed && mj.spDone && mj.waiting > 0 && mj.opposed === 0 && mj.approved * 2 > mj.seats)
+          ? `<div class="item mt-act"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(t.ts))}', ${mj.approved}, ${mj.seats}, this)">✓ Proceed with majority (${mj.approved} of ${mj.seats})</button>
+             <span class="mt-sub">The ${mj.waiting} who haven't voted are recorded N/A and the calling moves on to be extended.</span></div>` : '';
         html += `<div class="mt-phase mt-${p.state}">
           <div class="mt-phase-head" onclick="mtToggle('${escapeHtml(k)}','${p.key}',this)">${icon} ${esc(p.title)}${summary} <span class="mt-chev">▾</span></div>
-          <div class="mt-steps" style="display:${open ? '' : 'none'}">${p.steps.map(st => mtStep(t, st, p, closed)).join('')}</div>
+          <div class="mt-steps" style="display:${open ? '' : 'none'}">${p.steps.map(st => mtStep(t, st, p, closed)).join('')}${mjBtn}</div>
         </div>`;
       });
       const anyApprox = (t.phases || []).some(p => p.steps.some(x => x.approx && x.at));
@@ -9774,6 +9829,9 @@
         }
         case 'approveAll': ['c1','c2','c3','c4','r1','o1'].forEach(demoRecordVote); break;
         case 'sustainAll': demoRecordVote('o1'); break;
+        case 'approveByMajority':
+          showToast('In real life this records the high councilors who haven\'t voted as N/A and moves the calling on to be extended. (The demo\'s high council is one vote, so there is nothing to proceed on here.)', 'success');
+          return { success: true };
         case 'recordVote': {
           // Clerk/secretary recording a vote on someone's behalf, from Approval Status.
           const col = parseInt(params.column, 10);
