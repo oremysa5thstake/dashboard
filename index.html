@@ -2154,7 +2154,9 @@
           <div class="stake-links-content${linksExpanded ? ' expanded' : ''}" id="stakeLinksContent">
             <div class="stake-links-inner">`;
         if (showPlanner) {
-          html += `<a href="boundary-maps.html?uid=${encodeURIComponent(getActorUserId())}" target="_blank" class="stake-link stake-link-planner">🗺️ 16th ↔ 49th Boundary Planner</a>`;
+          // `lk` lets the planner mint its own database session (session_from_link) when this
+          // browser's stored one is missing or belongs to someone else.
+          html += `<a href="boundary-maps.html?uid=${encodeURIComponent(getActorUserId())}${window.__linkCode ? '&lk=' + encodeURIComponent(window.__linkCode) : ''}" target="_blank" class="stake-link stake-link-planner">🗺️ 16th ↔ 49th Boundary Planner</a>`;
         }
         stakeLinks.forEach(link => {
           html += `<a href="${escapeHtml(link.url)}" target="_blank" class="stake-link">${escapeHtml(link.label)}</a>`;

@@ -527,6 +527,19 @@ function wardEditor(cell, onRendered, success, cancel) {
 // 2026-10-14 — checked here first (gridValidate), because a queued refusal would be silent.
 const GRID_DIRECT = { 'chart.calling': 1 };
 
+// The 12 geographic wards the 16th↔49th boundary planner knows (Core.js _VARSITY_WARD_NAMES).
+const VARSITY_WARDS = ['Cherry Hill 1st Ward', 'Cherry Hill 2nd Ward', 'Cherry Hill 3rd Ward', 'Cherry Hill 5th Ward',
+  'Cherry Hill 6th Ward', 'Cherry Hill 7th Ward', 'Cherry Hill 9th Ward', 'Stonewood 1st Ward', 'Stonewood 2nd Ward',
+  'Stonewood 3rd Ward', 'Stonewood 4th Ward', 'Stonewood 5th Ward'];
+// "Detected from address": what the planner would decide from the address alone. Col K wins when
+// filled, so a difference is amber for review, never applied by itself.
+function varsityDetectedFormatter(c) {
+  const r = c.getRow().getData(), d = String(c.getValue() || ''), k = String(r.geographic_ward || '').trim();
+  if (!d) return (r.address_1 || '').trim() ? '<span style="color:#999">outside the 12 wards</span>' : '';
+  if (k && k.toLowerCase() !== d.toLowerCase()) return '<span style="color:#b26500;font-weight:600" title="Col K is used; the address lands in a different ward">⚠ ' + esc(d) + '</span>';
+  return esc(d);
+}
+
 /** Checks the server makes, made here first so a queued edit cannot be silently refused. */
 function gridValidate(gridName, field, value, row) {
   const v = String(value == null ? '' : value).trim();
@@ -537,6 +550,8 @@ function gridValidate(gridName, field, value, row) {
     if (dup) return 'That Slack ID is already on the roster for ' + (dup.name || dup.calling);
   }
   if (gridName === 'roster' && field === 'ward' && v && !/\d/.test(v)) return 'A ward needs a number in it, e.g. "25th Ward": ' + v;
+  if (gridName === 'varsity' && field === 'geographic_ward' && v && VARSITY_WARDS.indexOf(v) === -1)
+    return 'Not one of the 12 geographic wards: ' + v;
   return '';
 }
 
@@ -989,6 +1004,21 @@ async function messagesFromPostgres() {
   return { success: true, rows: await r.json() };
 }
 
+/** The Varsity YSAs tab (~700 rows) — asked for on its own, not carried in the shared grids payload. */
+async function varsityFromPostgres() {
+  try {
+    const token = await ensureP2Token();
+    if (!token) return null;
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/varsity_grid_for', {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_slack_id: USER_ID, p_token: token })
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && d.success) ? d : null;   // "not synced yet" → Apps Script reads the sheet
+  } catch (e) { return null; }
+}
+
 /** One stored payload holding every tab. Cached for the session; refresh reloads it. */
 async function gridsFromPostgres() {
   if (_gridPayload && Date.now() - _gridPayloadAt < 60000) return _gridPayload;
@@ -1034,6 +1064,7 @@ function markGridsStale() {
 /** The stored equivalent of one `api` tab, or null to fall back. */
 async function storedTab(spec) {
   if (Date.now() < _storedStaleUntil) return null;   // just edited — read the sheet
+  if (spec.api === 'gridRows' && spec.apiGrid === 'varsity') return await varsityFromPostgres();
   const p = await gridsFromPostgres();
   if (!p) return null;
   if (spec.api === 'sbQueue')  return p.sbQueue || null;
@@ -1527,6 +1558,39 @@ const TABS = {
     ],
   },
 
+  // Varsity YSAs — the member list the 16th↔49th boundary planner counts (one row per member, A–K).
+  // Read from Postgres (varsity_grid_for, 0163) only when opened; Apps Script if not synced yet. Col K
+  // "Geographic Ward" is human-verified at each refresh and is what the planner uses; "Detected from
+  // address" is the planner's own reading of the address, shown so a disagreement can be reviewed.
+  varsity: {
+    label: '🏠 Varsity YSAs', api: 'gridRows', apiGrid: 'varsity', key: '_key', grid: 'varsity',
+    cols: [
+      edG({ title: 'Name', field: 'name', minWidth: 170, headerFilter: 'input', frozen: true }, 'varsity'),
+      edG({ title: 'Age', field: 'age', width: 70, hozAlign: 'right' }, 'varsity'),
+      edG({ title: 'Current Unit', field: 'current_unit', minWidth: 190, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'varsity'),
+      edG({ title: 'Address 1', field: 'address_1', minWidth: 150, headerFilter: 'input' }, 'varsity'),
+      edG({ title: 'Address 2', field: 'address_2', width: 110 }, 'varsity'),
+      edG({ title: 'City', field: 'city', width: 100, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'varsity'),
+      edG({ title: 'EQ/RS', field: 'eq_rs', width: 80, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'varsity', 'list', { values: ['', 'EQ', 'RS'] }),
+      edG({ title: 'Endowed?', field: 'endowed', width: 100, formatter: c => esc(String(c.getValue() ?? '')) }, 'varsity'),
+      edG({ title: 'Temple Recommend', field: 'temple_recommend', width: 140, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'varsity'),
+      edG({ title: 'Calling', field: 'calling', minWidth: 200, headerFilter: 'input' }, 'varsity'),
+      edG({ title: 'Geographic Ward (col K)', field: 'geographic_ward', minWidth: 185, headerFilter: 'list',
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'varsity', 'list',
+          { values: [''].concat(VARSITY_WARDS) }),
+      { title: 'Detected from address', field: 'detected_ward', minWidth: 185, headerFilter: 'list',
+        headerFilterParams: { valuesLookup: true, clearable: true }, formatter: varsityDetectedFormatter },
+      { title: 'Review', field: '_review', width: 120, headerFilter: 'list',
+        headerFilterParams: { values: ['disagree', 'no match', 'unknown ward'], clearable: true },
+        headerTooltip: 'disagree: address lands in a different ward than col K · no match: an Orem grid address outside the 12 wards · unknown ward: col K is not one of the 12 names',
+        formatter: c => { const v = String(c.getValue() || ''); return v ? '<span style="color:#b26500;font-weight:600">' + esc(v) + '</span>' : ''; } },
+    ],
+  },
+
   // The Settings sheet is two unrelated blocks side by side: A/B are the settings, C/D are the
   // stake links. The grid mirrors the sheet literally — one row per sheet row — rather than
   // pretending it is one uniform table, because Apps Script reads this sheet by CELL ADDRESS
@@ -1693,6 +1757,17 @@ function demoRows(which) {
       d(30, { id: 'm3', kind: 'Email', to: 'clerk@example.com, membership@example.com', subject: 'Out-of-Unit member record needed: Porter Gladwell', body: 'Please add this member to your ward as an Out-of-Unit Member…', source: 'out-of-unit record → stake clerks' }),
     ];
   }
+  if (which === 'varsity') return [
+    { name: 'Gladwell, Porter', age: '27', current_unit: 'Orem YSA 16th Ward (26-35)', address_1: '1850 S 500 W', address_2: '', city: 'Orem',
+      eq_rs: 'EQ', endowed: 'Endowed', temple_recommend: 'Active', calling: 'Elders Quorum President',
+      geographic_ward: 'Cherry Hill 1st Ward', detected_ward: 'Cherry Hill 1st Ward', _review: '', _key: '2', _expect: 'Gladwell, Porter', _row: 2 },
+    { name: 'Fielding, Marcus', age: '29', current_unit: 'Orem YSA 49th Ward (26-35)', address_1: '1471 S 200 E', address_2: 'Apt 4', city: 'Orem',
+      eq_rs: 'EQ', endowed: 'Endowed', temple_recommend: 'Expired', calling: '',
+      geographic_ward: 'Cherry Hill 7th Ward', detected_ward: 'Cherry Hill 6th Ward', _review: 'disagree', _key: '3', _expect: 'Fielding, Marcus', _row: 3 },
+    { name: 'Demoson, Ada', age: '31', current_unit: 'Orem YSA 16th Ward (26-35)', address_1: '730 E 950 S', address_2: '', city: 'Orem',
+      eq_rs: 'RS', endowed: 'Not Endowed', temple_recommend: '', calling: 'Relief Society Secretary',
+      geographic_ward: '', detected_ward: '', _review: 'no match', _key: '4', _expect: 'Demoson, Ada', _row: 4 },
+  ];
   const W = '6-7th Ward';
   if (which === 'business') return [
     { meeting_date:'2026-08-16', member:'Porter Gladwell', calling:'Elders Quorum President',
@@ -1994,6 +2069,9 @@ function renderLegend() {
     ['var(--cf-allapproved)', 'everyone has approved'],
     ['var(--cf-canceled)', 'canceled / declined'],
     ['var(--cf-paused)', 'paused'],
+  ] : tab === 'varsity' ? [
+    ['transparent', '<span style="color:#b26500;font-weight:700">⚠ amber</span> — the address lands in a different ward than col K (col K is what the planner uses)'],
+    ['transparent', '<span style="color:#999">grey</span> — an Orem address outside the 12 Cherry Hill / Stonewood wards'],
   ] : [];
   const el = document.getElementById('legend');
   el.hidden = !items.length;

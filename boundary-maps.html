@@ -162,6 +162,62 @@
 <script>
   const API_URL = 'https://script.google.com/macros/s/AKfycbz-8U9EqHl8nvJOypAvg0Q09Y6W6pShuJfvoaJda22LUqYPDZRRSytKZ4go5HERiyhr/exec';
   const C16='16', C49='49', STORE='ysaPlacePlan_v2';
+
+  // ---- Postgres first, Apps Script second (2026-11-01) ----
+  // Stats, member lists and layouts are computed by Postgres from the mirrored "Varsity YSAs" sheet
+  // (migration 0163) and answer in well under a second; the Apps Script routes stay as the fallback
+  // (no session, not synced yet, or any error). Same database session as the dashboard, read from
+  // the shared localStorage entry, else minted from the dashboard link code, else by Apps Script.
+  const SUPABASE_URL = 'https://lrfbxbiwqnlctomjeboi.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_eJToH6uWrOBEPzhkzgA_Hg_VRn81dfP';
+  const P2_TOKEN_KEY = 'phase2_session_v1';
+  const _qs = new URLSearchParams(location.search);
+  const UID = _qs.get('uid');
+  const LK = _qs.get('lk') || '';
+  let _tokenPromise = null;
+  function _storedToken(){
+    try{
+      const t = JSON.parse(localStorage.getItem(P2_TOKEN_KEY) || 'null');
+      if(!t || !t.token || !t.expiresAt) return null;
+      if(new Date(t.expiresAt).getTime() - Date.now() < 5*60*1000) return null;
+      if(t.userId && t.userId !== UID) return null;   // the dashboard may hold someone else's
+      return t.token;
+    }catch(e){ return null; }
+  }
+  function ensureToken(){
+    if(!UID) return Promise.resolve(null);
+    const have = _storedToken(); if(have) return Promise.resolve(have);
+    if(_tokenPromise) return _tokenPromise;
+    _tokenPromise = (async()=>{
+      let d = null;
+      try{
+        const pr = await fetch(SUPABASE_URL+'/rest/v1/rpc/session_from_link', { method:'POST',
+          headers:{ apikey:SUPABASE_KEY, 'Content-Type':'application/json' },
+          body: JSON.stringify({ p_slack_id: UID, p_lk: LK }) });
+        if(pr.ok) d = await pr.json();
+      }catch(e){ d = null; }
+      if(!d || !d.success || !d.token){
+        try{ const r = await fetch(API_URL+'?action=sessionToken&userId='+encodeURIComponent(UID)); d = r.ok ? await r.json() : null; }catch(e){ d = null; }
+      }
+      if(!d || !d.success || !d.token){ _tokenPromise = null; return null; }
+      try{ localStorage.setItem(P2_TOKEN_KEY, JSON.stringify({ token:d.token, expiresAt:d.expiresAt, userId:UID, issuedAt:Date.now() })); }catch(e){}
+      return d.token;
+    })();
+    return _tokenPromise;
+  }
+  // One RPC call: the parsed JSON, or null for anything that should send us to Apps Script.
+  async function rpc(name, body){
+    try{
+      const token = await ensureToken(); if(!token) return null;
+      const r = await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name, { method:'POST',
+        headers:{ apikey:SUPABASE_KEY, 'Content-Type':'application/json' },
+        body: JSON.stringify(Object.assign({ p_slack_id: UID, p_token: token }, body||{})) });
+      if(!r.ok) return null;
+      const d = await r.json();
+      return (d && d.success) ? d : null;   // {success:false} (not synced yet, refused) → fallback
+    }catch(e){ return null; }
+  }
+  const asJson = r => r.json();
   const WARDS = [
     {id:'ch1', name:'Cherry Hill 1st'}, {id:'ch2', name:'Cherry Hill 2nd'},
     {id:'ch3', name:'Cherry Hill 3rd'}, {id:'ch5', name:'Cherry Hill 5th'},
@@ -203,10 +259,12 @@
     try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){}
     // Persist this user's OWN arrangement server-side (debounced) so their 16th/49th
     // assignments follow them across sessions/devices. Needs a uid (opened from the app).
-    const uid = new URLSearchParams(location.search).get('uid');
+    const uid = UID;
     if(uid){
       clearTimeout(_srvSaveTimer);
       _srvSaveTimer=setTimeout(()=>{
+        // Both stores, so the fast read (Postgres) and the no-session fallback (Apps Script) agree.
+        rpc('boundary_layout_save_user', { p_layout: state });
         fetch(API_URL+'?action=saveUserBoundaryLayout&userId='+encodeURIComponent(uid)+'&layout='+encodeURIComponent(JSON.stringify(state))).catch(()=>{});
       }, 1000);
     }
@@ -415,8 +473,8 @@
     document.getElementById('memCount').textContent = '';
     document.getElementById('memBody').innerHTML = '<div class="mempty">Loading…</div>';
     modal.classList.add('show');
-    fetch(API_URL+'?action=getVarsityMembers&userId='+encodeURIComponent(uid)+'&ward='+encodeURIComponent(id))
-      .then(r=>r.json())
+    rpc('varsity_members_for', { p_ward: id })
+      .then(d => d || fetch(API_URL+'?action=getVarsityMembers&userId='+encodeURIComponent(uid)+'&ward='+encodeURIComponent(id)).then(asJson))
       .then(d=>{
         if(!d || !d.success){ document.getElementById('memBody').innerHTML='<div class="mempty">'+esc((d&&d.error)||'Could not load members.')+'</div>'; return; }
         const hdr=d.headers||[], rows=d.members||[];
@@ -474,13 +532,15 @@
     });
   }
   function loadStats(){
-    const uid = new URLSearchParams(location.search).get('uid');
+    const uid = UID;
     const box = document.getElementById('statsBody');
     const detectBtn = document.getElementById('detectBtn');
     if(!uid){ box.innerHTML='<div class="smsg">Open this planner from the app’s <b>Admin Tools</b> button so it can load member stats.</div>'; return; }
-    fetch(API_URL+'?action=getVarsityStats&userId='+encodeURIComponent(uid))
-      .then(r=>r.json())
+    const t0 = Date.now();
+    rpc('varsity_stats_for')
+      .then(d => d || fetch(API_URL+'?action=getVarsityStats&userId='+encodeURIComponent(uid)).then(asJson))
       .then(d=>{
+        try{ console.log('stats from '+((d&&d.source)||'apps script')+' in '+(Date.now()-t0)+'ms'); }catch(e){}
         if(!d || d.success===false){ box.innerHTML='<div class="smsg">Stats unavailable: '+((d&&d.error)||'error')+'</div>'; return; }
         if(!d.geoColumnFound){ box.innerHTML='<div class="smsg">Add member <b>addresses</b> to the “Varsity YSAs” sheet (Orem grid format, e.g. <i>1850 S 500 W</i>) — the app reads each address and figures out the ward automatically. (A manual <b>Geographic Ward</b> column also works and overrides detection.)</div>'; return; }
         wardStats = d.wards || {};
@@ -494,6 +554,7 @@
         const notes=[];
         notes.push((d.matched||0)+' placed in a geographic ward · '+((d.base16Count||0))+' fixed in 16th · '+((d.base49Count||0))+' fixed in 49th');
         if(d.otherUnit>0) notes.push('⚠️ '+d.otherUnit+' member(s) in other units with no geographic-ward match were not counted.');
+        if(d.disagree>0) notes.push('⚠️ '+d.disagree+' member(s) whose address lands in a different ward than their Geographic Ward (col K). Col K is used; review them on the Sheet Views “Varsity YSAs” tab (Review = disagree).');
         const nn=document.createElement('div'); nn.className='statnote'; nn.style.color='#6b7280'; nn.innerHTML=notes.join('<br>');
         box.appendChild(nn);
       })
@@ -501,7 +562,7 @@
   }
 
   function detectWards(){
-    const uid = new URLSearchParams(location.search).get('uid');
+    const uid = UID;
     if(!uid){ alert('Open this planner from Admin Tools to use this.'); return; }
     const btn=document.getElementById('detectBtn'); const o=btn.textContent; btn.disabled=true; btn.textContent='Detecting…';
     fetch(API_URL+'?action=detectGeographicWards&userId='+encodeURIComponent(uid))
@@ -535,7 +596,6 @@
   window.zoomBy=zoomBy; window.zoomFit=zoomFit;
 
   // ---- lock & shared layout ----
-  const UID = new URLSearchParams(location.search).get('uid');
   let canLock = false;   // only stake clerks (set from the stats response)
   function setLocked(v){
     locked=v;
@@ -549,8 +609,10 @@
     if(!UID){ alert('Open the planner from Admin Tools to lock & share.'); return; }
     if(locked){ setLocked(false); flash('Unlocked — drag/resize to edit, then Lock & Share again to publish.'); return; }
     const btn=document.getElementById('lockBtn'); const o=btn.textContent; btn.disabled=true; btn.textContent='Sharing…';
-    fetch(API_URL+'?action=saveBoundaryLayout&userId='+encodeURIComponent(UID)+'&locked=true&layout='+encodeURIComponent(JSON.stringify(state)))
-      .then(r=>r.json()).then(d=>{
+    const legacy = () => fetch(API_URL+'?action=saveBoundaryLayout&userId='+encodeURIComponent(UID)+'&locked=true&layout='+encodeURIComponent(JSON.stringify(state)));
+    rpc('boundary_layout_save', { p_layout: state, p_locked: true })
+      .then(d => { if(d){ legacy().catch(()=>{}); return d; } return legacy().then(asJson); })   // keep both stores in step
+      .then(d=>{
         btn.disabled=false;
         if(!d || d.success===false){ btn.textContent=o; alert('Failed to share: '+((d&&d.error)||'error')); return; }
         setLocked(true);
@@ -561,8 +623,21 @@
 
   function loadServerLayout(){
     if((location.hash||'').replace(/^#/,'')) return;   // a shared #link wins and stays editable
-    fetch(API_URL+'?action=getBoundaryLayout'+(UID?('&userId='+encodeURIComponent(UID)):''))
-      .then(r=>r.json()).then(d=>{
+    const legacy = () => fetch(API_URL+'?action=getBoundaryLayout'+(UID?('&userId='+encodeURIComponent(UID)):'')).then(asJson);
+    rpc('boundary_layout_get')
+      .then(d => {
+        if(d && (d.base || d.user)) return d;
+        // Nothing in Postgres yet (first open after 2026-11-01): read Apps Script and copy it across,
+        // so the next open is the fast one. The base copy only succeeds for a stake clerk.
+        return legacy().then(l => {
+          if(l && l.success){
+            if(l.user && l.user.state) rpc('boundary_layout_save_user', { p_layout: l.user.state });
+            if(l.base && l.base.state) rpc('boundary_layout_save', { p_layout: l.base.state, p_locked: !!l.base.locked });
+          }
+          return l;
+        });
+      })
+      .then(d=>{
         if(!d || !d.success) return;
         const base = d.base, user = d.user;
         const src = (user && user.state) ? user.state : (base && base.state ? base.state : null);
