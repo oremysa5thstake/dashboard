@@ -4379,6 +4379,12 @@
           }
         }
 
+        // An ordination still at the stake interview (2026-11-01): no sustaining yet — say where the
+        // interview stands instead of an empty progress bar.
+        const iv = item.type === 'ordination' && item.interview ? item.interview : null;
+        const interviewLine = iv ? `<div class="item-meta" style="color:#0F766E;">🗓️ ${iv.toSchedule
+            ? 'Stake interview to be scheduled' + (iv.who ? ' — waiting on <strong>' + escapeHtmlDisplay(iv.who) + '</strong>' : '')
+            : 'Stake interview ' + (iv.scheduled ? 'scheduled <strong>' + escapeHtmlDisplay(iv.scheduled) + '</strong>' : 'scheduled') + (iv.who ? ' — waiting on <strong>' + escapeHtmlDisplay(iv.who) + '</strong> to record the result' : '')}</div>` : '';
         html += `<div class="item">
           <div class="item-header">
             <div class="item-title">${titleLine}</div>
@@ -4386,7 +4392,7 @@
           </div>
           <div class="item-meta">Phase: ${escapeHtmlDisplay(item.phase || '—')}</div>
           ${item.type !== 'ordination' ? schedulePickerHtml(item.timestamp, item.scheduled) : ''}
-          ${progressBar}
+          ${iv ? interviewLine : progressBar}
           ${approvedNames ? `<div class="item-meta" style="color:#28a745;">✓ Approved: ${approvedNames}</div>` : ''}
           ${waitingBlock}
           ${opposedNames ? `<div class="item-meta" style="color:#dc3545;">⚠️ Opposed: ${opposedNames}</div>` : ''}
