@@ -4399,28 +4399,32 @@
     // none has objected, clerks, secretaries and the presidency can proceed. The empty seats are
     // recorded "N/A" and the extend fires exactly as a unanimous approval would. Not in the demo:
     // its high council is one vote.
+    // Callings: stake presidency T–V (19–21), high council W–AH (22–33). Ordinations: L–N (11–13), O–Z (14–25).
     function majorityCounts(item) {
-      if (DEMO_MODE || !item || item.type !== 'calling') return null;
-      const hc = a => Number(a.column) >= 22 && Number(a.column) <= 33;
+      if (DEMO_MODE || !item || (item.type !== 'calling' && item.type !== 'ordination')) return null;
+      const ord = item.type === 'ordination', lo = ord ? 14 : 22, hi = ord ? 25 : 33, spLo = ord ? 11 : 19;
+      const hc = a => Number(a.column) >= lo && Number(a.column) <= hi;
       const approved = (item.approvedBy || []).filter(hc).length, waiting = (item.waitingOn || []).filter(hc).length,
             opposed = (item.opposed || []).filter(hc).length, seats = approved + waiting + opposed;
-      const spWaiting = (item.waitingOn || []).some(a => Number(a.column) >= 19 && Number(a.column) <= 21);
+      const spWaiting = (item.waitingOn || []).some(a => Number(a.column) >= spLo && Number(a.column) < lo);
       return { approved, waiting, opposed, seats, ok: !spWaiting && waiting > 0 && opposed === 0 && approved * 2 > seats };
     }
     function majorityButtonHtml(item) {
       if (!actorCanReassign()) return '';
       const m = majorityCounts(item);
       if (!m || !m.ok) return '';
-      return `<div style="margin-top:6px;"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(item.timestamp || ''))}', ${m.approved}, ${m.seats}, this)">✓ Proceed with majority (${m.approved} of ${m.seats})</button>
-        <div class="item-meta" style="font-size:12px;">The ${m.waiting} who haven't voted are recorded N/A and the calling moves on to be extended.</div></div>`;
+      const ord = item.type === 'ordination';
+      return `<div style="margin-top:6px;"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(item.timestamp || ''))}', ${m.approved}, ${m.seats}, this, '${ord ? 'ordination' : 'calling'}')">✓ Proceed with majority (${m.approved} of ${m.seats})</button>
+        <div class="item-meta" style="font-size:12px;">The ${m.waiting} who haven't voted are recorded N/A and ${ord ? 'the sustaining is confirmed' : 'the calling moves on to be extended'}.</div></div>`;
     }
     const _pendingMajority = {};   // timestamp -> at (shown as done until the server agrees)
-    async function proceedByMajority(ts, approved, seats, btn) {
-      if (!confirm('Proceed with ' + approved + ' of ' + seats + ' high councilors?\n\nThe others are recorded N/A (not voted) and the calling moves on to be extended.')) return;
+    async function proceedByMajority(ts, approved, seats, btn, type) {
+      const ord = type === 'ordination';
+      if (!confirm('Proceed with ' + approved + ' of ' + seats + ' high councilors?\n\nThe others are recorded N/A (not voted) and ' + (ord ? 'the sustaining is confirmed.' : 'the calling moves on to be extended.'))) return;
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
-        const res = await performAction('approveByMajority', { ref: ts });
+        const res = await performAction('approveByMajority', { ref: ts, type: ord ? 'ordination' : 'calling' });
         if (res && res.success === false) throw new Error(res.error || 'refused');
         showToast(res && res.message ? res.message : 'Proceeding on a majority', 'success');
         _pendingMajority[String(ts)] = Date.now();
@@ -4463,9 +4467,10 @@
         (data.approvalStatus || []).forEach(item => {
           const k = String(item.timestamp || '');
           if (!_pendingMajority[k]) return;
-          if (!(item.waitingOn || []).some(a => Number(a.column) >= 22)) { delete _pendingMajority[k]; return; }   // the server has it
-          item.waitingOn = (item.waitingOn || []).filter(a => Number(a.column) < 22);
-          item.phase = 'Phase 2 complete (majority) — being assigned to extend';
+          const lo = item.type === 'ordination' ? 14 : 22;
+          if (!(item.waitingOn || []).some(a => Number(a.column) >= lo)) { delete _pendingMajority[k]; return; }   // the server has it
+          item.waitingOn = (item.waitingOn || []).filter(a => Number(a.column) < lo);
+          item.phase = item.type === 'ordination' ? 'Sustained (majority) — being reported' : 'Phase 2 complete (majority) — being assigned to extend';
         });
       }
       if (!data || !Object.keys(_pendingVotes).length) return;
@@ -7070,8 +7075,8 @@
         const summary = last ? ' <span class="mt-sum">— ' + esc([last.who, _mtWhen(last.at)].filter(Boolean).join(' · ')) + '</span>' : '';
         const mj = p.majority;
         const mjBtn = (mj && t.canReassign && !closed && mj.spDone && mj.waiting > 0 && mj.opposed === 0 && mj.approved * 2 > mj.seats)
-          ? `<div class="item mt-act"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(t.ts))}', ${mj.approved}, ${mj.seats}, this)">✓ Proceed with majority (${mj.approved} of ${mj.seats})</button>
-             <span class="mt-sub">The ${mj.waiting} who haven't voted are recorded N/A and the calling moves on to be extended.</span></div>` : '';
+          ? `<div class="item mt-act"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(t.ts))}', ${mj.approved}, ${mj.seats}, this, '${t.sheet === 'PO' ? 'ordination' : 'calling'}')">✓ Proceed with majority (${mj.approved} of ${mj.seats})</button>
+             <span class="mt-sub">The ${mj.waiting} who haven't voted are recorded N/A and ${t.sheet === 'PO' ? 'the sustaining is confirmed' : 'the calling moves on to be extended'}.</span></div>` : '';
         html += `<div class="mt-phase mt-${p.state}">
           <div class="mt-phase-head" onclick="mtToggle('${escapeHtml(k)}','${p.key}',this)">${icon} ${esc(p.title)}${summary} <span class="mt-chev">▾</span></div>
           <div class="mt-steps" style="display:${open ? '' : 'none'}">${p.steps.map(st => mtStep(t, st, p, closed)).join('')}${mjBtn}</div>
