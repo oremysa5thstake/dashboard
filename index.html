@@ -1631,8 +1631,58 @@
     function _hcSbOpen() { try { return localStorage.getItem('hcSbCollapsed') !== '1'; } catch (e) { return true; } }
     function toggleHcSb() { try { localStorage.setItem('hcSbCollapsed', _hcSbOpen() ? '1' : '0'); } catch (e) {} fillHcSbStatus(); }
 
-    function demoHcSbStatus() {
-      if (DEMO_ROLE !== 'hc') return null;
+    // ── Stake Business — all wards (clerks and secretaries, 2026-11-01) ───────────────────────
+    // Every ward's high-councilor panel in one section (sb_summary_all, 0164: the same computation
+    // as hc_sb_status, run per ward). One <details> per ward so eight wards stay scannable.
+    let _sbAll = null;
+    async function loadSbSummaryAll() {
+      if (!(userData && (userData.isClerk || userData.isExecSec)) || p2ViewingTarget()) { _sbAll = null; fillSbSummaryAll(); return; }
+      if (DEMO_MODE) { _sbAll = demoSbSummaryAll(); fillSbSummaryAll(); return; }
+      const d = await writeToPostgres('sb_summary_all', {});
+      if (d && d.success) { _sbAll = d; fillSbSummaryAll(); }
+    }
+    function _sbAllOpen() { try { return localStorage.getItem('sbAllCollapsed') !== '1'; } catch (e) { return true; } }
+    function toggleSbAll() { try { localStorage.setItem('sbAllCollapsed', _sbAllOpen() ? '1' : '0'); } catch (e) {} fillSbSummaryAll(); }
+    function fillSbSummaryAll() {
+      const box = _panelEl('sbSummaryAll');
+      if (!box) return;
+      const d = _sbAll;
+      if (!d || !d.wards || !d.wards.length) { box.innerHTML = ''; return; }
+      const esc = escapeHtmlDisplay;
+      const icon = k => k === 'release' ? '👋' : k === 'ordination' ? '🙏' : '📋';
+      const blocks = d.wards.map(w => {
+        if (!w.show) return `<details class="sb-all-ward"><summary><strong>${esc(w.ward)}</strong> <span style="color:#666">— ${esc(w.reason || '')}</span></summary></details>`;
+        const agenda = (w.agenda || []).map(a => `<li>${a.action === 'Release' ? '👋 Release' : '✋ ' + esc(a.action)} — <strong>${esc(a.member)}</strong>, ${esc(a.calling)}${a.where === 'Stake' ? ' <span style="color:#666">(stake-wide)</span>' : ''}</li>`).join('');
+        const pipe = (w.pipeline || []).map(p => `<li>${icon(p.kind)} <strong>${esc(p.member)}</strong> — ${esc(p.calling)}<div style="color:#555;font-size:12px;margin-left:22px;">${esc(p.waiting)}</div></li>`).join('');
+        const nA = (w.agenda || []).length, nP = (w.pipeline || []).length;
+        const conducting = w.conducting && !/^(n\/a|)$/i.test(w.conducting) ? w.conducting : 'not set yet';
+        return `<details class="sb-all-ward" ${nA ? 'open' : ''}>
+          <summary><strong>${esc(w.ward)}</strong> <span style="color:#666">· ${esc(w.sundayLabel)} · 🎤 ${esc(conducting)} · ${nA} on the agenda · ${nP} in the pipeline</span></summary>
+          <div style="padding:4px 0 6px 18px;">
+            <div class="item-meta" style="margin-bottom:4px;">High councilor: <strong>${esc(w.hc || '')}</strong>${w.reason ? ' — ' + esc(w.reason) : ''}</div>
+            ${w.coveredBy ? `<div class="item-meta">This week’s Ward HC: <strong>${esc(w.coveredBy)}</strong></div>` : ''}
+            ${w.notes ? `<div class="item-meta" style="font-style:italic;">📝 ${esc(w.notes)}</div>` : ''}
+            <div style="font-weight:600;margin:8px 0 2px;">On the agenda</div>
+            ${agenda ? `<ul style="margin:0;padding-left:18px;line-height:1.7;">${agenda}</ul>` : '<div class="item-meta">Nothing yet.</div>'}
+            <div style="font-weight:600;margin:8px 0 2px;">In the pipeline</div>
+            ${pipe ? `<ul style="margin:0;padding-left:18px;line-height:1.6;list-style:none;">${pipe}</ul>` : '<div class="item-meta">Nothing else for this ward right now.</div>'}
+          </div></details>`;
+      }).join('');
+      const open = _sbAllOpen();
+      const total = d.wards.reduce((n, w) => n + (w.agenda || []).length, 0);
+      box.innerHTML = `<div class="section"><div class="section-header${open ? ' expanded' : ''}" onclick="toggleSbAll()"><div class="section-title">🗓️ Stake Business — All Wards</div>
+          <div class="section-meta"><span style="font-size:12px;opacity:.8">${total} on the coming agendas</span>${helpBtn('sbSummaryAll')}<span class="chevron">▼</span></div></div>
+        <div class="section-content${open ? ' expanded' : ''}" id="section-sbSummaryAll"><div class="section-inner" style="display:flex;flex-direction:column;gap:6px;">${blocks}</div></div></div>`;
+    }
+
+    function demoHcSbStatus() { return DEMO_ROLE === 'hc' ? _demoWardPanel() : null; }
+    function demoSbSummaryAll() {
+      if (DEMO_ROLE !== 'clerk' && DEMO_ROLE !== 'sec') return null;
+      const w = _demoWardPanel();
+      w.hc = 'Bro. Demoson'; w.reason = String(w.reason || '').replace('You are conducting.', 'Bro. Demoson is conducting.').replace('your ward', 'the ' + DEMO_WARD);
+      return { success: true, wards: [w] };
+    }
+    function _demoWardPanel() {
       const s = demoState || {};
       const agenda = [];
       if (s.sbConfirmed || (s.sus && Object.keys(s.sus).length)) {
@@ -2097,6 +2147,8 @@
       fillHcSbStatus();
       if (!window.__hcSbAt || Date.now() - window.__hcSbAt > 15000) { window.__hcSbAt = Date.now(); loadHcSbStatus(); }
       if (!window.__sbRiskAt || Date.now() - window.__sbRiskAt > 15000) { window.__sbRiskAt = Date.now(); loadSbRisk(); }
+      fillSbSummaryAll();
+      if (!window.__sbAllAt || Date.now() - window.__sbAllAt > 15000) { window.__sbAllAt = Date.now(); loadSbSummaryAll(); }
       if (!window.__eqWaitAt || Date.now() - window.__eqWaitAt > 15000) { window.__eqWaitAt = Date.now(); loadEqWaits(); }
       fillBishopPlans();
       if (!window.__bpAt || Date.now() - window.__bpAt > 15000) { window.__bpAt = Date.now(); loadBishopPlans(); }
@@ -2137,6 +2189,7 @@
       }
       html += '<div id="hcSbStatus"></div>';   // filled by loadHcSbStatus (high councilors with a ward)
       html += '<div id="sbRiskList"></div>';   // filled by loadSbRisk (clerks / secretaries / presidency)
+      html += '<div id="sbSummaryAll"></div>'; // filled by loadSbSummaryAll (clerks / secretaries): every ward's panel
 
       // Stake links
       // TEMPORARY: the boundary planner link is shown to the stake presidency (and
@@ -5241,6 +5294,17 @@
           + '</div>';
       });
       demos += '</div>';
+      // The new-user experience, on demand: what a first-time user sees (the welcome, the guided tour
+      // of the sections, and in a demo the step-by-step checklist). Trainers replay it here.
+      demos += '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--rule,#eee);">'
+        + '<div class="item-meta" style="margin-bottom:8px;"><b>New-user experience.</b> A first-time user gets a welcome for their role, a guided tour of their dashboard, and — in a demo — a checklist that follows the story. Replay it for yourself, or open a demo the way a brand-new person would see it.</div>'
+        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
+        + '<button class="btn btn-secondary btn-sm" style="min-width:250px;text-align:left;" onclick="openWelcome()">👋 Show my welcome &amp; tour again</button>'
+        + '<select id="newUserDemoRole" class="btn btn-secondary btn-sm" style="padding:4px 8px;">'
+        + [['sp', 'Stake President'], ['spc1', 'First Counselor'], ['spc2', 'Second Counselor'], ['sec', 'Stake Executive Secretary'], ['clerk', 'Stake Clerk (Membership)'], ['hc', 'High Councilor']].map(r => '<option value="' + r[0] + '">' + r[1] + '</option>').join('')
+        + '</select>'
+        + '<button class="btn btn-secondary btn-sm" onclick="openNewUserDemo()">🎓 Open a demo as a new user</button>'
+        + '</div></div>';
       demos += '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--rule,#eee);">'
         + '<div class="item-meta" style="margin-bottom:8px;">A written walkthrough of the whole pipeline — every stage, who acts, and which column records it. Good to read before running a demo.</div>'
         + '<button class="btn btn-secondary btn-sm" style="min-width:250px;text-align:left;" onclick="window.open(\'pipeline.html\', \'_blank\')">🗺️ Approval Pipeline Guide</button>'
@@ -5273,6 +5337,11 @@
     // `body` accepts simple HTML (<p>, <ul>, <li>, <b>, etc.).
     // ============================================================
     const SECTION_HELP = {
+      sbSummaryAll: {
+        title: 'Stake Business — All Wards',
+        body: '<p>Every ward\'s coming Sunday in one place — the same panel each ward\'s high councilor sees at the top of his dashboard. For each ward: which Sunday, who conducts and why, what is confirmed on the agenda (the ward\'s items and stake-wide ones), and every calling, release and ordination for that ward still on its way, with what it is waiting on.</p>' +
+          '<p>Wards with something on the agenda open automatically; tap a ward to open or close it. It refreshes with the dashboard.</p>'
+      },
       stakeLinks: {
         title: 'Stake Links',
         body: '<p>Quick links to commonly-used stake resources, sheets, and tools. Click any link to open it in a new tab.</p>'
@@ -5643,6 +5712,7 @@
           ['📝', 'Clerk reviews', '— check flagged recommendations (e.g. temple recommend, comments) so polling can begin.'],
           ['📊', 'Watch the pipeline', 'in <b>Approval / Sustaining Status</b>, and chase anything stuck.'],
           ['⚠️', 'Stake business at risk', '— wards whose Sunday isn\'t covered yet.'],
+          ['🗓️', 'Stake business — all wards', '— every ward\'s coming Sunday in one place: who conducts, what\'s on the agenda, what is still on its way.'],
           ['🏷️', 'Records', '— name tags, the Stake Callings roster, ordination certificates (LCR → print → sign → deliver).'],
           ['📋', 'Sheet Views', 'opens the underlying tables when you need to fix something by hand.']
         ]
@@ -5655,6 +5725,7 @@
           ['📅', 'Book appointments', 'for callings the presidency extends, and assign who extends where that is yours to do.'],
           ['📊', 'Watch the pipeline', 'in <b>Approval / Sustaining Status</b>.'],
           ['⚠️', 'Stake business at risk', '— wards whose Sunday isn\'t covered yet.'],
+          ['🗓️', 'Stake business — all wards', '— every ward\'s coming Sunday in one place: who conducts, what\'s on the agenda, what is still on its way.'],
           ['📋', 'Sheet Views', 'opens the underlying tables when you need them.']
         ]
       },
@@ -5709,6 +5780,13 @@
       else if (_myProfile) _tourMarkSeen();          // an existing user: never pop it on them later
     }
 
+    // Admin Tools › Demos & Training: a demo window that starts exactly as a new user's would — the
+    // welcome, then the tour, then the checklist (`welcome=1` forces it even if seen before).
+    function openNewUserDemo() {
+      const sel = document.getElementById('newUserDemoRole');
+      const role = (sel && sel.value) || 'sp';
+      window.open(location.pathname + '?demo=' + encodeURIComponent(role) + '&welcome=1', '_blank');
+    }
     function openWelcome() {
       hideHelp();
       closeWelcome();
@@ -5790,9 +5868,11 @@
         '🗓️ Your ward\'s stake business', 'Your ward\'s coming Sunday at a glance: who conducts and why, what will be presented, and what is still on its way (and what it is waiting on). Tap the header to open or close it.');
       add(() => document.querySelector('#content #sbRiskList .section'), '⚠️ Stake business at risk',
         'Wards whose coming Sunday is not covered yet. The high councilor has already been asked automatically — this is so you can follow up if needed.');
+      add(() => document.querySelector('#content #sbSummaryAll .section'), '🗓️ Stake business — all wards',
+        'Every ward\'s coming Sunday in one place — the panel each high councilor sees for his ward: who conducts, what is on the agenda, and what is still on its way. Tap a ward to open it.');
       let firstHelp = true;
       root.querySelectorAll('.section-header').forEach(h => {
-        if (h.closest('#hcSbStatus') || h.closest('#sbRiskList')) return;
+        if (h.closest('#hcSbStatus') || h.closest('#sbRiskList') || h.closest('#sbSummaryAll')) return;
         const hb = h.querySelector('.help-btn');
         const m = hb && /showHelp\(event,'([A-Za-z]+)'\)/.exec(hb.getAttribute('onclick') || '');
         const key = m ? m[1] : null;
@@ -6684,7 +6764,7 @@
         // Render directly into the overlay
         renderDashboard(data);
         // …and the panels that load after the dashboard, for THIS user (2026-10-18).
-        _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} };
+        _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} }; _sbAll = null;
         loadHcSbStatus(); loadSbRisk();
       } catch (e) {
         document.getElementById('overlayContent').innerHTML =
@@ -6701,8 +6781,8 @@
       }
       stashedUserData = null;
       _panelCache = null;   // the overlay's panels were the other person's
-      _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} };   // were theirs too
-      window.__hcSbAt = 0; window.__sbRiskAt = 0;
+      _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} }; _sbAll = null;   // were theirs too
+      window.__hcSbAt = 0; window.__sbRiskAt = 0; window.__sbAllAt = 0;
       renderTargetId = 'content';
       document.getElementById('userOverlay').classList.remove('open');
       document.getElementById('overlayContent').innerHTML = '';
