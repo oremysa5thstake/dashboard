@@ -2394,7 +2394,7 @@
         <div class="item-header"><div class="item-title">${escapeHtmlDisplay(first.memberName || 'N/A')}
           <span style="display:inline-block;background:#1a6159;color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:3px;margin-left:8px;vertical-align:middle">${list.length} callings</span></div></div>
         ${lines}
-        <div class="item-meta" style="color:#666;font-style:italic;">Approved together — one vote covers all ${list.length}.</div>
+        <div class="item-meta" style="color:#666;font-style:italic;">Approved together — one approval covers all ${list.length}.</div>
         ${list.some(it => it.urgency) ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
         ${hp ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + hp + '</div>' : ''}
         <div class="item-actions">
@@ -4415,12 +4415,12 @@
       if (!m || !m.ok) return '';
       const ord = item.type === 'ordination';
       return `<div style="margin-top:6px;"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(item.timestamp || ''))}', ${m.approved}, ${m.seats}, this, '${ord ? 'ordination' : 'calling'}')">✓ Proceed with majority (${m.approved} of ${m.seats})</button>
-        <div class="item-meta" style="font-size:12px;">The ${m.waiting} who haven't voted are recorded N/A and ${ord ? 'the sustaining is confirmed' : 'the calling moves on to be extended'}.</div></div>`;
+        <div class="item-meta" style="font-size:12px;">The ${m.waiting} who haven't responded are recorded N/A and ${ord ? 'the sustaining is confirmed' : 'the calling moves on to be extended'}.</div></div>`;
     }
     const _pendingMajority = {};   // timestamp -> at (shown as done until the server agrees)
     async function proceedByMajority(ts, approved, seats, btn, type) {
       const ord = type === 'ordination';
-      if (!confirm('Proceed with ' + approved + ' of ' + seats + ' high councilors?\n\nThe others are recorded N/A (not voted) and ' + (ord ? 'the sustaining is confirmed.' : 'the calling moves on to be extended.'))) return;
+      if (!confirm('Proceed with ' + approved + ' of ' + seats + ' high councilors?\n\nThe others are recorded N/A (no response) and ' + (ord ? 'the sustaining is confirmed.' : 'the calling moves on to be extended.'))) return;
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
@@ -5240,9 +5240,9 @@
       },
       ordinations: {
         title: 'Priesthood Ordinations',
-        body: '<p>Priesthood ordinations awaiting your sustaining vote as outlined in General Handbook 18.10.1.3. A stake presidency member has already interviewed this brother and considers them to be worthy. After all the stake presidency and high council give their approval, the corresponding high councilor will be assigned to coordinate a time for this brother to be ordained.</p>' +
+        body: '<p>Priesthood ordinations awaiting your sustaining as outlined in General Handbook 18.10.1.3. A stake presidency member has already interviewed this brother and considers them to be worthy. After all the stake presidency and high council give their approval, the corresponding high councilor will be assigned to coordinate a time for this brother to be ordained.</p>' +
           '<ul>' +
-          '<li><b>✓ Sustain:</b> Records your sustaining vote.</li>' +
+          '<li><b>✓ Sustain:</b> Records your sustaining.</li>' +
           '<li><b>⚠️ Concerns:</b> Flags this ordination for clerk review.</li>' +
           '<li><b>Sustain All:</b> Sustains every pending ordination at once.</li>' +
           '</ul>'
@@ -5473,9 +5473,9 @@
           '<ul>' +
           '<li><b>Progress bar:</b> approved vs. total approvers. Green = fully approved, blue = in progress, red = someone opposed.</li>' +
           '<li><b>Phase:</b> Phase 1 (SP), Phase 2 (HC), Polling All, Release, etc. — mirrors the value in col C of Calling Approvals / Priesthood Ordinations.</li>' +
-          '<li><b>✓ Approved:</b> names of approvers who voted "Approve" / "Sustain".</li>' +
-          '<li><b>⏳ Waiting on:</b> named approvers whose vote is still pending.</li>' +
-          '<li><b>⚠️ Opposed:</b> any approver who voted something other than approve/empty.</li>' +
+          '<li><b>✓ Approved:</b> names of approvers who have approved or sustained.</li>' +
+          '<li><b>⏳ Waiting on:</b> named approvers who have not responded yet.</li>' +
+          '<li><b>⚠️ Opposed:</b> any approver who responded with something other than approve or sustain.</li>' +
           '<li>Release-only rows show only the Stake President as the relevant approver.</li>' +
           '<li><b>⏳ Waiting on … to be approved</b>: a release linked to the calling of the person replacing them is not extended until that calling is approved. <b>Extend the release now</b> (clerks, secretaries, presidency) stops waiting — e.g. when they are moving out and the release should be announced sooner.</li>' +
           '<li><b>📱 Text HCs with Pending Approvals</b> (bottom of the section): opens your Messages app one high councilor at a time, each with a reminder of what they still need to approve.</li>' +
@@ -5569,7 +5569,7 @@
         label: 'Stake President',
         intro: 'Every calling, release and ordination in the stake passes through you. The dashboard puts each one in front of you at the moment it needs you, and tells you when it has moved on.',
         does: [
-          ['🗳️', 'Vote', 'on calling recommendations, releases and ordinations as they come in.'],
+          ['🙋', 'Approve or sustain', 'calling recommendations, releases and ordinations as they come in.'],
           ['🗂️', 'Decide who extends', 'stake callings — yourself, a counselor or a high councilor — in <b>Callings to Schedule/Assign</b>.'],
           ['📞', 'Extend', 'the callings and releases assigned to you (the secretary books the appointment).'],
           ['🙌', 'Set apart', 'the people you extended to, once they are sustained.'],
@@ -5578,9 +5578,9 @@
       },
       counselor: {
         label: 'Stake Presidency Counselor',
-        intro: 'You vote on everything that comes through, help decide who extends each stake calling, and extend and set apart the ones assigned to you.',
+        intro: 'You approve or sustain everything that comes through, help decide who extends each stake calling, and extend and set apart the ones assigned to you.',
         does: [
-          ['🗳️', 'Vote', 'on calling recommendations and ordinations as they come in.'],
+          ['🙋', 'Approve or sustain', 'calling recommendations and ordinations as they come in.'],
           ['🗂️', 'Decide who extends', 'stake callings in <b>Callings to Schedule/Assign</b>.'],
           ['📞', 'Extend', 'the callings and releases assigned to you — e.g. a new high councilor.'],
           ['🙌', 'Set apart', 'the people you extended to, once they are sustained.'],
@@ -5611,9 +5611,9 @@
       },
       hcWard: {
         label: 'High Councilor',
-        intro: 'You vote on callings and ordinations across the stake, and you carry stake business for your assigned ward from the extending through to the setting apart.',
+        intro: 'You approve callings and sustain ordinations across the stake, and you carry stake business for your assigned ward from the extending through to the setting apart.',
         does: [
-          ['🗳️', 'Vote', 'on calling recommendations and ordinations as they come in.'],
+          ['🙋', 'Approve or sustain', 'calling recommendations and ordinations as they come in.'],
           ['📞', 'Extend', 'callings and releases in your ward that are assigned to you.'],
           ['🗓️', 'Stake business', '— the panel at the top shows your ward\'s coming Sunday: who conducts, what\'s on the agenda, and what is still on its way.'],
           ['🙋', 'Report the sustainings', 'on Sunday, so the setting aparts can be assigned.'],
@@ -5623,9 +5623,9 @@
       },
       hcNoWard: {
         label: 'High Councilor',
-        intro: 'You vote on callings and ordinations across the stake, and extend and set apart the ones assigned to you. When a ward\'s high councilor is away you may be asked to cover its stake business.',
+        intro: 'You approve callings and sustain ordinations across the stake, and extend and set apart the ones assigned to you. When a ward\'s high councilor is away you may be asked to cover its stake business.',
         does: [
-          ['🗳️', 'Vote', 'on calling recommendations and ordinations as they come in.'],
+          ['🙋', 'Approve or sustain', 'calling recommendations and ordinations as they come in.'],
           ['📞', 'Extend', 'callings and releases assigned to you.'],
           ['🙌', 'Set apart', 'the people you extended to, once they are sustained.'],
           ['🗓️', 'Cover stake business', 'when you are asked to stand in for another high councilor.'],
@@ -5689,7 +5689,7 @@
           <div class="tw-actions">
             <button class="btn btn-primary" onclick="startTour()">🧭 Show me around</button>
             ${DEMO_MODE ? `<button class="btn btn-secondary" onclick="dismissWelcome();openDemoGuide()">✅ Show my checklist</button>`
-                        : `<button class="btn btn-secondary" onclick="window.open(location.pathname + '?demo=${demoRole}&tour=1', '_blank')">🎓 Practise in the demo</button>`}
+                        : `<button class="btn btn-secondary" onclick="window.open(location.pathname + '?demo=${demoRole}&tour=1', '_blank')">🎓 Practice in the demo</button>`}
             <button class="btn btn-secondary" onclick="window.open('pipeline.html', '_blank')">🗺️ How the pipeline works</button>
           </div>
           <button class="tw-later" onclick="dismissWelcome()">Not now — I can reopen this from the bottom of the page</button>
@@ -5709,8 +5709,8 @@
     // Per-section text: a short line of our own where we have one, else the first paragraph of the
     // section's "?" help.
     const TOUR_SECTION_LINES = {
-      approvals: 'New calling recommendations land here for your vote. Approve, or raise a concern — a concern goes to the clerks before anything else happens.',
-      ordinations: 'Ordinations wait here for your sustaining vote once the interview is done.',
+      approvals: 'New calling recommendations land here for your approval. Approve, or raise a concern — a concern goes to the clerks before anything else happens.',
+      ordinations: 'Ordinations wait here for your sustaining once the interview is done.',
       extend: 'Callings and releases you have been asked to extend. Record the answer here once you have met with the member.',
       appointments: 'Callings someone else extends that need an appointment booked.',
       settingAparts: 'People ready to be set apart — after they have been sustained.',
@@ -5763,7 +5763,7 @@
       add(() => document.getElementById('refreshBtn'), '🔄 Refresh',
         'The dashboard updates by itself every few seconds; this forces it now.');
       add(() => document.getElementById('tourFooter'), '👋 Help is always here',
-        'Reopen this welcome and tour, practise in the demo for your role, or read how the whole pipeline works.');
+        'Reopen this welcome and tour, practice in the demo for your role, or read how the whole pipeline works.');
       if (!steps.length) steps.push({ find: () => null, title: 'All caught up', body: 'Nothing is waiting for you yet. Sections appear here as soon as something needs you.' });
       return steps;
     }
@@ -5848,14 +5848,14 @@
       if (DEMO_MODE) openDemoGuide();
     }
 
-    // The strip at the bottom of every dashboard: reopen the welcome, practise, read the guide.
+    // The strip at the bottom of every dashboard: reopen the welcome, practice, read the guide.
     // (Demos and the guide used to be reachable only from Admin Tools, which high councilors don't have.)
     function renderTourFooter() {
       const demoRole = TOUR_DEMO_FOR[tourRoleKey()] || 'hc';
       return `<div class="tour-footer" id="tourFooter">
         <button class="tour-link" onclick="openWelcome()">👋 Welcome &amp; tour</button>
         ${DEMO_MODE ? '<button class="tour-link" onclick="openDemoGuide()">✅ Demo checklist</button>'
-                    : `<button class="tour-link" onclick="window.open(location.pathname + '?demo=${demoRole}&tour=1', '_blank')">🎓 Practise in the demo</button>`}
+                    : `<button class="tour-link" onclick="window.open(location.pathname + '?demo=${demoRole}&tour=1', '_blank')">🎓 Practice in the demo</button>`}
         <button class="tour-link" onclick="window.open('pipeline.html', '_blank')">🗺️ How the pipeline works</button>
       </div>`;
     }
@@ -5870,7 +5870,7 @@
       const sustained = () => { try { return demoAllSustained(); } catch (e) { return false; } };
       const L = {
         hc: [
-          ['Vote on the new callings and the ordination', 'Calling Approvals and Priesthood Ordinations. Approve each one (or try ⚠️ Concerns to see what happens).', voted()],
+          ['Approve the new callings and sustain the ordination', 'Calling Approvals and Priesthood Ordinations. Approve each one (or try ⚠️ Concerns to see what happens).', voted()],
           ['Extend Porter\'s calling and Marcus\'s release', 'Callings & Releases to Extend — record that Porter accepted and that Marcus was released.', s.porterAccepted && s.marcusExtended],
           ['Confirm you\'re conducting stake business', 'Your ward\'s Sunday now has business on it. Confirm in the Stake Business section.', s.sbConfirmed],
           ['Report the sustainings on Sunday', 'Ordination Sustaining / sustaining report: mark each item as sustained.', sustained()],
@@ -5878,19 +5878,19 @@
           ['Report Dallin\'s ordination', 'Ordination Sustaining, then the ordination report once he is ordained.', s.ordSustainReported && s.ordReported]
         ],
         sp: [
-          ['Vote on the callings, the release and the ordination', 'Calling Approvals and Priesthood Ordinations.', voted() && s.spVote && s.spVote.r1],
+          ['Approve the callings and the release, and sustain the ordination', 'Calling Approvals and Priesthood Ordinations.', voted() && s.spVote && s.spVote.r1],
           ['Decide who extends Sadie\'s stake calling', 'Callings to Schedule/Assign — pick a counselor, a high councilor, or yourself.', !!s.assignedTo],
           ['Extend Desmond\'s calling and release', 'Callings & Releases to Extend — one conversation, so his two items share a card.', s.emmettAccepted && s.desmondExtended],
           ['Set Desmond apart', 'Setting Aparts — once he has been sustained.', s.saEmmett]
         ],
         spc1: [
-          ['Vote on the callings and the ordination', 'Calling Approvals and Priesthood Ordinations.', voted()],
+          ['Approve the callings and sustain the ordination', 'Calling Approvals and Priesthood Ordinations.', voted()],
           ['Decide who extends Sadie\'s stake calling', 'Callings to Schedule/Assign — choose yourself to extend it in this demo.', !!s.assignedTo],
           ['Extend Sadie\'s calling', 'Callings & Releases to Extend (if you assigned it to yourself).', s.sadieAccepted],
           ['Set Sadie apart', 'Setting Aparts — once she has been sustained.', s.saSadie]
         ],
         spc2: [
-          ['Vote on the callings and the ordination', 'Calling Approvals and Priesthood Ordinations.', voted()],
+          ['Approve the callings and sustain the ordination', 'Calling Approvals and Priesthood Ordinations.', voted()],
           ['Extend Tanner\'s high council calling', 'Callings & Releases to Extend — record his answer.', s.tannerAccepted],
           ['Watch the rest go by', 'Your CC\'d Items follow the other callings through sustaining and setting apart.', s.saSadie]
         ],
@@ -7076,7 +7076,7 @@
         const mj = p.majority;
         const mjBtn = (mj && t.canReassign && !closed && mj.spDone && mj.waiting > 0 && mj.opposed === 0 && mj.approved * 2 > mj.seats)
           ? `<div class="item mt-act"><button class="btn btn-secondary btn-sm" onclick="proceedByMajority('${escapeHtml(String(t.ts))}', ${mj.approved}, ${mj.seats}, this, '${t.sheet === 'PO' ? 'ordination' : 'calling'}')">✓ Proceed with majority (${mj.approved} of ${mj.seats})</button>
-             <span class="mt-sub">The ${mj.waiting} who haven't voted are recorded N/A and ${t.sheet === 'PO' ? 'the sustaining is confirmed' : 'the calling moves on to be extended'}.</span></div>` : '';
+             <span class="mt-sub">The ${mj.waiting} who haven't responded are recorded N/A and ${t.sheet === 'PO' ? 'the sustaining is confirmed' : 'the calling moves on to be extended'}.</span></div>` : '';
         html += `<div class="mt-phase mt-${p.state}">
           <div class="mt-phase-head" onclick="mtToggle('${escapeHtml(k)}','${p.key}',this)">${icon} ${esc(p.title)}${summary} <span class="mt-chev">▾</span></div>
           <div class="mt-steps" style="display:${open ? '' : 'none'}">${p.steps.map(st => mtStep(t, st, p, closed)).join('')}${mjBtn}</div>
@@ -7192,7 +7192,7 @@
         const ev = [{ at: null, what: sheet === 'PO' ? 'Ordination recommendation submitted' : 'Recommendation submitted', who: 'the bishop' }];
         (t.phases || []).forEach(ph => (ph.steps || []).forEach(st => {
           if (st.applicable === false || !st.done) return;
-          ev.push({ at: null, what: (st.isApprover ? 'Approved (vote)' : st.label.replace(/\?$/, '')), who: st.isApprover ? st.label : (st.assignee || '') });
+          ev.push({ at: null, what: (st.isApprover ? 'Approved' : st.label.replace(/\?$/, '')), who: st.isApprover ? st.label : (st.assignee || '') });
         }));
         ev.push({ at: null, what: 'In the real dashboard every line shows the date and who did it', who: '' });
         return ev;
@@ -8535,7 +8535,7 @@
       document.getElementById('rosterBody').innerHTML = `
         <div style="font-size:13px;color:#555;line-height:1.5;background:#e8f0fb;border-radius:6px;padding:10px 12px;margin-bottom:14px;">
           <strong>${esc(info.member)}</strong> — ${esc(info.calling)}${info.ward ? ' (' + esc(info.ward) + ')' : ''}.
-          Saving writes their row on Stake Callings${/high councilor|stake president/i.test(info.calling) ? ', their approval/sustaining vote columns' : ''}${info.wardScoped ? '' : ' and, if you give a ward, that ward\'s Ward HC on Stake Business Assignments'}.
+          Saving writes their row on Stake Callings${/high councilor|stake president/i.test(info.calling) ? ', their approval/sustaining columns' : ''}${info.wardScoped ? '' : ' and, if you give a ward, that ward\'s Ward HC on Stake Business Assignments'}.
           Whoever held the slot is replaced. Notifications start as <em>Hourly</em> (primary) and <em>Daily</em> (CC'd).
         </div>
         <div class="form-group"><label class="form-label">Slot *</label>
@@ -8640,7 +8640,7 @@
     }
 
     async function clearRosterRow(actionId, btn) {
-      if (!confirm('Clear this person from the Stake Callings sheet (and their vote columns, if any)?')) return;
+      if (!confirm('Clear this person from the Stake Callings sheet (and their approval/sustaining columns, if any)?')) return;
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       setSyncing(true);
       try {
@@ -9573,7 +9573,7 @@
       const mine = demoVoteMap(roleKey);
       const data = demoBaseData(demoComplete()
         ? '🎉 Demo complete! The whole pipeline ran: approvals → assign → extend → stake business → sustaining → setting apart → ordination.'
-        : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', ' + DEMO_ROLE_INFO.label + '. Vote on what is waiting for you, then watch the work move to the secretary, clerk and high council.');
+        : '🎓 DEMO — you are ' + DEMO_ROLE_INFO.who + ', ' + DEMO_ROLE_INFO.label + '. Approve or sustain what is waiting for you, then watch the work move to the secretary, clerk and high council.');
       data.canReassign = true;
       data.isPresidency = true;
       data.stakePresidency = DEMO_SP.map((n, i) => ({ id: 'DEMOSP' + i, name: n }));
@@ -9835,7 +9835,7 @@
         case 'approveAll': ['c1','c2','c3','c4','r1','o1'].forEach(demoRecordVote); break;
         case 'sustainAll': demoRecordVote('o1'); break;
         case 'approveByMajority':
-          showToast('In real life this records the high councilors who haven\'t voted as N/A and moves the calling on to be extended. (The demo\'s high council is one vote, so there is nothing to proceed on here.)', 'success');
+          showToast('In real life this records the high councilors who haven\'t responded as N/A and moves the calling on to be extended. (The demo\'s high council is one vote, so there is nothing to proceed on here.)', 'success');
           return { success: true };
         case 'recordVote': {
           // Clerk/secretary recording a vote on someone's behalf, from Approval Status.
