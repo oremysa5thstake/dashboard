@@ -977,6 +977,18 @@ async function assignmentsFromPostgres() {
   } catch (e) { return null; }
 }
 
+/** The message log (message_rows, 0156): Slack notices + emails, last 90 days. No Apps Script fallback. */
+async function messagesFromPostgres() {
+  const token = await ensureP2Token();
+  if (!token) throw new Error('No database session — reopen Sheet Views from the dashboard');
+  const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/message_rows', {
+    method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_slack_id: USER_ID, p_token: token, p_days: 90 })
+  });
+  if (!r.ok) throw new Error('Supabase ' + r.status + ': ' + (await r.text()).slice(0, 160));
+  return { success: true, rows: await r.json() };
+}
+
 /** One stored payload holding every tab. Cached for the session; refresh reloads it. */
 async function gridsFromPostgres() {
   if (_gridPayload && Date.now() - _gridPayloadAt < 60000) return _gridPayload;
@@ -1027,6 +1039,7 @@ async function storedTab(spec) {
   if (spec.api === 'sbQueue')  return p.sbQueue || null;
   if (spec.api === 'aiAdmin')  return p.aiAdmin || null;
   if (spec.api === 'getStakeBusinessAssignments') return await assignmentsFromPostgres();
+  if (spec.api === 'messageRows') return await messagesFromPostgres();
   if (spec.api === 'gridRows') return p['grid_' + spec.apiGrid] || null;
   return null;
 }
@@ -1335,6 +1348,21 @@ const TABS = {
       edA({ title: 'Standing Ward HC', field: 'normalWardHC', width: 150,
             headerTooltip: 'Restored every Monday (and by “Restore normal assignments”)' }, 'hc'),
       edA({ title: 'Standing Backup HC', field: 'normalBackupHC', width: 150 }, 'hc'),
+    ],
+  },
+
+  // Every message the script has sent (leader request, 2026-11-01): Slack notices from the send
+  // queue (slack_outbox) and emails from message_log (0156), newest first. Read-only.
+  messages: {
+    label: '✉️ Messages', api: 'messageRows', key: 'id', readOnly: true,
+    cols: [
+      { title: 'When', field: 'at', width: 150, frozen: true, formatter: c => { const v = c.getValue(); return v ? new Date(v).toLocaleString() : ''; } },
+      { title: 'Kind', field: 'kind', width: 80, headerFilter: 'list', headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'To', field: 'to', minWidth: 160, headerFilter: 'input', headerTooltip: 'Slack: the person (by Stake Callings). Email: the address(es).' },
+      { title: 'Subject / first line', field: 'subject', minWidth: 260, headerFilter: 'input' },
+      { title: 'Full text', field: 'body', minWidth: 320, formatter: 'textarea' },
+      { title: 'Status', field: 'status', width: 110, headerFilter: 'list', headerFilterParams: { valuesLookup: true, clearable: true } },
+      { title: 'Sent by', field: 'source', width: 170, headerFilter: 'list', headerFilterParams: { valuesLookup: true, clearable: true } },
     ],
   },
 
@@ -1657,6 +1685,14 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTabHelp(
 // ── demo data ─────────────────────────────────────────────────────────────
 // A demo window must never reach the real database — demo links get shared.
 function demoRows(which) {
+  if (which === 'messages') {
+    const d = (h, extra) => { const x = new Date(); x.setHours(x.getHours() - h); return Object.assign({ at: x.toISOString(), status: 'sent' }, extra); };
+    return [
+      d(1, { id: 'm1', kind: 'Slack', to: 'Bro. Demoson', subject: '📋 Notification Summary', body: '*📋 Notification Summary*\n• 2 calling approvals awaiting response', source: 'notification' }),
+      d(5, { id: 'm2', kind: 'Email', to: 'clerk67@example.com', subject: 'Stake business summary — 6-7th Ward', body: 'Stake business summary for the 6-7th Ward: …', source: 'ward clerk summary' }),
+      d(30, { id: 'm3', kind: 'Email', to: 'clerk@example.com, membership@example.com', subject: 'Out-of-Unit member record needed: Porter Gladwell', body: 'Please add this member to your ward as an Out-of-Unit Member…', source: 'out-of-unit record → stake clerks' }),
+    ];
+  }
   const W = '6-7th Ward';
   if (which === 'business') return [
     { meeting_date:'2026-08-16', member:'Porter Gladwell', calling:'Elders Quorum President',
