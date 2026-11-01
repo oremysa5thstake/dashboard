@@ -3045,7 +3045,12 @@
         const commentInfo = (item.actionType === 'clerk-review-comment' && item.comment) ? `<div class="item-meta">Comment: "${escapeHtml(item.comment)}"</div>` : '';
 
         let actionButtons = '';
-        if (item.actionType === 'clerk-review-ctr') {
+        if (item.actionType === 'hc-nudge') {
+          // The stake clerks' nudge (2026-11-01): the same texting tool as the status section, then Done.
+          actionButtons = `
+            <button class="btn btn-primary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete', this)">✓ Done</button>`;
+        } else if (item.actionType === 'clerk-review-ctr') {
           actionButtons = `
             <button class="btn btn-success" onclick="handleClerkReview('${item.actionId}', 'ctrReview', 'yes', this)">✓ Yes — Has CTR</button>
             <button class="btn btn-danger" onclick="handleClerkReview('${item.actionId}', 'ctrReview', 'no', this)">✗ No — No CTR</button>`;
@@ -3997,6 +4002,9 @@
                   <button class="btn btn-primary" onclick="handleClerkReview('${a}', 'priesthoodReview', 'highpriest', this)">Office of High Priest</button>`;
         case 'clerk-review-comment':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'reviewComplete', this)">✓ Proceed with Polling</button>`;
+        case 'hc-nudge':
+          return `<button class="btn btn-primary" onclick="openSendTextsModal()">📱 Text HCs with Pending Approvals</button>
+                  <button class="btn btn-success" onclick="handleAction('${a}', 'complete', this)">✓ Done</button>`;
         case 'interview-needed':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'scheduled', this)">✓ Scheduled</button>`;
         case 'task':
@@ -4018,7 +4026,7 @@
       { key: 'business', label: '⛪ Stake Business',                    types: ['stake-business-confirm', 'sustaining-report'] },
       { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record', 'roster-update', 'oou-send'] },
       { key: 'ord',      label: '🙏 Ordinations',                      types: ['coordinate-ordination', 'ordination-notification', 'ordination-report', 'ordination-interview', 'ordination-interview-schedule', 'ordination-record-lcr', 'ordination-print-certificate', 'ordination-sign-certificate', 'ordination-deliver-certificate'] },
-      { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
+      { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'hc-nudge', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
       { key: 'tasks',    label: '📋 Tasks &amp; Mentions',              types: ['task', 'task-primary', 'mention'] },
       { key: 'other',    label: '📎 Everything Else',                  types: [] }
     ];
@@ -5291,6 +5299,7 @@
         body: '<p>Items flagged for clerk attention — missing info, comments left by approvers, or special handling needed.</p>' +
           '<ul>' +
           '<li><b>✓ Review Complete:</b> Marks the review as resolved.</li>' +
+          '<li><b>📱 Text HCs with Pending Approvals:</b> on a task about high councilors who haven\'t responded (48 hours after the presidency approved, adjustable in Settings) — opens the texting tool, then mark it Done. The task closes itself once they have all responded.</li>' +
           '</ul>'
       },
       interviews: {
