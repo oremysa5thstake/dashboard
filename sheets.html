@@ -62,6 +62,8 @@
   .meta{font-size:12px;color:#777;margin-left:auto;font-variant-numeric:tabular-nums}
   .docstate{font-size:12px;color:#5b6270;background:#eef1f6;border-radius:999px;padding:3px 10px;white-space:nowrap}
   .docstate.busy{background:#fff3cd;color:#7a4d00}
+  .docstate.fail{background:#fdecea;color:#8a1c12}
+  .docstate.ok{background:#e6f4ea;color:#1e6b34}
   .docstate a{color:inherit}
   .sheetform input[type=date]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid #ccd1d6;border-radius:5px}
   /* "?" help — the same control and popover as the dashboard's section help. */
@@ -240,6 +242,7 @@
   <button onclick="addRowClick()" id="addRowBtn" hidden>＋ Add row</button>
   <button onclick="refreshSbDoc()" id="sbDocBtn" hidden title="Regenerate the coming Sunday's Stake Business document now">📄 Update Stake Business document</button>
   <span class="docstate" id="sbDocState" hidden></span>
+  <span class="docstate" id="savePill" hidden></span>
   <button onclick="reload()" id="reloadBtn">↻ Refresh</button>
   <span class="meta" id="meta"></span>
 </div>
@@ -492,6 +495,98 @@ const STAKE_WARDS = ['16th Ward','19th Ward','24th Ward','25th Ward',
                      '27th Ward','32nd Ward','33rd Ward','49th Ward'];
 const WARD_OTHER = '➕ Other unit…';
 
+// Fixed option lists shared by the grid editors and the add-row forms (2026-11-08). One list per
+// idea, so a routing code added here appears in both places — the two had drifted before.
+const HC_CODES = Array.from({ length: 12 }, (_, i) => 'HC' + (i + 1));
+const EXTEND_ROUTES = ['', 'SP', '1C', '2C', 'SPC', 'HC', ...HC_CODES, 'SPB', 'SPB/HC'];
+const SET_APART_ROUTES = ['', 'SP', '1C', '2C', 'SPC', 'HC', ...HC_CODES, 'SPC/HC', 'SPB', 'SPB/HC', 'N/A'];
+const SUSTAINING_BODIES = ['', 'Ward', 'Stake', 'None'];
+const CONDUCTS_OPTIONS = ['', 'Stake Presidency', 'High Councilor'];
+const APPROVAL_LEVELS = ['', 'None', 'SP & HC'];
+const NOTIFY_PREFS = ['', 'Immediately', 'Hourly', 'Daily', 'None'];
+
+/** A dropdown of the stake's wards for the sheet-backed grids (roster, ordinations). A value
+ *  already on the sheet that is not one of the eight stays selectable rather than vanishing.
+ *  editorParams as a FUNCTION of the cell: Tabulator 6.3 accepts that, but not `values` as a
+ *  function — it runs Object.entries on it and shows "No Results Found" (found 2026-11-08). */
+const stakeWardList = cell => {
+  const cur = cell && cell.getValue ? String(cell.getValue() || '') : '';
+  const base = [''].concat(STAKE_WARDS);
+  return { values: cur && !base.includes(cur) ? base.concat([cur]) : base };
+};
+
+/** Local calendar date as YYYY-MM-DD from whatever a date cell holds ('2026-01-11',
+ *  '2026-01-11T07:00:00.000Z', a Date). '' when it is not a date. */
+function toDateInput(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+/**
+ * A date picker for date columns. A cell that holds text instead ("Done", "HP Calling") opens as
+ * a text box, so nothing already on the sheet becomes uneditable. The value saved is YYYY-MM-DD,
+ * which the backend reads as local midnight (_gridParseDate).
+ */
+function dateEditor(cell, onRendered, success, cancel) {
+  const cur = cell.getValue();
+  const asDate = toDateInput(cur);
+  const input = document.createElement('input');
+  input.type = (cur && !asDate) ? 'text' : 'date';
+  input.value = input.type === 'date' ? asDate : String(cur || '');
+  input.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;padding:3px;';
+  let done = false;
+  const finish = () => { if (done) return; done = true; success(input.value); };
+  input.addEventListener('change', () => { if (input.type === 'date') finish(); });
+  input.addEventListener('blur', finish);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(); }
+    else if (e.key === 'Escape') { done = true; cancel(); }
+  });
+  onRendered(() => { input.focus(); if (input.type === 'text') input.select(); });
+  return input;
+}
+
+/**
+ * The Settings sheet's Value column mixes checkboxes, numbers and text. A TRUE/FALSE cell opens
+ * as a two-way dropdown so it cannot be mistyped into text (which would silently switch the
+ * setting off — the backend tests the cell for a boolean); anything else opens as a text box.
+ */
+function settingValueEditor(cell, onRendered, success, cancel) {
+  const cur = String(cell.getValue() ?? '');
+  if (!/^(true|false)$/i.test(cur)) {
+    const input = document.createElement('input');
+    input.type = 'text'; input.value = cur;
+    input.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;padding:3px;';
+    let done = false;
+    const finish = () => { if (done) return; done = true; success(input.value); };
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(); }
+      else if (e.key === 'Escape') { done = true; cancel(); }
+    });
+    onRendered(() => { input.focus(); input.select(); });
+    return input;
+  }
+  const sel = document.createElement('select');
+  sel.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;padding:3px;';
+  ['TRUE', 'FALSE'].forEach(v => {
+    const o = document.createElement('option');
+    o.value = v.toLowerCase(); o.textContent = v;
+    if (v.toLowerCase() === cur.toLowerCase()) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => success(sel.value));
+  sel.addEventListener('blur', () => success(sel.value));
+  sel.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
+  onRendered(() => sel.focus());
+  return sel;
+}
+
 // The eight wards, plus an escape hatch for a member called from outside the
 // stake. A unit typed that way is deliberately NOT added to the list — it
 // belongs to that one row, not to the stake.
@@ -508,20 +603,36 @@ function wardEditor(cell, onRendered, success, cancel) {
     if (v === cur) o.selected = true;
     sel.appendChild(o);
   });
-  const finish = () => {
-    if (sel.value === WARD_OTHER) {
-      const typed = (prompt('Unit name (a ward or stake outside ours):', '') || '').trim();
-      if (!typed) { cancel(); return; }
-      success(typed);
-      return;
-    }
-    success(sel.value);
+  // "Other unit" swaps the dropdown for a text box in the same cell (a prompt() box until
+  // 2026-11-08). Enter or leaving the box saves; Escape or an empty box backs out.
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'width:100%;';
+  wrap.appendChild(sel);
+  let typing = false;
+  const other = () => {
+    typing = true;
+    const input = document.createElement('input');
+    input.type = 'text'; input.placeholder = 'Unit name (outside our stake)';
+    input.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;padding:3px;';
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      const typed = input.value.trim();
+      if (typed) success(typed); else cancel();
+    };
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(); }
+      else if (e.key === 'Escape') { done = true; cancel(); }
+    });
+    wrap.replaceChild(input, sel);
+    input.focus();
   };
-  sel.addEventListener('change', finish);
-  sel.addEventListener('blur', () => { if (sel.value !== WARD_OTHER) success(sel.value); });
+  sel.addEventListener('change', () => { if (sel.value === WARD_OTHER) other(); else success(sel.value); });
+  sel.addEventListener('blur', () => { if (!typing && sel.value !== WARD_OTHER) success(sel.value); });
   sel.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
   onRendered(() => sel.focus());
-  return sel;
+  return wrap;
 }
 
 // Grid edits that must wait for Apps Script: their result is shown (routed status, Hold, Sunday)
@@ -604,6 +715,7 @@ async function queueGridEdit(params, action) {
     if (j && j.queued && params.field !== undefined && params.rowKey !== undefined) {
       rememberPendingEdit(params.grid || (action === 'sbUpdateCell' ? 'business' : ''), params.rowKey, params.field, params.value);
     }
+    if (j && j.queued) savePillKick();
     return !!(j && j.queued);
   } catch (e) { return false; }
 }
@@ -854,14 +966,16 @@ function edA(col, kind) {
   // A plain dropdown (2026-10-18): Ward / Backup HC list the high council; Conducting also lists the
   // presidency and the flow's own states. A value already on the sheet stays in the list.
   const hcOnly = () => APPROVERS.filter(a => /High Councilor/.test(a.title || '') && a.name).map(a => a.name);
+  // editorParams is a function of the cell (Tabulator 6.3 supports that; `values` as a function
+  // it does not — the list read "No Results Found" from 2026-10-18 until 2026-11-08).
   const ed = kind === 'hc' || kind === 'conducting'
-    ? { editor: 'list', editorParams: { values: (cell) => {
+    ? { editor: 'list', editorParams: (cell) => {
           const base = kind === 'conducting'
             ? ['', 'Stake Presidency'].concat(APPROVERS.filter(a => a.name && !/vacant/.test(a.title || '')).map(a => a.name), ['Confirming', 'Needs Replacement', 'N/A'])
             : [''].concat(hcOnly());
           const cur = cell && cell.getValue && cell.getValue();
-          return cur && base.indexOf(cur) === -1 ? base.concat([cur]) : base;
-        }, autocomplete: false, listOnEmpty: true, allowEmpty: true } }
+          return { values: cur && base.indexOf(cur) === -1 ? base.concat([cur]) : base };
+        } }
     : kind === 'textarea' ? { editor: 'textarea', editorParams: {} } : { editor: 'input', editorParams: {} };
   return Object.assign({}, col, ed, { headerSort: false, cellEdited: saveAssignmentCell });
 }
@@ -1222,7 +1336,7 @@ const TABS = {
          'callings', 'sheet_ref', wardEditor),
       ed({ title: 'Sustaining Body', field: 'sustaining_body', width: 132, headerFilter: 'list',
            headerFilterParams: { valuesLookup: true, clearable: true } },
-         'callings', 'sheet_ref', 'list', { values: ['', 'Ward', 'Stake', 'None'] }),
+         'callings', 'sheet_ref', 'list', { values: SUSTAINING_BODIES }),
       ed({ title: 'Submitter', field: 'submitter', minWidth: 145 }, 'callings', 'sheet_ref'),
       ed({ title: 'On Behalf Of', field: 'on_behalf_of', minWidth: 145 }, 'callings', 'sheet_ref'),
       ed({ title: 'Comments', field: 'comments', minWidth: 210 },
@@ -1335,7 +1449,7 @@ const TABS = {
     cols: (() => {
       const WARDS = ['16th Ward','19th Ward','24th Ward','25th Ward','27th Ward','32nd Ward','33rd Ward','49th Ward'];
       const base = [
-        edSB({ title: 'Date', field: 'meeting_date', width: 118, frozen: true }, 'input'),
+        edSB({ title: 'Date', field: 'meeting_date', width: 118, frozen: true }, dateEditor),
         { title: 'Doc', field: 'docUrl', width: 58, hozAlign: 'center', headerSort: false,
           headerTooltip: 'That Sunday’s Stake Business document',
           formatter: c => { const u = String(c.getValue() || ''); return /^https?:\/\//.test(u)
@@ -1417,11 +1531,11 @@ const TABS = {
       ed({ title: 'Approved By', field: 'approved_by', minWidth: 180 }, 'chart', 'calling'),
       ed({ title: 'Sustained By', field: 'sustaining_body', width: 122, headerFilter: 'list',
            headerFilterParams: { valuesLookup: true, clearable: true } },
-         'chart', 'calling', 'list', { values: ['', 'Ward', 'Stake', 'None'] }),
+         'chart', 'calling', 'list', { values: SUSTAINING_BODIES }),
       ed({ title: 'Called & set apart by', field: 'called_and_set_apart_by', minWidth: 195 },
          'chart', 'calling'),
       ed({ title: 'Conducts', field: 'conducts_sustaining', width: 148 },
-         'chart', 'calling', 'list', { values: ['', 'Stake Presidency', 'High Councilor'] }),
+         'chart', 'calling', 'list', { values: CONDUCTS_OPTIONS }),
       ed({ title: 'Can be submitted by', field: 'can_be_submitted_by', minWidth: 195 },
          'chart', 'calling'),
       ed({ title: 'Consultation', field: 'check_for_consultation', minWidth: 145 }, 'chart', 'calling'),
@@ -1436,13 +1550,12 @@ const TABS = {
       ed({ title: 'Note to submitter', field: 'note_to_submitter', minWidth: 215 },
          'chart', 'calling', 'textarea'),
       ed({ title: 'Approval', field: 'approval_level', width: 112 },
-         'chart', 'calling', 'list', { values: ['', 'None', 'SP & HC'] }),
+         'chart', 'calling', 'list', { values: APPROVAL_LEVELS }),
       ed({ title: 'Extend (col Q)', field: 'extend_routing', width: 128, headerFilter: 'list',
            headerFilterParams: { valuesLookup: true, clearable: true },
            formatter: c => c.getValue() ? esc(c.getValue())
              : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
-         'chart', 'calling', 'list',
-         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', ...Array.from({ length: 12 }, (_, i) => 'HC' + (i + 1)), 'SPB', 'SPB/HC'] }),
+         'chart', 'calling', 'list', { values: EXTEND_ROUTES }),
       ed({ title: 'Wait for counselors', field: 'wait_for_counselors', width: 148 },
          'chart', 'calling', 'list', { values: ['', 'Yes', 'Maybe'] }),
       ed({ title: 'Sustaining Title', field: 'sustaining_title', minWidth: 180 }, 'chart', 'calling'),
@@ -1450,8 +1563,7 @@ const TABS = {
            headerFilterParams: { valuesLookup: true, clearable: true },
            formatter: c => c.getValue() ? esc(c.getValue())
              : '<span style="color:#b26500;font-weight:600;">— bin —</span>' },
-         'chart', 'calling', 'list',
-         { values: ['', 'SP', '1C', '2C', 'SPC', 'HC', ...Array.from({ length: 12 }, (_, i) => 'HC' + (i + 1)), 'SPC/HC', 'SPB', 'SPB/HC', 'N/A'] }),
+         'chart', 'calling', 'list', { values: SET_APART_ROUTES }),
       ed({ title: 'Add to LCR', field: 'add_to_lcr', minWidth: 170 }, 'chart', 'calling'),
       ed({ title: 'Secondary Approvers', field: 'secondary_approvers', minWidth: 205 },
          'chart', 'calling'),
@@ -1487,19 +1599,19 @@ const TABS = {
           return '<span style="color:' + tone + ';font-weight:600;">' + esc(v) + '</span>';
         } },
       edG({ title: 'Ward', field: 'ward', width: 122, headerFilter: 'list',
-            headerFilterParams: { valuesLookup: true, clearable: true } }, 'ordinations'),
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'ordinations', 'list', stakeWardList),
       edG({ title: 'Office', field: 'office', width: 118, headerFilter: 'list',
             headerFilterParams: { valuesLookup: true, clearable: true } }, 'ordinations',
           'list', { values: ['', 'Deacon', 'Teacher', 'Priest', 'Elder', 'High Priest'] }),
       edG({ title: 'Submitted By', field: 'submitted_by', minWidth: 145 }, 'ordinations'),
       edG({ title: 'Priority', field: 'urgency', width: 104 }, 'ordinations',
           'list', { values: ['', 'Standard', 'Urgent', 'Paused', 'Canceled'] }),
-      edG({ title: 'Bishop Interview', field: 'bishop_interview_date', width: 130 }, 'ordinations'),
-      edG({ title: 'Bishop Submitted', field: 'bishop_submission_date', width: 132 }, 'ordinations'),
+      edG({ title: 'Bishop Interview', field: 'bishop_interview_date', width: 130 }, 'ordinations', dateEditor),
+      edG({ title: 'Bishop Submitted', field: 'bishop_submission_date', width: 132 }, 'ordinations', dateEditor),
       // Free text, not a date: this column holds "HP Calling" as often as a date.
       edG({ title: 'Stake Interview', field: 'stake_interview_at', width: 130 }, 'ordinations'),
-      edG({ title: 'Anticipated Sustaining', field: 'anticipated_sustaining_date', width: 152 }, 'ordinations'),
-      edG({ title: 'Preferred Ordination', field: 'preferred_ordination_date', width: 150 }, 'ordinations'),
+      edG({ title: 'Anticipated Sustaining', field: 'anticipated_sustaining_date', width: 152 }, 'ordinations', dateEditor),
+      edG({ title: 'Preferred Ordination', field: 'preferred_ordination_date', width: 150 }, 'ordinations', dateEditor),
       // Read-only tally of the approver votes in cols L-Z. The workbook fills that block green
       // when every vote is in and every one is a sustain; here the cell itself goes green.
       { title: 'Sustains', field: 'votes', width: 96, hozAlign: 'center',
@@ -1516,9 +1628,9 @@ const TABS = {
       edG({ title: 'Added to SB', field: 'added_to_stake_business', width: 104, hozAlign: 'center',
             formatter: tickFormatter }, 'ordinations', 'tickCross'),
       edG({ title: 'Sustained', field: 'sustained', width: 116 }, 'ordinations'),
-      edG({ title: 'Date Ordained', field: 'ordained_at', width: 122 }, 'ordinations'),
+      edG({ title: 'Date Ordained', field: 'ordained_at', width: 122 }, 'ordinations', dateEditor),
       edG({ title: 'Ordainer', field: 'ordainer', minWidth: 155 , formatter: ordDetailFormatter }, 'ordinations'),
-      edG({ title: 'Ordainer Birthdate', field: 'ordainer_birthdate', width: 140 , formatter: ordDetailFormatter }, 'ordinations'),
+      edG({ title: 'Ordainer Birthdate', field: 'ordainer_birthdate', width: 140 , formatter: ordDetailFormatter }, 'ordinations', dateEditor),
       edG({ title: 'Ordainer MRN', field: 'ordainer_mrn', width: 140 , formatter: ordDetailFormatter }, 'ordinations'),
       edG({ title: 'Ordainer Office', field: 'ordainer_office', width: 132 }, 'ordinations',
           'list', { values: ['', 'Elder', 'High Priest'] }),
@@ -1532,7 +1644,7 @@ const TABS = {
             formatter: tickFormatter }, 'ordinations', 'tickCross'),
       edG({ title: 'Delivered', field: 'certificate_delivered', width: 98, hozAlign: 'center',
             formatter: tickFormatter }, 'ordinations', 'tickCross'),
-      edG({ title: 'Ratified', field: 'ratified', width: 110 }, 'ordinations'),
+      edG({ title: 'Ratified', field: 'ratified', width: 110 }, 'ordinations', dateEditor),
     ],
   },
 
@@ -1552,15 +1664,15 @@ const TABS = {
       edG({ title: 'Email', field: 'email', minWidth: 210 }, 'roster'),
       edG({ title: 'Phone', field: 'phone', width: 135 }, 'roster'),
       edG({ title: 'Ward', field: 'ward', width: 130, headerFilter: 'list',
-            headerFilterParams: { valuesLookup: true, clearable: true } }, 'roster'),
+            headerFilterParams: { valuesLookup: true, clearable: true } }, 'roster', 'list', stakeWardList),
       edG({ title: 'First Responsibility', field: 'first_responsibility', minWidth: 165 }, 'roster'),
       edG({ title: 'Second Responsibility', field: 'second_responsibility', minWidth: 165 }, 'roster'),
       edG({ title: 'Presidency', field: 'presidency', width: 130 }, 'roster'),
       edG({ title: 'Supervisor Slack ID', field: 'supervisor', minWidth: 160 }, 'roster'),
       edG({ title: 'Primary Notifications', field: 'primary_pref', width: 150 }, 'roster',
-          'list', { values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] }),
+          'list', { values: NOTIFY_PREFS }),
       edG({ title: "CC'd Notifications", field: 'cc_pref', width: 150 }, 'roster',
-          'list', { values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] }),
+          'list', { values: NOTIFY_PREFS }),
     ],
   },
 
@@ -1622,7 +1734,7 @@ const TABS = {
                   + (on ? 'TRUE' : 'FALSE') + '</span>';
               }
               return esc(v);
-            } }, 'settings'),
+            } }, 'settings', settingValueEditor),
       edG({ title: 'Link label', field: 'link_label', minWidth: 200 }, 'settings'),
       edG({ title: 'Link URL', field: 'link_url', minWidth: 380,
             formatter: c => {
@@ -2150,6 +2262,7 @@ async function load() {
     if (spec.addRow) addBtn.textContent = spec.addRow.label;
   }
   sbDocWatch(tab === 'business');
+  savePillWatch();
 
   const sf = document.getElementById('statusFilter');
   sf.hidden = !spec.statuses;
@@ -2279,17 +2392,15 @@ const ROW_FORMS = {
       { f: 'name', label: 'First & last name' },
       { f: 'title_name', label: 'Title name', hint: 'e.g. Bishop Powelson' },
       { f: 'slack_id', label: 'Slack user ID', hint: 'Starts with U' },
-      { f: 'ward', label: 'Ward', list: true, hint: 'Needs a number, e.g. 25th Ward' },
+      { f: 'ward', label: 'Ward', values: [''].concat(STAKE_WARDS), hint: 'Blank for a stake-level calling' },
       { f: 'email', label: 'Email' },
       { f: 'phone', label: 'Phone' },
       { f: 'first_responsibility', label: 'First responsibility', list: true },
       { f: 'second_responsibility', label: 'Second responsibility', list: true },
       { f: 'presidency', label: 'Presidency', list: true },
       { f: 'supervisor', label: 'Supervisor Slack ID' },
-      { f: 'primary_pref', label: 'Primary notifications',
-        values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] },
-      { f: 'cc_pref', label: "CC'd notifications",
-        values: ['', 'Immediately', 'Hourly', 'Daily', 'None'] },
+      { f: 'primary_pref', label: 'Primary notifications', values: NOTIFY_PREFS },
+      { f: 'cc_pref', label: "CC'd notifications", values: NOTIFY_PREFS },
     ],
   },
   chart: {
@@ -2302,13 +2413,15 @@ const ROW_FORMS = {
     fields: [
       { f: 'calling', label: 'Calling', req: true, wide: true,
         hint: 'Must be unique — this name is the key every other sheet refers to' },
-      { f: 'approval_level', label: 'Approval level', list: true },
-      { f: 'sustaining_body', label: 'Sustaining body', list: true },
+      { f: 'approval_level', label: 'Approval level', values: APPROVAL_LEVELS },
+      { f: 'sustaining_body', label: 'Sustained by', values: SUSTAINING_BODIES },
       { f: 'recommended_by', label: 'Recommended by', list: true },
       { f: 'approved_by', label: 'Approved by', list: true },
-      { f: 'extend_routing', label: 'Extended by', list: true },
-      { f: 'set_apart_routing', label: 'Set apart by', list: true },
-      { f: 'conducts_sustaining', label: 'Conducts sustaining', list: true },
+      { f: 'extend_routing', label: 'Extended by (col Q)', values: EXTEND_ROUTES,
+        hint: 'Blank routes the extend task to the bin' },
+      { f: 'set_apart_routing', label: 'Set apart by (col T)', values: SET_APART_ROUTES,
+        hint: 'Blank routes the setting apart to the bin' },
+      { f: 'conducts_sustaining', label: 'Conducts sustaining', values: CONDUCTS_OPTIONS },
       { f: 'can_be_submitted_by', label: 'Can be submitted by', list: true },
       { f: 'sustaining_title', label: 'Sustaining title', wide: true,
         hint: 'How it is read aloud, if that differs from the calling name' },
@@ -2420,6 +2533,66 @@ function closeRowForm() {
   const m = document.getElementById('rowFormModal');
   if (m) m.remove();
   formKey = null;
+}
+
+// ── Are my edits saved yet? (2026-11-08) ─────────────────────────────────────────────────
+// A queued edit reaches the sheet ~10s after the cell turns green. Until then — and if Apps Script
+// gives up on it — nothing said so. This pill asks Postgres (my_pending_edits, 0166) for this
+// person's unapplied edits: "Saving N edits…" while any wait, "✓ Saved" for a moment once they land,
+// and a red "could not be saved" with the reason if one failed. Polls every 5s while something is
+// outstanding, every 30s otherwise. On the Stake Business tab the document pill already counts the
+// edits it is waiting on, so this one only speaks up there for a failure.
+let _savePillTimer = null, _savePillHad = false, _savePillOkT = null;
+function savePillWatch() {
+  clearTimeout(_savePillTimer); _savePillTimer = null;
+  pollSavePill();
+}
+function savePillKick() { clearTimeout(_savePillTimer); _savePillTimer = setTimeout(pollSavePill, 1500); }
+async function pollSavePill() {
+  clearTimeout(_savePillTimer);
+  let d = null;
+  if (!DEMO && USER_ID) {
+    try {
+      const token = await ensureP2Token();
+      if (token) {
+        const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/my_pending_edits', {
+          method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_slack_id: USER_ID, p_token: token })
+        });
+        if (r.ok) { const j = await r.json(); if (j && j.success) d = j; }
+      }
+    } catch (e) { d = null; }
+  }
+  renderSavePill(d);
+  const busy = d && (d.pending > 0 || d.failed > 0) || Object.keys(pendingEdits()).length > 0;
+  _savePillTimer = setTimeout(pollSavePill, busy ? 5000 : 30000);
+}
+function renderSavePill(d) {
+  const pill = document.getElementById('savePill');
+  if (!pill) return;
+  if (!d) { pill.hidden = true; return; }
+  const n = d.pending || 0, f = d.failed || 0;
+  if (f > 0) {
+    const why = String(d.lastError || '').replace(/\s+/g, ' ').trim();
+    pill.textContent = '⚠️ ' + f + ' edit' + (f === 1 ? '' : 's') + ' could not be saved'
+      + (why ? ' — ' + (why.length > 90 ? why.slice(0, 88) + '…' : why) : '') + '. Reload and try again.';
+    pill.title = why || '';
+    pill.className = 'docstate fail'; pill.hidden = false; _savePillHad = true; return;
+  }
+  pill.title = '';
+  if (n > 0) {
+    if (tab === 'business') { pill.hidden = true; _savePillHad = true; return; }   // the document pill says it
+    pill.textContent = '💾 Saving ' + n + ' edit' + (n === 1 ? '' : 's') + '…';
+    pill.className = 'docstate busy'; pill.hidden = false; _savePillHad = true; return;
+  }
+  if (_savePillHad && tab !== 'business') {
+    _savePillHad = false;
+    pill.textContent = '✓ Saved to the sheet'; pill.className = 'docstate ok'; pill.hidden = false;
+    clearTimeout(_savePillOkT); _savePillOkT = setTimeout(() => { pill.hidden = true; }, 3500);
+    return;
+  }
+  _savePillHad = false;
+  pill.hidden = true;
 }
 
 // ── Is the Stake Business document updating? (2026-11-08) ─────────────────────────────────
