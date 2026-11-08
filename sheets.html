@@ -60,6 +60,10 @@
   button:hover{background:#f2f4f6}
   button:disabled{opacity:.5;cursor:default}
   .meta{font-size:12px;color:#777;margin-left:auto;font-variant-numeric:tabular-nums}
+  .docstate{font-size:12px;color:#5b6270;background:#eef1f6;border-radius:999px;padding:3px 10px;white-space:nowrap}
+  .docstate.busy{background:#fff3cd;color:#7a4d00}
+  .docstate a{color:inherit}
+  .sheetform input[type=date]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid #ccd1d6;border-radius:5px}
   /* "?" help — the same control and popover as the dashboard's section help. */
   .help-btn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
     border-radius:50%;background:#e2e5e9;color:#555;font-size:12px;font-weight:700;cursor:pointer;
@@ -234,6 +238,8 @@
     <div class="colpanel" id="colPanel" hidden></div>
   </span>
   <button onclick="addRowClick()" id="addRowBtn" hidden>＋ Add row</button>
+  <button onclick="refreshSbDoc()" id="sbDocBtn" hidden title="Regenerate the coming Sunday's Stake Business document now">📄 Update Stake Business document</button>
+  <span class="docstate" id="sbDocState" hidden></span>
   <button onclick="reload()" id="reloadBtn">↻ Refresh</button>
   <span class="meta" id="meta"></span>
 </div>
@@ -1308,7 +1314,7 @@ const TABS = {
   // STAKE sustaining, and ward-level rows barely use them (13 of 147 on 2026-09-16). It comes
   // from Calling Approvals col AO, or the Priesthood Ordinations sheet for an "Ordain" row.
   business: {
-    label: '📅 Stake Business', api: 'sbQueue', key: 'rowId', addRow: { label: '＋ Add row', run: addBusinessRow },
+    label: '📅 Stake Business', api: 'sbQueue', key: 'rowId', addRow: { label: '＋ Add row', run: () => openRowForm('business') },
     groupBy: '_group',
     // Each group's header links that group's Stake Business documents, one per Sunday (2026-10-18).
     groupHeader: (value, count, data) => {
@@ -2143,6 +2149,7 @@ async function load() {
     addBtn.hidden = !spec.addRow;
     if (spec.addRow) addBtn.textContent = spec.addRow.label;
   }
+  sbDocWatch(tab === 'business');
 
   const sf = document.getElementById('statusFilter');
   sf.hidden = !spec.statuses;
@@ -2226,60 +2233,40 @@ async function load() {
 // Add a row straight to the Stake Business sheet. This bypasses the approval pipeline — there
 // is no Calling Approvals row behind it — so it asks first and says so plainly. It is for
 // corrections and genuine one-offs; the recommendation form is the normal route.
-async function addBusinessRow() {
-  if (DEMO) { toast('Demo — nothing is saved'); return; }
-  if (!USER_ID) { toast('No user — reopen this window from the dashboard', 'err'); return; }
-
-  const member = prompt('Who is this for?  (full name)');
-  if (!member) return;
-  const calling = prompt('Which calling?');
-  if (!calling) return;
-  const action = prompt('Action — Sustain, Release, Ordain, or Sustain & Ordain', 'Sustain');
-  if (!action) return;
-  const ward = prompt('Ward  (blank for a stake-wide item)', '') || '';
-  const where = (prompt('Read in one ward or every ward?  Ward / Stake / None',
-                        ward ? 'Ward' : 'Stake') || 'Ward');
-  const date = prompt('Stake business date  (yyyy-mm-dd, blank = the next one)', '') || '';
-
-  if (!confirm(
-      'Add ' + member + ' — ' + calling + ' (' + action + ')?\n\n'
-    + 'This goes straight onto the Sunday agenda and does NOT go through the approval '
-    + 'pipeline, so there will be no Calling Approvals row behind it.')) return;
-
-  const btn = document.getElementById('addRowBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
-  try {
-    // `action` is the route; the row's own action travels as `rowAction`.
-    const params = new URLSearchParams({
-      action: 'sbAddRow', userId: USER_ID,
-      member: member, calling: calling, rowAction: action,
-      ward: ward, where_: where, meeting_date: date
-    });
-    const data = await apiJson(API_URL + '?' + params.toString());
-    if (!data || data.success === false) throw new Error((data && data.error) || 'refused');
-    markGridsStale();   // stored grids no longer reflect the sheet
-    markGridsStale(); toast('Added to the agenda');
-    load();
-  } catch (e) {
-    toast('Not added: ' + (e.message || e), 'err');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '＋ Add row'; }
-  }
-}
-
 // ── Adding and removing rows ──────────────────────────────────────────────
 // Three routes do all of this: gridAddRow, gridDeleteRow and settingsLink. The form below is
 // generic — each grid supplies a field list and the fixed params its route needs.
 //
 // Why a form and not a chain of prompt() boxes: a roster person is thirteen fields. Thirteen
 // prompts cannot be reviewed before they commit and cannot be corrected halfway through, and
-// the roster is the sheet most bugs have traced back to. Stake Business keeps its prompts —
-// it asks four questions and carries a warning that wants reading on its own.
+// the roster is the sheet most bugs have traced back to. Stake Business used prompts until
+// 2026-11-08 ("pretty clunky"); it is a form with dropdowns now, like the others.
 
-// A field: { f, label, hint, req, wide, values, list }
+// A field: { f, label, hint, req, wide, values, list, options, type }
 //   values → a fixed <select>;  list → suggestions drawn from the rows already loaded, so
-//   the options are whatever the sheet actually uses rather than something guessed here.
+//   the options are whatever the sheet actually uses rather than something guessed here;
+//   options → an async function adding more suggestions (e.g. the Callings Chart);
+//   type → the <input> type when not text (e.g. 'date').
 const ROW_FORMS = {
+  business: {
+    title: 'Add a row to the Sunday agenda',
+    sub: 'This goes straight onto the <b>Stake Business</b> sheet for that Sunday and does '
+       + '<b>not</b> go through the approval pipeline — there will be no Calling Approvals row '
+       + 'behind it. Use it for business that was handled outside the dashboard.',
+    route: { action: 'sbAddRow' },
+    fields: [
+      { f: 'member', label: 'Member', req: true, wide: true, hint: 'Full name, as it should be read' },
+      { f: 'calling', label: 'Calling', req: true, wide: true, list: true, options: chartCallingNames,
+        hint: 'Pick from the Callings Chart, or type one' },
+      { f: 'rowAction', label: 'Action', values: ['Sustain', 'Release', 'Ordain', 'Sustain & Ordain'] },
+      { f: 'where_', label: 'Read in', values: ['Ward', 'Stake', 'None'],
+        hint: 'Ward: that ward only · Stake: every ward · None: not read' },
+      { f: 'ward', label: 'Ward', values: [''].concat(STAKE_WARDS), hint: 'Blank for a stake-wide item' },
+      { f: 'gender', label: 'Gender', values: ['', 'Male', 'Female'] },
+      { f: 'meeting_date', label: 'Stake business date', type: 'date', hint: 'Blank = the next stake business Sunday' },
+    ],
+  },
+
   roster: {
     title: 'Add someone to the roster',
     sub: 'This appends a row to <b>Stake Callings</b>. Only the calling is required — anything '
@@ -2347,6 +2334,15 @@ function addRowClick() {
   if (spec && spec.addRow && spec.addRow.run) spec.addRow.run();
 }
 
+/** Every calling on the Callings Chart, for the agenda form's dropdown (Postgres; [] if unavailable). */
+async function chartCallingNames() {
+  try {
+    const p = await gridsFromPostgres();
+    const rows = p && p.grid_chart && p.grid_chart.rows;
+    return (rows || []).map(r => String(r.calling || '').trim()).filter(Boolean);
+  } catch (e) { return []; }
+}
+
 /** Distinct non-empty values for a field among the rows currently loaded. */
 function suggestionsFor(field) {
   if (!grid) return [];
@@ -2360,12 +2356,18 @@ function suggestionsFor(field) {
   return [...seen].sort((a, b) => a.localeCompare(b)).slice(0, 300);
 }
 
-function openRowForm(key) {
+async function openRowForm(key) {
   if (DEMO) { toast('Demo — nothing is saved'); return; }
   if (!USER_ID) { toast('No user — reopen this window from the dashboard', 'err'); return; }
   const spec = ROW_FORMS[key];
   if (!spec) return;
   formKey = key;
+
+  const extra = {};
+  for (const fl of spec.fields) {
+    if (fl.options) { try { extra[fl.f] = await fl.options(); } catch (e) { extra[fl.f] = []; } }
+  }
+  if (formKey !== key) return;   // closed or switched while the options loaded
 
   const body = spec.fields.map(fl => {
     const id = 'ff_' + fl.f;
@@ -2374,12 +2376,13 @@ function openRowForm(key) {
       input = `<select id="${id}">` + fl.values.map(v =>
         `<option value="${esc(v)}">${esc(v || '—')}</option>`).join('') + '</select>';
     } else if (fl.list) {
-      const opts = suggestionsFor(fl.f);
+      const seen = new Set((extra[fl.f] || []).concat(suggestionsFor(fl.f)));
+      const opts = [...seen].sort((a, b) => a.localeCompare(b));
       input = `<input type="text" id="${id}" list="dl_${fl.f}" autocomplete="off">`
         + `<datalist id="dl_${fl.f}">`
         + opts.map(v => `<option value="${esc(v)}"></option>`).join('') + '</datalist>';
     } else {
-      input = `<input type="text" id="${id}" autocomplete="off">`;
+      input = `<input type="${esc(fl.type || 'text')}" id="${id}" autocomplete="off">`;
     }
     return `<label class="${fl.wide ? 'wide' : ''}">`
       + esc(fl.label) + (fl.req ? ' <span class="req">*</span>' : '')
@@ -2417,6 +2420,74 @@ function closeRowForm() {
   const m = document.getElementById('rowFormModal');
   if (m) m.remove();
   formKey = null;
+}
+
+// ── Is the Stake Business document updating? (2026-11-08) ─────────────────────────────────
+// Edits regenerate the Sunday document once they go quiet (30s). Apps Script reports where that
+// stands (sb_doc_state, 0165); the Stake Business tab polls it and shows a small pill, and greys the
+// manual "Update document" button while a run is going.
+let _sbDocTimer = null, _sbDocBusy = false;
+function sbDocWatch(on) {
+  clearInterval(_sbDocTimer); _sbDocTimer = null;
+  const btn = document.getElementById('sbDocBtn'), pill = document.getElementById('sbDocState');
+  if (!on) { if (btn) btn.hidden = true; if (pill) pill.hidden = true; return; }
+  if (btn) btn.hidden = false;
+  pollSbDocState();
+  _sbDocTimer = setInterval(pollSbDocState, 10000);
+}
+async function pollSbDocState() {
+  if (DEMO) { renderSbDocState({ state: 'idle', finishedAt: new Date(Date.now() - 5 * 60000).toISOString(), pendingEdits: 0 }); return; }
+  try {
+    const token = await ensureP2Token();
+    if (!token) return;
+    const r = await fetch(SUPABASE_URL + '/rest/v1/rpc/sb_doc_state', {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_slack_id: USER_ID, p_token: token })
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d && d.success) renderSbDocState(d);
+  } catch (e) { /* the pill simply does not update */ }
+}
+function renderSbDocState(d) {
+  const btn = document.getElementById('sbDocBtn'), pill = document.getElementById('sbDocState');
+  if (!pill || !btn) return;
+  const busy = _sbDocBusy || d.state === 'running';
+  btn.disabled = busy;
+  btn.textContent = busy ? '⏳ Updating Stake Business document…' : '📄 Update Stake Business document';
+  let text = '';
+  if (d.state === 'running') text = '⏳ Updating the Stake Business document…';
+  else if (d.state === 'scheduled') {
+    const secs = d.after ? Math.max(0, Math.round((new Date(d.after) - new Date(d.now || Date.now())) / 1000)) : 0;
+    text = '⏳ Document update ' + (secs > 5 ? 'in about ' + secs + 's' : 'starting shortly') + ' (waiting for edits to settle)';
+  } else if (d.pendingEdits > 0) text = '💾 Saving ' + d.pendingEdits + ' edit' + (d.pendingEdits === 1 ? '' : 's') + '…';
+  else if (d.finishedAt) {
+    const mins = Math.round((Date.now() - new Date(d.finishedAt)) / 60000);
+    if (mins < 180) text = '✓ Document updated ' + (mins < 1 ? 'just now' : mins + ' min ago')
+      + (d.docUrl ? ' · <a href="' + esc(d.docUrl) + '" target="_blank" rel="noopener">open</a>' : '');
+  }
+  pill.hidden = !text;
+  pill.className = 'docstate' + (d.state === 'running' || d.state === 'scheduled' || d.pendingEdits > 0 ? ' busy' : '');
+  pill.innerHTML = text;
+}
+async function refreshSbDoc() {
+  if (DEMO) { toast('Demo — nothing is generated'); return; }
+  if (!USER_ID) { toast('No user — reopen this window from the dashboard', 'err'); return; }
+  if (_sbDocBusy) return;
+  _sbDocBusy = true;
+  renderSbDocState({ state: 'running' });
+  try {
+    const d = await apiJson(API_URL + '?' + new URLSearchParams({ action: 'sbDocRefresh', userId: USER_ID }).toString());
+    if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+    toast(d.message || 'Stake Business document updated');
+    markGridsStale();
+    load();
+  } catch (e) {
+    toast('Not updated: ' + (e.message || e), 'err');
+  } finally {
+    _sbDocBusy = false;
+    pollSbDocState();
+  }
 }
 
 async function submitRowForm() {
