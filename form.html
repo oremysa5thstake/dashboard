@@ -73,6 +73,23 @@
     .review-label { color: #666; font-size: 14px; }
     .review-value { font-weight: 500; color: #333; text-align: right; }
     @media (max-width: 600px) { body { padding: 10px; } .container { padding: 20px; } .review-item { flex-direction: column; } .review-value { text-align: left; margin-top: 4px; } }
+    /* Type-to-filter calling picker (2026-11-16). The <select> stays in the page as the value every
+       other piece of the form reads; this is a text box and a list laid over it. */
+    select.fp-src { display: none !important; }
+    .fp { position: relative; width: 100%; }
+    .fp-input { padding-right: 38px !important; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23666' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 14px center; }
+    .fp-list { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 50; background: #fff;
+               border: 2px solid #2d5a87; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18);
+               max-height: min(340px, 45vh); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .fp-item { padding: 12px; font-size: 16px; line-height: 1.3; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+    .fp-item:last-child { border-bottom: 0; }
+    .fp-item.hi, .fp-item:hover { background: #e8f0f8; }
+    .fp-item.sel { font-weight: 700; color: #1e3a5f; }
+    .fp-item.off { color: #999; cursor: default; background: #fafafa; font-size: 14px; }
+    .fp-item b { font-weight: 700; text-decoration: underline; text-decoration-color: #9db8d6; }
+    .fp-none { padding: 12px; font-size: 14px; color: #777; }
+    .fp-count { padding: 6px 12px; font-size: 12px; color: #888; background: #f7f9fb; border-bottom: 1px solid #eee;
+                position: sticky; top: 0; }
   </style>
 </head>
 <body>
@@ -1117,6 +1134,7 @@
       x.style.cssText = 'padding:6px 10px;';
       x.onclick = function () { row.remove(); onExtraCallingsChange(); };
       row.appendChild(sel); row.appendChild(x); wrap.appendChild(row);
+      filterPicker(sel);   // same type-to-filter box as the first calling
       onExtraCallingsChange();
     }
     function onExtraCallingsChange() {
@@ -1955,6 +1973,146 @@
         if (el) el.addEventListener('change', function () { dupRender('memberName'); dupRender('releaseeName'); });
       });
     })();
+
+    // ── Type-to-filter picker for the long calling lists (2026-11-16) ───────────────────────
+    // A native <select> only JUMPS to an option as you type, and on a phone it is a wheel of
+    // fifty-odd callings. This lays a text box over the select: typing narrows the list to the
+    // callings containing every word typed, in any order ("relief sec" finds Stake Relief Society
+    // Secretary). The select itself stays in the page, hidden, and remains the single value the
+    // rest of the form reads, validates, saves in a draft and restores — choosing here sets it and
+    // fires its normal change event, so nothing else had to change.
+    function filterPicker(sel) {
+      if (!sel || sel._fp) return;
+      var wrap = document.createElement('div'); wrap.className = 'fp';
+      if (sel.style.flex) wrap.style.flex = sel.style.flex;
+      var input = document.createElement('input');
+      input.type = 'text'; input.className = 'fp-input';       // no id on purpose: drafts snapshot inputs by id
+      input.setAttribute('autocomplete', 'off'); input.setAttribute('autocorrect', 'off');
+      input.setAttribute('autocapitalize', 'off'); input.setAttribute('spellcheck', 'false');
+      input.setAttribute('enterkeyhint', 'done'); input.setAttribute('role', 'combobox');
+      input.setAttribute('aria-autocomplete', 'list'); input.setAttribute('aria-expanded', 'false');
+      var list = document.createElement('div'); list.className = 'fp-list'; list.hidden = true;
+      list.setAttribute('role', 'listbox');
+      wrap.appendChild(input); wrap.appendChild(list);
+      sel.parentNode.insertBefore(wrap, sel.nextSibling);
+      sel.classList.add('fp-src'); sel._fp = wrap;
+      var lab = sel.id && document.querySelector('label[for="' + sel.id + '"]');
+      if (lab) { input.setAttribute('aria-label', lab.textContent.trim()); lab.addEventListener('click', function (e) { e.preventDefault(); input.focus(); }); }
+
+      var open = false, hi = -1, shown = [], typed = false;
+      function escH(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+      function opts() { return Array.prototype.slice.call(sel.options); }
+      function placeholderText() { var o = sel.options[0]; return (o && o.value === '') ? o.text.replace(/\.\.\.$/, '') + ' — type to search' : 'Type to search'; }
+      function currentText() { var o = sel.options[sel.selectedIndex]; return (o && o.value !== '') ? o.text : ''; }
+      // Show what the select holds. Called whenever the select changes underneath (options rebuilt,
+      // a draft restored, the form reset) — but never while the person is typing in the box.
+      function sync() { input.placeholder = placeholderText(); if (!open) input.value = currentText(); }
+      function words() { return typed ? input.value.toLowerCase().split(/\s+/).filter(Boolean) : []; }
+      function mark(text, ws) {
+        if (!ws.length) return escH(text);
+        var lower = text.toLowerCase(), hit = new Array(text.length), i, j, k;
+        ws.forEach(function (w) { for (j = lower.indexOf(w); j !== -1; j = lower.indexOf(w, j + 1)) for (k = 0; k < w.length; k++) hit[j + k] = true; });
+        var out = '', on = false;
+        for (i = 0; i < text.length; i++) {
+          if (!!hit[i] !== on) { out += on ? '</b>' : '<b>'; on = !on; }
+          out += escH(text.charAt(i));
+        }
+        return out + (on ? '</b>' : '');
+      }
+      function render() {
+        var ws = words(), all = opts().filter(function (o) { return o.value !== '' || o.disabled; });
+        var real = all.filter(function (o) { return !o.disabled; });
+        shown = all.filter(function (o) {
+          if (o.disabled) return !ws.length;                   // notes ("Bishop — not submitted here") only in the full list
+          var t = o.text.toLowerCase();
+          return ws.every(function (w) { return t.indexOf(w) !== -1; });
+        });
+        var pick = shown.filter(function (o) { return !o.disabled; });
+        if (hi >= pick.length) hi = pick.length - 1;
+        if (ws.length && hi < 0 && pick.length) hi = 0;        // Enter takes the first match
+        var n = 0, html = '';
+        if (ws.length && pick.length) html += '<div class="fp-count">' + pick.length + ' of ' + real.length + ' callings</div>';
+        shown.forEach(function (o) {
+          if (o.disabled) { html += '<div class="fp-item off">' + escH(o.text) + '</div>'; return; }
+          html += '<div class="fp-item' + (n === hi ? ' hi' : '') + (o.value === sel.value ? ' sel' : '')
+            + '" role="option" data-i="' + n + '">' + mark(o.text, ws) + '</div>';
+          n++;
+        });
+        if (!pick.length) html += '<div class="fp-none">' + (real.length
+          ? 'No calling matches “' + escH(input.value.trim()) + '”. Try fewer letters.'
+          : 'No callings to choose from yet.') + '</div>';
+        list.innerHTML = html;
+        var h = list.querySelector('.fp-item.hi');
+        if (h && h.scrollIntoView) { try { h.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+      }
+      function show() {
+        if (open) return;
+        open = true; typed = false; hi = -1; list.hidden = false; input.setAttribute('aria-expanded', 'true');
+        render();
+        var s2 = list.querySelector('.fp-item.sel');
+        if (s2) { try { s2.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+      }
+      function hide() { open = false; typed = false; list.hidden = true; input.setAttribute('aria-expanded', 'false'); sync(); }
+      function choose(o) {
+        var changed = sel.value !== o.value;
+        sel.value = o.value;
+        hide();
+        if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      function pickable() { return shown.filter(function (o) { return !o.disabled; }); }
+
+      input.addEventListener('focus', function () {
+        show();
+        try { input.select(); } catch (e) {}
+        // On a phone the keyboard takes half the screen: bring the box to the top so the list shows.
+        if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+          setTimeout(function () { try { wrap.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }, 300);
+        }
+      });
+      input.addEventListener('click', show);
+      input.addEventListener('input', function () { open || show(); typed = true; hi = -1; render(); });
+      input.addEventListener('keydown', function (e) {
+        var p = pickable();
+        if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { show(); return; } hi = Math.min(p.length - 1, hi + 1); render(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(0, hi - 1); render(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (open && p[hi]) { choose(p[hi]); input.blur(); } }
+        else if (e.key === 'Escape') { if (open) { e.preventDefault(); hide(); } }
+      });
+      // Leaving the box: an exact name typed out counts as choosing it; an emptied box clears the
+      // choice; anything else goes back to what was chosen before.
+      input.addEventListener('blur', function () {
+        setTimeout(function () {
+          if (!open) return;
+          var t = input.value.trim().toLowerCase();
+          var exact = typed && t ? opts().filter(function (o) { return !o.disabled && o.value !== '' && o.text.trim().toLowerCase() === t; })[0] : null;
+          if (exact) { choose(exact); return; }
+          if (typed && !t && sel.value !== '') { sel.value = ''; hide(); sel.dispatchEvent(new Event('change', { bubbles: true })); return; }
+          hide();
+        }, 150);
+      });
+      // mousedown, not click: keep the focus in the box so the blur above does not close the list
+      // before the tap lands. (Touch fires it too.)
+      list.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      list.addEventListener('click', function (e) {
+        var it = e.target.closest ? e.target.closest('.fp-item') : null;
+        if (!it || it.classList.contains('off')) return;
+        var o = pickable()[+it.getAttribute('data-i')];
+        if (o) { choose(o); input.blur(); }
+      });
+
+      // The form sets these selects from code in several places (rebuilding the list for a role,
+      // restoring a draft, resetting). Watch both routes so the box always shows the truth.
+      ['value', 'selectedIndex'].forEach(function (prop) {
+        var d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, prop);
+        if (!d || !d.set) return;
+        Object.defineProperty(sel, prop, { configurable: true, enumerable: true,
+          get: function () { return d.get.call(this); },
+          set: function (v) { d.set.call(this, v); sync(); if (open) render(); } });
+      });
+      if (window.MutationObserver) new MutationObserver(function () { sync(); if (open) render(); }).observe(sel, { childList: true });
+      sync();
+    }
+    ['callingSelection', 'secondaryReleaseCalling'].forEach(function (id) { filterPicker(document.getElementById(id)); });
   </script>
 </body>
 </html>
