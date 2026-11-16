@@ -313,7 +313,8 @@ function toast(msg, kind) {
   t.textContent = msg;
   t.className = 'toast show' + (kind ? ' ' + kind : '');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { t.className = 'toast'; }, 3200);
+  // Long messages (a rename's summary, a refusal with its reason) stay up long enough to read.
+  toast._t = setTimeout(() => { t.className = 'toast'; }, Math.min(15000, Math.max(3200, String(msg || '').length * 55)));
 }
 
 // Reads one of the two views Sheet Views uses, through clerk_view_rows (0110): session-checked and
@@ -667,6 +668,11 @@ function gridValidate(gridName, field, value, row) {
     if (dup) return 'That Slack ID is already on the roster for ' + (dup.name || dup.calling);
   }
   if (gridName === 'roster' && field === 'ward' && v && !/\d/.test(v)) return 'A ward needs a number in it, e.g. "25th Ward": ' + v;
+  if (gridName === 'chart' && field === 'calling') {
+    if (!v) return 'A calling needs a name. To take it off the chart, use the ✕ at the start of its row.';
+    const same = grid ? grid.getData().filter(r => String(r.calling || '').trim().toLowerCase() === v.toLowerCase()).length : 0;
+    if (same > 1) return '"' + v + '" is already on the chart.';
+  }
   if (gridName === 'varsity' && field === 'geographic_ward' && v && VARSITY_WARDS.indexOf(v) === -1)
     return 'Not one of the 12 geographic wards: ' + v;
   return '';
@@ -721,6 +727,7 @@ async function queueGridEdit(params, action) {
 }
 
 async function saveCell(cell, gridName, keyField, beforeValue) {
+  if (_quietSet) return;   // a value put back by code, not an edit (see setQuietly)
   const row = cell.getRow().getData();
   const field = cell.getField();
   const before = beforeValue !== undefined ? beforeValue : cell.getOldValue();
@@ -731,10 +738,16 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
     return;
   }
   if (!USER_ID) {
-    cell.setValue(before, true);
+    setQuietly(cell, before);
     toast('No user — reopen this window from the dashboard', 'err');
     return;
   }
+  // Checked here as well as on the server: a refusal comes back at once instead of after the trip.
+  const bad = gridValidate(gridName, field, cell.getValue(), row);
+  if (bad) { setQuietly(cell, before); toast(bad, 'err'); return; }
+  // Editing the key column itself (a calling's name on the chart): the row is still filed under
+  // the OLD value on the sheet, and the cell already shows the new one.
+  const rowKeyNow = String((field === keyField ? before : row[keyField]) ?? '');
   if (el) el.style.outline = '2px solid #f0b429';
   // Status and Priority on Callings go through the dashboard's pause/cancel handler, which also
   // tidies Stake Business and syncs the database before answering — 15-30s. Without a message the
@@ -751,7 +764,7 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
   // value at once; Apps Script writes it to the sheet ~10s later, with the same checks and undo
   // entry. Edits whose result the grid shows (or that must be checked first) stay direct.
   if (!slowEdit && !GRID_DIRECT[gridName + '.' + field]) {
-    const queued = await queueGridEdit({ grid: gridName, rowKey: String(row[keyField] ?? ''), field: field,
+    const queued = await queueGridEdit({ grid: gridName, rowKey: rowKeyNow, field: field,
       value: cell.getValue() === null || cell.getValue() === undefined ? '' : cell.getValue() });
     if (queued) {
       markGridsStale();
@@ -770,7 +783,7 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
   try {
     const params = new URLSearchParams({
       action: 'updateGridCell', userId: USER_ID, grid: gridName,
-      rowKey: String(row[keyField] ?? ''), field: field,
+      rowKey: rowKeyNow, field: field,
       value: cell.getValue() === null || cell.getValue() === undefined ? '' : cell.getValue()
     });
     const res = await fetch(API_URL + '?' + params.toString());
@@ -784,7 +797,7 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
     }
     // The server says what the cell should now read (pause/cancel/resume and priority edits are
     // routed through the dashboard's handler, not written raw).
-    if (data.display !== undefined) cell.setValue(data.display, true);
+    if (data.display !== undefined) setQuietly(cell, data.display);
     // Hold and Sched. Stake Bus. are the same sheet cell (col AM) — keep the two columns in step.
     // Linked release requests held along with this one — mark them now rather than on reload.
     if (gridName === 'callings' && field === 'held' && Array.isArray(data.alsoHeld) && grid) {
@@ -809,10 +822,20 @@ async function saveCell(cell, gridName, keyField, beforeValue) {
         : 'Saved to the sheet, but the database mirror failed.', 'warn');
     }
   } catch (e) {
-    cell.setValue(before, true);            // the sheet did not change; do not pretend it did
+    setQuietly(cell, before);            // the sheet did not change; do not pretend it did
     if (el) el.style.outline = '';
     toast('Not saved: ' + (e.message || e), 'err');
   }
+}
+
+// Putting a value into a cell from code (reverting a refused edit, showing what the server stored)
+// fires Tabulator's cellEdited like a keystroke would. Until 2026-11-16 that meant every refused
+// edit was followed by a second save of the OLD value — an extra write, and on a key column a save
+// aimed at the wrong row. The savers below return at once while this is non-zero.
+let _quietSet = 0;
+function setQuietly(cell, value) {
+  _quietSet++;
+  try { cell.setValue(value, true); } finally { _quietSet--; }
 }
 
 function toggleHold(cell) {
@@ -846,6 +869,7 @@ function toggleHold(cell) {
 // (sbUpdateCell), its own key (col R "Row ID" rather than a timestamp), and a wider audience —
 // the stake presidency may edit here, which they may not on the Calling Approvals grid.
 async function saveBusinessCell(cell) {
+  if (_quietSet) return;   // a value put back by code, not an edit (see setQuietly)
   const row = cell.getRow().getData();
   const field = cell.getField();
   const before = cell.getOldValue();
@@ -853,7 +877,7 @@ async function saveBusinessCell(cell) {
 
   if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
   if (!USER_ID) {
-    cell.setValue(before, true);
+    setQuietly(cell, before);
     toast('No user — reopen this window from the dashboard', 'err');
     return;
   }
@@ -885,7 +909,7 @@ async function saveBusinessCell(cell) {
     // Sustained-ness can change with the row, so the grouping may be stale now.
     if (field === 'meeting_date' || field === 'where_') scheduleRegroup();
   } catch (e) {
-    cell.setValue(before, true);          // the sheet did not change; do not pretend it did
+    setQuietly(cell, before);          // the sheet did not change; do not pretend it did
     if (el) el.style.outline = '';
     toast('Not saved: ' + (e.message || e), 'err');
   }
@@ -895,6 +919,7 @@ async function saveBusinessCell(cell) {
 // grids — updateGridCell — but the row key comes from the sheet read, and `expect` guards a
 // row-number key against somebody inserting a row since the grid loaded.
 async function saveGridCell(cell, gridName) {
+  if (_quietSet) return;   // a value put back by code, not an edit (see setQuietly)
   const row = cell.getRow().getData();
   const field = cell.getField();
   const before = cell.getOldValue();
@@ -902,13 +927,13 @@ async function saveGridCell(cell, gridName) {
 
   if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
   if (!USER_ID) {
-    cell.setValue(before, true);
+    setQuietly(cell, before);
     toast('No user — reopen this window from the dashboard', 'err');
     return;
   }
   const bad = gridValidate(gridName, field, cell.getValue(), row);
-  if (bad) { cell.setValue(before, true); toast(bad, 'err'); return; }
-  if (gridName === 'roster' && field === 'slack_id' && cell.getValue()) cell.setValue(String(cell.getValue()).trim().toUpperCase(), true);
+  if (bad) { setQuietly(cell, before); toast(bad, 'err'); return; }
+  if (gridName === 'roster' && field === 'slack_id' && cell.getValue()) setQuietly(cell, String(cell.getValue()).trim().toUpperCase());
   const _editT0 = performance.now();
   if (el) el.style.outline = '2px solid #f0b429';
   try {
@@ -938,7 +963,7 @@ async function saveGridCell(cell, gridName) {
       setTimeout(() => { el.style.outline = ''; }, 900);
     }
   } catch (e) {
-    cell.setValue(before, true);          // the sheet did not change; do not pretend it did
+    setQuietly(cell, before);          // the sheet did not change; do not pretend it did
     if (el) el.style.outline = '';
     toast('Not saved: ' + (e.message || e), 'err');
   }
@@ -992,12 +1017,13 @@ function sbaPerson(field) {
 }
 
 async function saveAssignmentCell(cell) {
+  if (_quietSet) return;   // a value put back by code, not an edit (see setQuietly)
   const row = cell.getRow().getData(), field = cell.getField(), before = cell.getOldValue();
   const el = cell.getElement();
   if (DEMO) { toast('Demo — the change is not saved anywhere'); return; }
   const value = cell.getValue() == null ? '' : String(cell.getValue()).trim();
   if (field === 'meeting' && value && !/^\d{1,2}:\d{2}\s*([ap]\.?m\.?)?$/i.test(value)) {
-    cell.setValue(before, true); toast('Meeting time should look like 5:30 PM', 'err'); return;
+    setQuietly(cell, before); toast('Meeting time should look like 5:30 PM', 'err'); return;
   }
   if (el) el.style.outline = '2px solid #f0b429';
   const _t0 = performance.now();
@@ -1011,7 +1037,7 @@ async function saveAssignmentCell(cell) {
     if (el) { el.style.outline = '2px solid #4caf50'; setTimeout(() => { el.style.outline = ''; }, 900); }
     sheetsPerf('assignments.' + field, performance.now() - _t0);
   } catch (e) {
-    cell.setValue(before, true);
+    setQuietly(cell, before);
     if (el) el.style.outline = '';
     toast('Not saved: ' + (e.message || e), 'err');
   }
@@ -1526,7 +1552,10 @@ const TABS = {
     grid: 'chart', key: 'calling',
     cols: [
       delColumn('chart'),
-      { title: 'Calling', field: 'calling', minWidth: 240, headerFilter: 'input', frozen: true },
+      // Editable since 2026-11-16. The name is the row's key and what every other sheet looks the
+      // chart up by, so the backend refuses a blank or duplicate name and carries the new one onto
+      // requests still in the pipeline (updateGridCell → _renameChartCallingEverywhere).
+      ed({ title: 'Calling', field: 'calling', minWidth: 240, headerFilter: 'input', frozen: true }, 'chart', 'calling'),
       ed({ title: 'Recommended By', field: 'recommended_by', minWidth: 180 }, 'chart', 'calling'),
       ed({ title: 'Approved By', field: 'approved_by', minWidth: 180 }, 'chart', 'calling'),
       ed({ title: 'Sustained By', field: 'sustaining_body', width: 122, headerFilter: 'list',
@@ -1539,6 +1568,7 @@ const TABS = {
       ed({ title: 'Can be submitted by', field: 'can_be_submitted_by', minWidth: 195 },
          'chart', 'calling'),
       ed({ title: 'Consultation', field: 'check_for_consultation', minWidth: 145 }, 'chart', 'calling'),
+      ed({ title: 'Can also submit on behalf', field: 'can_submit_on_behalf', minWidth: 210 }, 'chart', 'calling'),
       // The sheet stores these as the word "Yes" or blank, and the form only counts "Yes" — so the
       // grid shows "Yes" as ticked and a click writes "Yes" or blank. (A tickCross editor wrote
       // true/false: every cell showed a red X, and an edit never reached the form. 2026-10-08.)
@@ -1567,6 +1597,7 @@ const TABS = {
       ed({ title: 'Add to LCR', field: 'add_to_lcr', minWidth: 170 }, 'chart', 'calling'),
       ed({ title: 'Secondary Approvers', field: 'secondary_approvers', minWidth: 205 },
          'chart', 'calling'),
+      ed({ title: 'Google Drive Access', field: 'drive_access', minWidth: 160 }, 'chart', 'calling'),
       yesNoCol('Update Chart', 'update_chart', 108),
       ed({ title: 'Name Tag', field: 'name_tag', width: 128 }, 'chart', 'calling'),
       ed({ title: 'Key', field: 'key_type', width: 86 }, 'chart', 'calling'),
@@ -1784,10 +1815,11 @@ const TAB_HELP = {
     + '<li><b>SPC/HC</b> (set apart only) — the ward’s presidency counselor and its high councilor together; <b>SPC/HC3</b> pairs the counselor with High Councilor 3.</li>'
     + '<li><b>SPB</b> — a secretary assigns a presidency member. <b>SPB/HC</b> — a secretary may also assign a high councilor.</li>'
     + '<li>Blank (shown as <b>— bin —</b>) — goes to the secretaries to schedule and assign.</li></ul>'
-    + '<p>If the person a rule names is not in Stake Callings, the task goes to the secretaries with a note saying why.</p>' },
+    + '<p>If the person a rule names is not in Stake Callings, the task goes to the secretaries with a note saying why.</p>'
+    + '<p><b>Renaming a calling:</b> click its name and type. Requests still in the pipeline, their open tasks and upcoming agenda rows take the new name; finished requests keep the name they were approved under. Stake Callings is not changed.</p>' },
   ordinations: { title: 'Ordinations', body:
     '<p>One row per Melchizedek Priesthood ordination request, newest first — the <b>Priesthood Ordinations</b> sheet.</p>'
-    + '<ul><li><b>Sustains</b> shows each high councilor’s vote.</li>'
+    + '<ul><li><b>Sustains</b> shows each high councilor’s response.</li>'
     + '<li>The ordainer and certificate columns are filled in after the ordination, for records.</li></ul>' },
   roster: { title: 'Stake Callings', body:
     '<p>Everyone who uses the system — the <b>Stake Callings</b> sheet. A person’s calling here decides what they see on the dashboard and which tasks reach them.</p>'
@@ -1831,7 +1863,8 @@ const COL_HELP = {
   chart: {
     extend_routing: 'who extends the calling: SP, 1C, 2C, SPC, HC, HC1–HC12, SPB, SPB/HC; blank goes to the secretaries',
     set_apart_routing: 'who sets apart: SP, 1C, 2C, SPC, HC, HC1–HC12, SPC/HC, SPB, SPB/HC, N/A; blank goes to the secretaries',
-    approval_level: 'whether the stake presidency and high council vote on it',
+    approval_level: 'whether the stake presidency and high council approve it',
+    calling: 'the name every other sheet looks this calling up by — renaming it here also renames it on requests still in the pipeline',
   },
   roster: {
     ward: 'for a high councilor, the ward they are assigned to',
