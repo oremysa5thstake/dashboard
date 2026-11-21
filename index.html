@@ -1321,8 +1321,17 @@
           console.log('Phase 2 queue refused (' + r.status + ') — using Apps Script');
           return false;
         }
-        await r.json();
+        const queued = await r.json();
         console.log('⚡ Phase 2 queued ' + action + ' in ' + Math.round(performance.now() - t0) + 'ms');
+        // An approval is also written to the database at once (vote_now, 0172 — it does nothing until
+        // switched on), so everyone else sees it now instead of ~20s later. NOT awaited: the tap
+        // never waits on it, and if it fails the replay records the response exactly as before.
+        if ((action === 'approve' || action === 'concern') && queued && queued.outboxId) {
+          fetch(p2.url + '/rest/v1/rpc/vote_now', {
+            method: 'POST', headers: { apikey: p2.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_slack_id: getActorUserId(), p_token: token, p_outbox_id: queued.outboxId })
+          }).catch(() => {});
+        }
         // Anything built BEFORE this moment predates the action, so re-reading it would undo the
         // optimistic update and put the item the person just actioned back on their screen.
         window.__p2QueuedAt = Date.now();
