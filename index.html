@@ -1323,10 +1323,10 @@
         }
         const queued = await r.json();
         console.log('⚡ Phase 2 queued ' + action + ' in ' + Math.round(performance.now() - t0) + 'ms');
-        // An approval is also written to the database at once (vote_now, 0172 — it does nothing until
+        // An approval is also written to the database at once (vote_now, 0172/0173 — it does nothing until
         // switched on), so everyone else sees it now instead of ~20s later. NOT awaited: the tap
         // never waits on it, and if it fails the replay records the response exactly as before.
-        if ((action === 'approve' || action === 'concern') && queued && queued.outboxId) {
+        if ((action === 'approve' || action === 'concern' || action === 'approveAll') && queued && queued.outboxId) {
           fetch(p2.url + '/rest/v1/rpc/vote_now', {
             method: 'POST', headers: { apikey: p2.key, 'Content-Type': 'application/json' },
             body: JSON.stringify({ p_slack_id: getActorUserId(), p_token: token, p_outbox_id: queued.outboxId })
