@@ -819,8 +819,14 @@
       if (h.waiting && h.oldestWaitSeconds >= 300) bits.push(h.waiting + ' change' + (h.waiting === 1 ? ' has' : 's have') + ' been waiting ' + Math.round(h.oldestWaitSeconds / 60) + ' min to reach the Google Sheet');
       if (h.failing) bits.push(h.failing + ' change' + (h.failing === 1 ? '' : 's') + ' failed to apply and will be retried');
       if (h.lastFullSyncSeconds >= 9000) bits.push('the hourly sync has not run for ' + Math.round(h.lastFullSyncSeconds / 3600) + ' hours');
-      box.innerHTML = '⚠️ <strong>Background saving is behind:</strong> ' + escapeHtmlDisplay(bits.join('; ') || 'something is not keeping up')
-        + '. Your taps are kept and will be applied; if this lasts, check Apps Script (Admin Tools → Sync, or the script’s executions).';
+      // The nightly database backup (0171): only worth a banner once two nights have been missed.
+      const backupLate = h.lastBackupSeconds >= 50 * 3600;
+      if (backupLate) bits.push('the nightly database backup has not run for ' + Math.round(h.lastBackupSeconds / 86400) + ' days');
+      const onlyBackup = backupLate && bits.length === 1;
+      box.innerHTML = (onlyBackup ? '⚠️ <strong>Backup overdue:</strong> ' : '⚠️ <strong>Background saving is behind:</strong> ')
+        + escapeHtmlDisplay(bits.join('; ') || 'something is not keeping up')
+        + (onlyBackup ? '. Nothing is lost and the dashboard is working normally; the backup rides on the hourly sync, so check the script’s executions.'
+                      : '. Your taps are kept and will be applied; if this lasts, check Apps Script (Admin Tools → Sync, or the script’s executions).');
       box.style.display = 'block';
     }
     setInterval(checkSystemHealth, 5 * 60000);
