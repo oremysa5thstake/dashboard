@@ -1294,20 +1294,21 @@
      */
     async function queueActionInPostgres(action, params) {
       if (!P2_QUEUEABLE.has(action)) return false;
-      // In the Admin Tools overlay an action is taken AS the viewed user. The queue records the signed-
-      // in person, so it would be replayed as them — use the direct path, which posts as the target.
-      if (p2ViewingTarget()) return false;
+      // In the Admin Tools overlay an action is taken AS the viewed user: act_enqueue_as (0170)
+      // queues it under THEIR id (what the replay acts as) and notes who really tapped. If it is
+      // refused or unavailable, the direct Apps Script path below still posts as the target.
+      const viewing = p2ViewingTarget();
       const p2 = phase2Config();
       if (!p2) return false;
       try {
         const token = await ensurePhase2Token();
         if (!token) return false;
         const t0 = performance.now();
-        const r = await fetch(p2.url + '/rest/v1/rpc/act_enqueue', {
+        const r = await fetch(p2.url + '/rest/v1/rpc/' + (viewing ? 'act_enqueue_as' : 'act_enqueue'), {
           method: 'POST',
           headers: { apikey: p2.key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_slack_id: getActorUserId(), p_token: token,
-                                 p_action: action, p_params: params || {} })
+          body: JSON.stringify(Object.assign({ p_slack_id: getActorUserId(), p_token: token,
+                                 p_action: action, p_params: params || {} }, viewing ? { p_target: viewing } : {}))
         });
         if (!r.ok) {
           await p2CheckRefusal(r);
