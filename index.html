@@ -2879,7 +2879,7 @@
     }
 
     function renderOrdinationNotificationsSection(items, highCouncilors) {
-      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Sustaining</div><div class="section-meta">' + helpBtn('ordNotify') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
+      let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'ordNotify\')"><div class="section-title">📋 Ordination Updates</div><div class="section-meta">' + helpBtn('ordNotify') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-ordNotify"><div class="section-inner">';
 
       const hcOptions = (highCouncilors || [])
@@ -2901,7 +2901,8 @@
               <input type="time" id="ordTime_${item.actionId}" class="form-input" style="width:auto;font-size:12px;">
               <button class="btn btn-primary btn-sm" onclick="saveOrdinationDate('${item.actionId}', this)">💾 Save Date</button>
             </div>
-            <button class="btn btn-success" onclick="handleReportSustaining('${item.actionId}', this)">✓ Report Sustained</button>
+            <div class="item-meta" style="margin:0;">His sustaining in sacrament meeting is reported by whoever conducts stake business in his ward — you'll get a task to report the ordination after that.</div>
+            <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'ackOrdNotify', this)">✓ Got it — dismiss</button>
             ${hcOptions ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <span style="font-size:13px;color:#555;">Transfer to another HC:</span>
               <select class="form-select" id="hcTransfer_${item.actionId}" style="width:auto;max-width:240px;font-size:13px;">
@@ -4052,7 +4053,7 @@
         case 'coordinate-ordination':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'coordinated', this)">✓ Coordinated</button>`;
         case 'ordination-notification':
-          return `<button class="btn btn-success" onclick="handleReportSustaining('${a}', this)">✓ Report Sustained</button>`;
+          return `<button class="btn btn-success" onclick="handleAction('${a}', 'ackOrdNotify', this)">✓ Got it — dismiss</button>`;
         case 'ordination-report':
           return `<button class="btn btn-primary" onclick="openOrdinationReportModal('${a}')">📝 Report Ordination</button>`;
         case 'ordination-interview':
@@ -5402,10 +5403,12 @@
           '</ul>'
       },
       ordNotify: {
-        title: 'Ordination Sustaining',
-        body: '<p>Ordinations you\'ve been notified about for awareness — no action required beyond acknowledging.</p>' +
+        title: 'Ordination Updates',
+        body: '<p>A brother in your ward has been sustained by the stake presidency and high council to be ordained. This is an update so you can start arranging a time — there is nothing to report here.</p>' +
           '<ul>' +
-          '<li><b>✓ Acknowledge:</b> Removes this notification from your dashboard.</li>' +
+          '<li><b>Save Date:</b> Record the ordination date and time once you have agreed on one.</li>' +
+          '<li><b>✓ Got it — dismiss:</b> Removes the update from your dashboard.</li>' +
+          '<li><b>His sustaining in sacrament meeting</b> is reported by whoever conducts stake business in his ward that Sunday, on their Sunday report — the same as a calling. When it is, you get the task to report the ordination.</li>' +
           '</ul>'
       },
       settingAparts: {
@@ -6016,7 +6019,7 @@
           ['Confirm you\'re conducting stake business', 'Your ward\'s Sunday now has business on it. Confirm in the Stake Business section.', s.sbConfirmed],
           ['Report the sustainings on Sunday', 'Ordination Sustaining / sustaining report: mark each item as sustained.', sustained()],
           ['Set apart Porter (and record the out-of-unit setting apart)', 'Setting Aparts — mark each one done.', s.saPorter && s.oouDone],
-          ['Report Dallin\'s ordination', 'Ordination Sustaining, then the ordination report once he is ordained.', s.ordSustainReported && s.ordReported]
+          ['Report Dallin\'s ordination', 'His sustaining is marked on the Sunday report; then the ordination report once he is ordained.', s.ordSustainReported && s.ordReported]
         ],
         sp: [
           ['Approve the callings and the release, and sustain the ordination', 'Calling Approvals and Priesthood Ordinations.', voted() && s.spVote && s.spVote.r1],
@@ -9568,9 +9571,9 @@
       });
 
       // 6 · The ordination itself — coordinated and reported by the assigned HC
-      if (demoItemApproved('o1') && !s.ordSustainReported && !mine('hc')) add({
+      if (demoItemApproved('o1') && !s.ordSustainReported && !s.ordUpdateDismissed && !mine('hc')) add({
         actionId: 'DEMO_ORDNOTIF', actionType: 'ordination-notification',
-        displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained to be ordained an Elder. Coordinate a time to be present for the ordination.',
+        displayText: 'Ordination update: ' + DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained to be ordained an Elder. Coordinate a time to be present for the ordination.',
         assignedToNames: hcName, preferredOrdinationDate: s.ordDate || ''
       });
       if (s.ordSustainReported && !s.ordReported && !mine('hc')) add({
@@ -9698,10 +9701,10 @@
       // ── Stage 6: ordination pipeline for Dallin. The notification appears the
       // moment the demo user casts their sustaining vote — as though they were
       // the last of the presidency + high council to sustain. ──
-      if (s.approved.o1 && demoItemApproved('o1') && !s.ordSustainReported) {
+      if (s.approved.o1 && demoItemApproved('o1') && !s.ordSustainReported && !s.ordUpdateDismissed) {
         data.ordinationNotifications.push({
           actionId: 'DEMO_ORDNOTIF',
-          displayText: DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained by the Stake Presidency and High Council to be ordained an Elder. He can be ordained AFTER he has been sustained in sacrament meeting. Please coordinate a time with them when you can be present for their ordination.',
+          displayText: 'Ordination update: ' + DEMO_CAST.dallin + ' (' + DEMO_WARD + ') has been sustained by the Stake Presidency and High Council to be ordained an Elder. He can be ordained AFTER he has been sustained in sacrament meeting. Please coordinate a time with them when you can be present for their ordination.',
           preferredOrdinationDate: s.ordDate || ''
         });
       }
@@ -10140,6 +10143,9 @@
           demoSave();
           return { success: true, savedDate: s.ordDate };
         }
+        case 'ackOrdNotify':          // the update is only for awareness — dismissing it changes nothing else
+          s.ordUpdateDismissed = true;
+          break;
         case 'reportSustaining':
           // The high councilor picks a date first from their own card; a CC'd viewer has no
           // date picker, so stand one in rather than dead-ending the walkthrough.
