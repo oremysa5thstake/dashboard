@@ -3089,6 +3089,17 @@
       return html;
     }
 
+    // The "text the high councilors" task's details (2026-11-21): who still has to respond, then one
+    // short line per calling. Its notes also carry a "Waiting ids:" line for the texting tool — and
+    // older tasks a whole block of "Key: value" bookkeeping — none of which belongs on the card.
+    function hcNudgeNotesHtml(notes) {
+      const lines = String(notes || '').split('\n').map(l => l.trim())
+        .filter(l => l && !/^(Waiting ids|Member|Calling|Ward|Kind|Since|Reminder|Settings):/i.test(l));
+      if (!lines.length) return '';
+      return '<div class="item-meta" style="line-height:1.5;">' + lines.map(l =>
+        /^(Still to respond|Waiting on):/i.test(l) ? '<strong>' + escapeHtml(l) + '</strong>' : escapeHtml(l)).join('<br>') + '</div>';
+    }
+
     function renderClerkReviewsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'clerkReviews\')"><div class="section-title">📝 Clerk Reviews</div><div class="section-meta">' + helpBtn('clerkReviews') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-clerkReviews"><div class="section-inner">';
@@ -3096,7 +3107,8 @@
       items.forEach(item => {
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         // Comment reviews: show the actual comment text; others: show the context note (calling/submitter info)
-        const notesInfo = (item.actionType !== 'clerk-review-comment' && item.notes) ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
+        const notesInfo = item.actionType === 'hc-nudge' ? hcNudgeNotesHtml(item.notes)
+          : (item.actionType !== 'clerk-review-comment' && item.notes) ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
         const commentInfo = (item.actionType === 'clerk-review-comment' && item.comment) ? `<div class="item-meta">Comment: "${escapeHtml(item.comment)}"</div>` : '';
 
         let actionButtons = '';
@@ -4276,7 +4288,7 @@
             <div class="item-header"><div class="item-title">${item.displayText || 'N/A'}</div></div>
             ${item.assignedToNames ? '<div class="item-meta">Assigned to: ' + escapeHtmlDisplay(item.assignedToNames) + '</div>' : ''}
             ${isExtend ? sbRiskSlot(item.callingRefId || item.referenceId) : ''}
-            ${item.notes && !item.assignedToNames ? '<div class="item-meta">' + escapeHtmlDisplay(item.notes) + '</div>' : ''}
+            ${item.actionType === 'hc-nudge' ? hcNudgeNotesHtml(item.notes) : (item.notes && !item.assignedToNames ? '<div class="item-meta">' + escapeHtmlDisplay(item.notes) + '</div>' : '')}
             ${appointmentStatusHtml}
             <div class="item-actions">
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -8305,7 +8317,7 @@
         try {
           await performAction('complete', { itemId: it.actionId });
           document.querySelectorAll('#item-' + CSS.escape(it.actionId)).forEach(el => el.remove());
-          showToast('Everyone on that task has been texted — task completed', 'success');
+          showToast('Everyone still to respond has been texted — task completed', 'success');
           currentData.clerkReviews = currentData.clerkReviews.filter(x => x !== it);
         } catch (e) { console.log('nudge auto-complete failed: ' + (e.message || e)); }
       }
