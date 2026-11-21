@@ -671,6 +671,7 @@
     // Used so the Pause/Cancel/Resume controls appear based on the ADMIN's
     // permissions, not the target user's.
     let stashedUserData = null;
+    let stashedCurrentData = null;   // the admin's own dashboard data, restored on close
 
     // ---- Actor helpers (overlay-aware) ----------------------------------
     // The "actor" is the originally-logged-in admin: when the overlay is
@@ -751,6 +752,9 @@
       if (silentRefreshTimer) clearTimeout(silentRefreshTimer);
       silentRefreshTimer = setTimeout(async () => {
         silentRefreshTimer = null;
+        // A tap is still being saved: redrawing now would put its card back, un-greyed, and the
+        // card it then removes is no longer the one on screen (2026-11-21). Look again shortly.
+        if (typeof _handleActionInFlight !== 'undefined' && _handleActionInFlight.size) { scheduleSilentRefresh(3000); return; }
         await silentRefresh();
       }, delay);
     }
@@ -2038,6 +2042,12 @@
         if (!result.success) {
           throw new Error(result.error || 'Action failed');
         }
+
+        // Viewing another user (Admin Tools): this went straight to Apps Script, and Postgres hears
+        // of it from the deferred sync up to ~90s later. The overlay re-reads from Postgres, so
+        // without this the 6s refresh brought back every card just answered (2026-11-21). Same hold
+        // as a queued action: keep what is on screen until a sync newer than this moment.
+        if (p2ViewingTarget() && phase2Config() && !/^get|^sb(OpenSundays|Queue)/.test(action)) window.__p2QueuedAt = Date.now();
 
         return result;
       } catch (error) {
@@ -6760,6 +6770,7 @@
       // Reassign, etc.) uses the admin's permissions, not the target's.
       stashedUserId = userId;
       stashedUserData = (typeof userData !== 'undefined') ? userData : null;
+      stashedCurrentData = currentData;
       userId = targetUserId;
       renderTargetId = 'overlayContent';
 
@@ -6794,7 +6805,10 @@
         userId = stashedUserId;
         stashedUserId = null;
       }
-      stashedUserData = null;
+      // The overlay's refreshes replaced these with the other person's; #content still shows ours.
+      if (stashedUserData) userData = stashedUserData;
+      if (stashedCurrentData) currentData = stashedCurrentData;
+      stashedUserData = null; stashedCurrentData = null;
       _panelCache = null;   // the overlay's panels were the other person's
       _hcSb = null; _sbRisk = { items: [], admin: false, byKey: {} }; _sbAll = null;   // were theirs too
       window.__hcSbAt = 0; window.__sbRiskAt = 0; window.__sbAllAt = 0;
