@@ -2725,6 +2725,16 @@
       return html;
     }
 
+    // A concern raised on the calling after its extend task was created (possible with the
+    // "Create extend tasks once 7 high councilors approve" setting, 2026-11-22). No message is sent;
+    // this warning on the card is how the extender finds out.
+    function hcConcernHtml(items) {
+      const names = [...new Set([].concat(...(items || []).map(it => (it && it.hcConcern) || [])))];
+      if (!names.length) return '';
+      return `<div class="item-meta" style="margin-top:6px;padding:8px;border-radius:6px;background:#f8d7da;color:#842029;border-left:3px solid #b02a37;">`
+        + `⚠️ <strong>${escapeHtmlDisplay(_sbWardList(names))}</strong> ${names.length > 1 ? 'have' : 'has'} raised a concern about this calling — check with the stake presidency before extending it.</div>`;
+    }
+
     function renderExtendPairCard(p) {
       const parts = p.parts, first = parts[0].item;
       const canReassign = userData.canReassign || false;
@@ -2753,6 +2763,7 @@
       return `<div class="item" id="item-${first.actionId}">
         <div class="item-header"><div class="item-title">📞 ${escapeHtmlDisplay(p.name)} — ${what}</div></div>
         <div class="item-meta">One conversation: ${summary}.</div>
+        ${hcConcernHtml(parts.map(x => x.item))}
         ${schedulePickerHtml(first.callingRefId || first.referenceId, first.scheduledStakeBusiness,
             parts.slice(1).map(x => x.item.callingRefId || x.item.referenceId))}
         ${first.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(first.assignedToNames)}</div>` : ''}
@@ -2817,6 +2828,7 @@
 
         html += `<div class="item" id="item-${item.actionId}">
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(extendTitle(item)) || 'N/A'}</div></div>
+          ${hcConcernHtml([item])}
           ${schedulePickerHtml(item.callingRefId || item.referenceId, item.scheduledStakeBusiness)}
           ${assignedInfo}
           ${appointmentStatusHtml}
@@ -3733,6 +3745,7 @@
           <div class="item-header"><div class="item-title">${escapeHtmlDisplay(extendTitle(item)) || 'N/A'}</div></div>
           ${assignedInfo}
           ${binReasonInfo}
+          ${hcConcernHtml([item])}
           <div class="item-actions" style="flex-direction:column;align-items:flex-start;">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
               <select id="extAssignSp_${item.actionId}" class="form-input" style="flex:1 1 200px;min-width:160px;max-width:340px;font-size:13px;padding:6px;">
