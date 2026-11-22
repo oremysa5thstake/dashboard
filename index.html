@@ -2879,6 +2879,7 @@
           <div class="item-header"><div class="item-title">${item.memberName || item.member || 'N/A'}</div></div>
           <div class="item-meta">${item.office || 'N/A'} - ${item.ward || 'N/A'}</div>
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
+          ${spNoteHtml(item.spNote)}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this${refArg})">✓ Sustain</button>
             <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this${refArg})">⚠️ Concerns</button>
@@ -3230,8 +3231,11 @@
         } else {
           // clerk-review-comment
           // 2026-11-22: or proceed AND let the Stake Presidency read the comment on their approval card.
-          actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">✓ Proceed with Polling</button>
-            <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {shareWithSp: 'true'})">✓ Proceed &amp; share note with Stake Presidency</button>`;
+          // An ordination's comment holds nothing up (its sustaining waits for the stake interview),
+          // so its buttons just say "Reviewed".
+          const ord = item.isOrdination || /^Ordination:/m.test(String(item.notes || ''));
+          actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">${ord ? '✓ Reviewed' : '✓ Proceed with Polling'}</button>
+            <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {shareWithSp: 'true'})">${ord ? '✓ Reviewed &amp; share note with Stake Presidency' : '✓ Proceed &amp; share note with Stake Presidency'}</button>`;
         }
 
         html += `<div class="item">
