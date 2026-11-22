@@ -2529,6 +2529,13 @@
       document.getElementById(renderTargetId).innerHTML = html;
     }
 
+    // A comment a stake clerk shared with the presidency (Calling Approvals col BA, 2026-11-22).
+    // The payload carries it only for presidency approvers.
+    function spNoteHtml(note) {
+      return note ? `<div class="item-meta" style="background:#eef4fb;border-left:3px solid #2f6fb0;padding:8px;border-radius:4px;margin-top:8px;color:#1d3d5f">`
+        + `📝 <strong>Note from the stake clerks:</strong> ${escapeHtmlDisplay(note)}</div>` : '';
+    }
+
     function renderApprovalGroupCard(list) {
       const first = list[0];
       const itemId = 'calling_' + first.rowIndex;
@@ -2543,6 +2550,7 @@
         <div class="item-meta" style="color:#666;font-style:italic;">Approved together — one approval covers all ${list.length}.</div>
         ${list.some(it => it.urgency) ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
         ${hp ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + hp + '</div>' : ''}
+        ${spNoteHtml(list.map(it => it.spNote).filter(Boolean)[0] || '')}
         <div class="item-actions">
           <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this${refArg})">✓ Approve all ${list.length}</button>
           <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this${refArg})">⚠️ Concerns</button>
@@ -2592,6 +2600,7 @@
           ${(!isRelease && item.releases) ? '<div class="item-meta">Replaces <strong>' + item.releases + '</strong>, who is released from this calling</div>' : ''}
           ${item.urgency ? '<div class="item-meta" style="color:#dc3545;font-weight:600">⚠️ Urgent</div>' : ''}
           ${item.hpNote ? '<div class="item-meta" style="color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-top:8px">' + item.hpNote + '</div>' : ''}
+          ${spNoteHtml(item.spNote)}
           <div class="item-actions">
             <button class="btn btn-success" onclick="handleAction('${itemId}', 'approve', this${refArg})">${isRelease ? '✓ Approve release' : '✓ Approve'}</button>
             <button class="btn btn-warning" onclick="handleAction('${itemId}', 'concern', this${refArg})">⚠️ Concerns</button>
@@ -3220,7 +3229,9 @@
             <button class="btn btn-primary" onclick="handleClerkReview('${item.actionId}', 'priesthoodReview', 'highpriest', this)">Office of High Priest</button>`;
         } else {
           // clerk-review-comment
-          actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">✓ Proceed with Polling</button>`;
+          // 2026-11-22: or proceed AND let the Stake Presidency read the comment on their approval card.
+          actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">✓ Proceed with Polling</button>
+            <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {shareWithSp: 'true'})">✓ Proceed &amp; share note with Stake Presidency</button>`;
         }
 
         html += `<div class="item">
