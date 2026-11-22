@@ -1867,27 +1867,92 @@
 
     function _sbWardList(ws) { return ws.length > 1 ? ws.slice(0, -1).join(', ') + ' and ' + ws[ws.length - 1] : ws[0]; }
 
+    // Four ways out (2026-11-22): ask the high councilor now, plan it for the next Sunday, pick any
+    // later Sunday, or hold it — the calling carries on (extending, accepting) with no Sunday
+    // committed, and is put on stake business once someone picks one. A held calling is listed
+    // under Paused / Held / Canceled Callings, where "▶️ Release Hold" puts it back on the next available Sunday.
     function sbRiskButtons(it, withAsk) {
       const ref = escapeHtml(it.ref);
       return `<button class="btn btn-secondary btn-sm" onclick="sbPlanNextWeek('${ref}','${it.next}','${escapeHtml(it.nextLabel)}',this)">📅 Plan for ${escapeHtmlDisplay(it.nextLabel)}</button>`
+        + ` <button class="btn btn-secondary btn-sm" onclick="sbRiskPickSunday('${ref}',this)">🗓️ Pick a later Sunday…</button>`
+        + ` <button class="btn btn-secondary btn-sm" onclick="sbRiskHold('${ref}','${escapeHtml(it.member)}',this)">⏸ No date yet</button>`
         + (withAsk ? ` <button class="btn btn-primary btn-sm" onclick="sbAskNow('${escapeHtml(it.wards.join('|'))}','${it.sunday}',this)">🙋 Ask ${it.wards.length > 1 ? 'them' : 'him'} now</button>` : '');
     }
 
+    function _sbRiskDrop(ref) {
+      _sbRisk.items = _sbRisk.items.filter(i => i.ref !== ref);
+      Object.keys(_sbRisk.byKey).forEach(k => { if (_sbRisk.byKey[k].ref === ref) delete _sbRisk.byKey[k]; });
+      _panelRoot().querySelectorAll('select[id^="sbrisk_"]').forEach(sel => { const row = sel.parentElement; if (row) row.innerHTML = ''; });
+      fillSbRisk();
+    }
+
+    /** Replace the buttons with a list of the coming Sundays (the same list the Change… picker uses). */
+    async function sbRiskPickSunday(ref, btn) {
+      const row = btn && btn.parentElement;
+      if (!row) return;
+      const keep = row.innerHTML;
+      row.innerHTML = '<em>Loading Sundays…</em>';
+      try {
+        const d = (await writeToPostgres('sb_open_sundays_for', { p_ts: String(ref), p_weeks: 14 }))
+                  || await performAction('sbOpenSundays', { timestamp: ref, weeks: 14 });
+        if (!d || d.success === false) throw new Error((d && d.error) || 'refused');
+        const opts = (d.sundays || []).map(x =>
+          `<option value="${x.ymd}" ${x.available ? '' : 'disabled'}>${escapeHtmlDisplay(x.label)}${x.available ? '' : ' — ' + escapeHtmlDisplay(x.note)}</option>`).join('');
+        const id = 'sbrisk_' + String(ref).replace(/[^A-Za-z0-9]/g, '');
+        row.innerHTML = `<select id="${id}" style="font:inherit;font-size:13px;padding:4px 6px;border:1px solid #ccd1d6;border-radius:5px;max-width:100%">
+            <option value="">Choose a Sunday…</option>${opts}</select>
+          <button class="btn btn-success btn-sm">Set</button> <button class="btn btn-secondary btn-sm">Cancel</button>`;
+        const [setBtn, cancelBtn] = row.querySelectorAll('button');
+        cancelBtn.onclick = () => { row.innerHTML = keep; };
+        setBtn.onclick = async () => {
+          const sel = document.getElementById(id);
+          if (!sel || !sel.value) { showToast('Choose a Sunday first', 'error'); return; }
+          const label = sel.options[sel.selectedIndex].textContent.replace(/ — .*$/, '').trim();
+          setBtn.disabled = true; setBtn.textContent = '…';
+          try {
+            const r = await performAction('sbSetScheduled', { timestamp: ref, date: sel.value });
+            if (r && r.success === false) throw new Error(r.error || 'refused');
+            showToast('Planned for ' + label, 'success');
+            _sbRiskDrop(ref);
+            scheduleSilentRefresh(9000);
+          } catch (e) { showToast('Not scheduled: ' + e.message, 'error'); setBtn.disabled = false; setBtn.textContent = 'Set'; }
+        };
+      } catch (e) { showToast('Could not load Sundays: ' + e.message, 'error'); row.innerHTML = keep; }
+    }
+
+    /** Carry on with no committed Sunday: the calling is held off stake business until someone picks one. */
+    async function sbRiskHold(ref, member, btn) {
+      if (!confirm(member + ' will carry on (extending, accepting) without a Sunday for the sustaining or release.\n\n'
+          + 'They will NOT be put on stake business until someone picks a Sunday or taps '
+          + '"Release Hold" under Paused / Held / Canceled Callings.')) return;
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      try {
+        const r = await performAction('sbSetScheduled', { timestamp: ref, date: 'HOLD' });
+        if (r && r.success === false) throw new Error(r.error || 'refused');
+        showToast('No Sunday set — held off stake business until one is picked', 'success');
+        _sbRiskDrop(ref);
+        scheduleSilentRefresh(9000);
+      } catch (e) { showToast('Error: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = '⏸ No date yet'; } }
+    }
+
     function fillSbRisk() {
+      // A Sunday list someone has open survives a redraw (the list reloads after every refresh).
+      const picking = el => !!(el && el.querySelector('select[id^="sbrisk_"]'));
       _panelRoot().querySelectorAll('.sb-risk').forEach(el => {
+        if (picking(el)) return;
         const it = String(el.dataset.ref || '').split(' ').map(k => _sbRisk.byKey[k]).find(Boolean);
         el.innerHTML = !it ? '' : `<div class="item-meta" style="margin-top:6px;padding:8px;border-radius:6px;background:#fff3cd;color:#664d03;">
           ⚠️ If this is ${it.action === 'Released' ? 'extended' : 'accepted'} ${it.appointment ? 'at the appointment' : 'now'}, it is read on <strong>${escapeHtmlDisplay(it.sundayLabel)}</strong> —
           and nobody has asked a high councilor to conduct in the <strong>${escapeHtmlDisplay(_sbWardList(it.wards))}</strong> (no other stake business there that day).
-          Consider planning it for ${escapeHtmlDisplay(it.nextLabel)}.
+          Consider planning it for ${escapeHtmlDisplay(it.nextLabel)} or later, or leaving the date open.
           <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">${sbRiskButtons(it, _sbRisk.admin)}</div></div>`;
       });
       const box = _panelEl('sbRiskList');
-      if (!box) return;
+      if (!box || picking(box)) return;
       if (!_sbRisk.admin || !_sbRisk.items.length) { box.innerHTML = ''; return; }
       box.innerHTML = `<div class="section"><div class="section-header expanded"><div class="section-title">⚠️ Stake Business at Risk</div><div class="section-meta"><span class="section-count">${_sbRisk.items.length}</span></div></div>
         <div class="section-content expanded"><div class="section-inner">
-        <div class="item-meta" style="margin-bottom:8px;">These would be read on a Sunday where a ward has no other business and nobody has asked its high councilor to conduct. Ask now, or plan them for the next Sunday.</div>`
+        <div class="item-meta" style="margin-bottom:8px;">These would be read on a Sunday where a ward has no other business and nobody has asked its high councilor to conduct. Ask now, plan them for the next Sunday or a later one, or let them carry on with no date yet.</div>`
         + _sbRisk.items.map(it => `<div class="item"><div class="item-header"><div class="item-title">${escapeHtmlDisplay(it.member)} — ${it.action === 'Released' ? 'release from' : 'call as'} ${escapeHtmlDisplay(it.calling)}</div></div>
           <div class="item-meta">${it.appointment ? 'Appointment: ' + escapeHtmlDisplay(it.appointment) + ' · ' : ''}Read on ${escapeHtmlDisplay(it.sundayLabel)} · not yet asked: ${escapeHtmlDisplay(_sbWardList(it.wards))}</div>
           <div class="item-actions">${sbRiskButtons(it, true)}</div></div>`).join('')
