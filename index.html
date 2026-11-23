@@ -2280,7 +2280,6 @@
       }
       html += '<div id="hcSbStatus"></div>';   // filled by loadHcSbStatus (high councilors with a ward)
       html += '<div id="sbRiskList"></div>';   // filled by loadSbRisk (clerks / secretaries / presidency)
-      html += '<div id="sbSummaryAll"></div>'; // filled by loadSbSummaryAll (clerks / secretaries): every ward's panel
 
       // Stake links
       // TEMPORARY: the boundary planner link is shown to the stake presidency (and
@@ -2397,6 +2396,10 @@
       if (data.ordinations && data.ordinations.length > 0) {
         html += renderOrdinationsSection(data.ordinations);
       }
+
+      // Every ward's stake business panel (clerks / secretaries), filled by loadSbSummaryAll — just
+      // above Approval / Sustaining Status since 2026-11-23 (stake clerk's request; it was at the top).
+      html += '<div id="sbSummaryAll"></div>';
 
       // Approval / Sustaining Status — for SP / clerks / execsec only.
       // Placed right after the user's personal approval/sustaining sections, above everything else.
@@ -3223,7 +3226,15 @@
         // Comment reviews: show the actual comment text; others: show the context note (calling/submitter info)
         const notesInfo = item.actionType === 'hc-nudge' ? hcNudgeNotesHtml(item.notes)
           : (item.actionType !== 'clerk-review-comment' && item.notes) ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
-        const commentInfo = (item.actionType === 'clerk-review-comment' && item.comment) ? `<div class="item-meta">Comment: "${escapeHtml(item.comment)}"</div>` : '';
+        // A note typed into the release-name field (2026-11-23): the backend moved it to the comments
+        // with this prefix and released nobody. The clerk keeps it as a comment or deletes it.
+        const RN_PREFIX = 'From the release field: ';
+        const relNote = item.actionType === 'clerk-review-comment' && String(item.comment || '').indexOf(RN_PREFIX) !== -1;
+        const commentInfo = (item.actionType !== 'clerk-review-comment' || !item.comment) ? ''
+          : relNote ? String(item.comment).split('\n').map(l => l.indexOf(RN_PREFIX) === 0
+                ? `<div class="item-meta" style="padding:8px;border-radius:6px;background:#fff3cd;color:#664d03;">Typed where the name of the person being released goes — so nobody is being released:<br>"${escapeHtml(l.slice(RN_PREFIX.length))}"</div>`
+                : (l.trim() ? `<div class="item-meta">Comment: "${escapeHtml(l)}"</div>` : '')).join('')
+          : `<div class="item-meta">Comment: "${escapeHtml(item.comment)}"</div>`;
 
         let actionButtons = '';
         if (item.actionType === 'hc-nudge') {
@@ -3246,7 +3257,10 @@
           // An ordination's comment holds nothing up (its sustaining waits for the stake interview),
           // so its buttons just say "Reviewed".
           const ord = item.isOrdination || /^Ordination:/m.test(String(item.notes || ''));
-          actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">${ord ? '✓ Reviewed' : '✓ Proceed with Polling'}</button>
+          if (relNote) actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'keep'})">✓ Keep as a comment &amp; proceed</button>
+            <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'keep', shareWithSp: 'true'})">✓ Keep, share with Stake Presidency &amp; proceed</button>
+            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'delete'})">🗑 Delete the note &amp; proceed</button>`;
+          else actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">${ord ? '✓ Reviewed' : '✓ Proceed with Polling'}</button>
             <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {shareWithSp: 'true'})">${ord ? '✓ Reviewed &amp; share note with Stake Presidency' : '✓ Proceed &amp; share note with Stake Presidency'}</button>`;
         }
 

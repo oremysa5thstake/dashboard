@@ -347,6 +347,8 @@
         <input type="text" id="releaseeName" placeholder="Enter name of member to be released, or leave blank" oninput="onReleaseNameChange()">
         <div class="dup-note" id="releaseeNameDup" style="display:none;"></div>
         <div id="releaseeNameNone" style="display:none; font-size:13px; color:#555; margin-top:6px;">Understood — nobody is being released. (You can also just leave this blank.)</div>
+        <div id="releaseeNameNote" style="display:none; font-size:13px; color:#664d03; background:#fff3cd; border-radius:6px; padding:8px; margin-top:6px;">This looks like a note rather than a name. Only the name of the person being released goes here — a note belongs in Comments.
+          <div style="margin-top:6px;"><button type="button" onclick="moveReleaseNoteToComments()" style="padding:6px 10px; font-size:13px; border-radius:6px; border:1px solid #c9a227; background:#fff; cursor:pointer;">Move it to Comments</button></div></div>
       </div>
       <div class="form-group" id="releaseeGenderGroup" style="display:none;">
         <label class="required" id="releaseeGenderLabel">Gender of member being released</label>
@@ -1057,11 +1059,34 @@
       return noReleaseName(v) ? '' : v;
     }
 
+    // A NOTE typed where the name goes (2026-11-23: "EQ may release him from the sacrament prep
+    // committee member" became a release). Same rule as the server's _looksLikeReleaseNote, which
+    // moves anything that gets past this into the comments for the stake clerks to review.
+    function looksLikeNote(v) {
+      var s = String(v || '').trim();
+      if (!s || noReleaseName(s)) return false;
+      var words = s.split(/\s+/);
+      if (words.length >= 6) return true;
+      if (/[0-9?!;:"]/.test(s)) return true;
+      var stop = /^(may|might|will|would|should|could|can|from|the|him|her|his|them|their|he|she|they|is|are|was|be|been|being|to|of|in|on|for|and|or|but|if|not|yet|still|also|who|which|that|this|release|released|releasing|needs?|currently|already|member|committee|calling|bishop|unless|after|before|until|when|once)$/;
+      return words.some(function (w) { return stop.test(w.replace(/[.,()]/g, '')); });
+    }
+    function moveReleaseNoteToComments() {
+      var f = document.getElementById('releaseeName'), c = document.getElementById('comments');
+      var note = f.value.trim();
+      if (!note) return;
+      c.value = (c.value.trim() ? c.value.trim() + '\n' : '') + note;
+      f.value = '';
+      onReleaseNameChange();
+    }
+
     function onReleaseNameChange() {
       var rn = releaseNameValue();
       var dn = document.getElementById('releaseeNameNone');
       var typed = document.getElementById('releaseeName').value.trim();
       if (dn) dn.style.display = (typed !== '' && rn === '') ? 'block' : 'none';
+      var nn = document.getElementById('releaseeNameNote');
+      if (nn) nn.style.display = looksLikeNote(typed) ? 'block' : 'none';
       var rg = document.getElementById('releaseWardGroup');
       var isSS = formData.sustainingBody && formData.sustainingBody.toLowerCase().indexOf('stake') !== -1;
       if (rn !== '' && isSS) { rg.style.display = 'block'; }
