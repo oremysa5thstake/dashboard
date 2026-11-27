@@ -8448,7 +8448,8 @@
       document.getElementById('sendTextsModal').classList.add('show');
       try {
         const res = (await getPanel(cfg.panel))
-          || (_sendTextsMode === 'approvals' ? await performAction('getHcsWithPendingApprovals', {}) : null);
+          || (_sendTextsMode === 'approvals' ? await performAction('getHcsWithPendingApprovals', {})
+              : DEMO_MODE ? await performAction('getHcsUnconfirmedDemo', {}) : null);
         if (!res) throw new Error('the list is not available right now — refresh and try again');
         _sendTextsRecipients = res.recipients || [];
         renderSendTextsList(res.recipients || [], res.skipped || []);
@@ -10122,7 +10123,7 @@
     // normal scheduleSilentRefresh path re-render from the new state.
     // Actions that only read — never logged, never undoable.
     const DEMO_READ_ONLY = { getRosterTaskInfo: 1, getOouSendInfo: 1, getMemberStatus: 1, getRecentActions: 1, getMyAwayPeriods: 1, undoAction: 1,
-      sbOpenSundays: 1, getHcsWithPendingApprovals: 1, getStakeBusinessAssignments: 1, conductingCandidates: 1,
+      sbOpenSundays: 1, getHcsWithPendingApprovals: 1, getHcsUnconfirmedDemo: 1, getStakeBusinessAssignments: 1, conductingCandidates: 1,
       sbBlockouts: 1, blockedReleases: 1, getUsers: 1, getTaskAssignments: 1, runScript: 1, syncSheets: 1 };
 
     /** A short human description for the Recent Actions list. */
@@ -10508,7 +10509,10 @@
           return { success: true, kind: 'ward', ward: DEMO_WARD, scheduled: '', addedToAgenda: false, sundays: out };
         }
         case 'getHcsWithPendingApprovals':
-          return { success: true, skipped: [], recipients: DEMO_HC_NAMES.slice(0, 3).map(n => ({ name: n, phone: '801-555-0100', dashboardUrl: location.href })) };
+          return { success: true, skipped: [], recipients: DEMO_HC_NAMES.slice(0, 3).map((n, i) => ({ id: 'DEMOHC' + i, name: n, phone: '801-555-0100', dashboardUrl: location.href })) };
+        case 'getHcsUnconfirmedDemo':   // the "haven't confirmed" list (live: hcsUnconfirmedTexts, 0183)
+          return { success: true, skipped: [], recipients: s.sbConfirmed ? [] : [{ id: 'DEMOHCYOU', name: DEMO_CAST.hcYou.replace(' (you)', ''),
+            phone: '801-555-0100', dashboardUrl: location.href, detail: DEMO_WARD + ' · ' + demoSundayText() }] };
         case 'getStakeBusinessAssignments': {
           const hcName = DEMO_CAST.hcYou.replace(' (you)', '');
           return { success: true, sunday: demoSundayText(), away: [], rows: [
