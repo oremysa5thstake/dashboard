@@ -3217,6 +3217,42 @@
         /^(Still to respond|Waiting on):/i.test(l) ? '<strong>' + escapeHtml(l) + '</strong>' : escapeHtml(l)).join('<br>') + '</div>';
     }
 
+    // A release kept off stake business because its new calling fell through (2026-11-27,
+    // CoreHeldRelease.js): the clerk announces it anyway or cancels it.
+    function heldReleaseButtons(item) {
+      const ts = escapeHtml(String(item.callingRefId || item.referenceId || '')).replace(/'/g, "\\'");
+      return `<button class="btn btn-success" onclick="heldReleaseProceed('${ts}', this)">✓ Put the release on stake business</button>
+              <button class="btn btn-danger" onclick="heldReleaseCancel('${ts}', this)">✗ Cancel the release</button>`;
+    }
+    async function heldReleaseProceed(ts, btn) {
+      if (!confirm('Announce this release on stake business without the new calling?')) return;
+      const t = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        const res = await performAction('heldReleaseProceed', { timestamp: ts, actorUserId: getActorUserId() });
+        showToast((res && res.message) || 'Done', 'success');
+        scheduleSilentRefresh(1500);
+      } catch (e) {
+        showToast('Error: ' + (e.message || 'not done'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = t; }
+      } finally { setSyncing(false); }
+    }
+    async function heldReleaseCancel(ts, btn) {
+      if (!confirm('Cancel this release? It will not be announced, and its task closes. Use this when the member is staying in the calling.')) return;
+      const t = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setSyncing(true);
+      try {
+        await performAction('setCallingPriority', { referenceId: ts, status: 'canceled', actorUserId: getActorUserId() });
+        showToast('Release canceled', 'success');
+        scheduleSilentRefresh(500);
+      } catch (e) {
+        showToast('Error: ' + (e.message || 'not done'), 'error');
+        if (btn) { btn.disabled = false; btn.textContent = t; }
+      } finally { setSyncing(false); }
+    }
+
     function renderClerkReviewsSection(items) {
       let html = '<div class="section"><div class="section-header expanded" onclick="toggleSection(\'clerkReviews\')"><div class="section-title">📝 Clerk Reviews</div><div class="section-meta">' + helpBtn('clerkReviews') + '<span class="section-count">' + items.length + '</span><span class="chevron">▼</span></div></div>';
       html += '<div class="section-content expanded" id="section-clerkReviews"><div class="section-inner">';
@@ -3225,13 +3261,14 @@
         const assignedInfo = item.assignedToNames ? `<div class="item-meta">Assigned: ${escapeHtml(item.assignedToNames)}</div>` : '';
         // Comment reviews: show the actual comment text; others: show the context note (calling/submitter info)
         const notesInfo = item.actionType === 'hc-nudge' ? hcNudgeNotesHtml(item.notes)
+          : item.actionType === 'held-release-review' ? `<div class="item-meta" style="line-height:1.5;">${escapeHtml(String(item.notes || '')).replace(/\n/g, '<br>')}</div>`
           : (item.actionType !== 'clerk-review-comment' && item.notes) ? `<div class="item-meta">${escapeHtml(item.notes)}</div>` : '';
         // A note typed into the release-name field (2026-11-23): the backend moved it to the comments
         // with this prefix and released nobody. The clerk keeps it as a comment or deletes it.
         const RN_PREFIX = 'From the release field: ';
         const relNote = item.actionType === 'clerk-review-comment' && String(item.comment || '').indexOf(RN_PREFIX) !== -1;
         const commentInfo = (item.actionType !== 'clerk-review-comment' || !item.comment) ? ''
-          : relNote ? String(item.comment).split('\n').map(l => l.indexOf(RN_PREFIX) === 0
+          : relNote ? String(item.comment).split('\n').filter(l => l.indexOf('Release field details: ') !== 0).map(l => l.indexOf(RN_PREFIX) === 0
                 ? `<div class="item-meta" style="padding:8px;border-radius:6px;background:#fff3cd;color:#664d03;">Typed where the name of the person being released goes — so nobody is being released:<br>"${escapeHtml(l.slice(RN_PREFIX.length))}"</div>`
                 : (l.trim() ? `<div class="item-meta">Comment: "${escapeHtml(l)}"</div>` : '')).join('')
           : `<div class="item-meta">Comment: "${escapeHtml(item.comment)}"</div>`;
@@ -3242,6 +3279,8 @@
           actionButtons = `
             <button class="btn btn-primary" onclick="openSendTextsModal('approvals', '${nudgeLateIds(item.notes)}')">📱 Text HCs with Pending Approvals</button>
             <button class="btn btn-success" onclick="handleAction('${item.actionId}', 'complete', this)">✓ Done</button>`;
+        } else if (item.actionType === 'held-release-review') {
+          actionButtons = heldReleaseButtons(item);
         } else if (item.actionType === 'clerk-review-ctr') {
           actionButtons = `
             <button class="btn btn-success" onclick="handleClerkReview('${item.actionId}', 'ctrReview', 'yes', this)">✓ Yes — Has CTR</button>
@@ -3259,7 +3298,8 @@
           const ord = item.isOrdination || /^Ordination:/m.test(String(item.notes || ''));
           if (relNote) actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'keep'})">✓ Keep as a comment &amp; proceed</button>
             <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'keep', shareWithSp: 'true'})">✓ Keep, share with Stake Presidency &amp; proceed</button>
-            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'delete'})">🗑 Delete the note &amp; proceed</button>`;
+            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'delete'})">🗑 Delete the note &amp; proceed</button>
+            <button class="btn btn-secondary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {releaseNote: 'name'})">👤 This is a name — release them &amp; proceed</button>`;
           else actionButtons = `<button class="btn btn-success" onclick="handleAction('${item.actionId}', 'reviewComplete', this)">${ord ? '✓ Reviewed' : '✓ Proceed with Polling'}</button>
             <button class="btn btn-primary" onclick="handleAction('${item.actionId}', 'reviewComplete', this, {shareWithSp: 'true'})">${ord ? '✓ Reviewed &amp; share note with Stake Presidency' : '✓ Proceed &amp; share note with Stake Presidency'}</button>`;
         }
@@ -4205,6 +4245,8 @@
                   <button class="btn btn-primary" onclick="handleClerkReview('${a}', 'priesthoodReview', 'highpriest', this)">Office of High Priest</button>`;
         case 'clerk-review-comment':
           return `<button class="btn btn-success" onclick="handleAction('${a}', 'reviewComplete', this)">✓ Proceed with Polling</button>`;
+        case 'held-release-review':
+          return heldReleaseButtons(item);
         case 'hc-nudge':
           return `<button class="btn btn-primary" onclick="openSendTextsModal('approvals', '${nudgeLateIds(item.notes)}')">📱 Text HCs with Pending Approvals</button>
                   <button class="btn btn-success" onclick="handleAction('${a}', 'complete', this)">✓ Done</button>`;
@@ -4229,7 +4271,7 @@
       { key: 'business', label: '⛪ Stake Business',                    types: ['stake-business-confirm', 'sustaining-report'] },
       { key: 'setapart', label: '🤲 Setting Aparts',                   types: ['setting-apart', 'oou-record', 'roster-update', 'oou-send'] },
       { key: 'ord',      label: '🙏 Ordinations',                      types: ['coordinate-ordination', 'ordination-notification', 'ordination-report', 'ordination-interview', 'ordination-interview-schedule', 'ordination-record-lcr', 'ordination-print-certificate', 'ordination-sign-certificate', 'ordination-deliver-certificate'] },
-      { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'hc-nudge', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
+      { key: 'clerk',    label: '📝 Reviews &amp; Clerk Work',          types: ['clerk-review-ctr', 'clerk-review-priesthood', 'clerk-review-comment', 'hc-nudge', 'held-release-review', 'interview-needed', 'unconfirmed-sustaining', 'assignment-review'] },
       { key: 'tasks',    label: '📋 Tasks &amp; Mentions',              types: ['task', 'task-primary', 'mention'] },
       { key: 'other',    label: '📎 Everything Else',                  types: [] }
     ];
